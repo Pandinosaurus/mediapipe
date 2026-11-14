@@ -12,20 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/synchronization/mutex.h"
+#include <jni.h>
+
+#include <memory>
+
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
+
 #ifdef __ANDROID__
 #include <android/native_window_jni.h>
 #endif  // __ANDROID__
 
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"    // from @com_google_absl
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/gpu/egl_surface_holder.h"
+#include "mediapipe/gpu/gl_base.h"
+#include "mediapipe/gpu/gl_context.h"
 #include "mediapipe/gpu/gpu_shared_data_internal.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/jni_util.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/surface_output_jni.h"
-
-// TODO: CHECK in JNI does not work. Raise exception instead.
 
 namespace {
 mediapipe::EglSurfaceHolder* GetSurfaceHolder(jlong packet) {
@@ -47,11 +54,22 @@ JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetFlipY)(
   surface_holder->flip_y = flip;
 }
 
+JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(
+    nativeSetUpdatePresentationTime)(JNIEnv* env, jobject thiz, jlong packet,
+                                     jboolean update_presentation_time) {
+  mediapipe::EglSurfaceHolder* surface_holder = GetSurfaceHolder(packet);
+  surface_holder->update_presentation_time = update_presentation_time;
+}
+
 JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetSurface)(
     JNIEnv* env, jobject thiz, jlong context, jlong packet, jobject surface) {
 #ifdef __ANDROID__
   mediapipe::GlContext* gl_context = GetGlContext(context);
-  CHECK(gl_context) << "GPU shared data not created";
+  if (!gl_context) {
+    mediapipe::android::ThrowIfError(
+        env, absl::InternalError("GPU shared data not created"));
+    return;
+  }
   mediapipe::EglSurfaceHolder* surface_holder = GetSurfaceHolder(packet);
 
   // ANativeWindow_fromSurface must not be called on the GL thread, it is a
@@ -59,6 +77,13 @@ JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetSurface)(
   ANativeWindow* window = nullptr;
   if (surface) {
     window = ANativeWindow_fromSurface(env, surface);
+    if (!window) {
+      mediapipe::android::ThrowIfError(
+          env, absl::InvalidArgumentError(
+                   "ANativeWindow_fromSurface returned null. The Surface may "
+                   "be invalid or destroyed."));
+      return;
+    }
   }
 
   auto status = gl_context->Run(
@@ -92,21 +117,26 @@ JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetSurface)(
         surface_holder->owned = egl_surface != EGL_NO_SURFACE;
         return absl::OkStatus();
       });
-  MEDIAPIPE_CHECK_OK(status);
 
   if (window) {
     VLOG(2) << "releasing window";
     ANativeWindow_release(window);
   }
+
+  mediapipe::android::ThrowIfError(env, status);
 #else
-  LOG(FATAL) << "setSurface is only supported on Android";
+  ABSL_LOG(FATAL) << "setSurface is only supported on Android";
 #endif  // __ANDROID__
 }
 
 JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetEglSurface)(
     JNIEnv* env, jobject thiz, jlong context, jlong packet, jlong surface) {
   mediapipe::GlContext* gl_context = GetGlContext(context);
-  CHECK(gl_context) << "GPU shared data not created";
+  if (!gl_context) {
+    mediapipe::android::ThrowIfError(
+        env, absl::InternalError("GPU shared data not created"));
+    return;
+  }
   auto egl_surface = reinterpret_cast<EGLSurface>(surface);
   mediapipe::EglSurfaceHolder* surface_holder = GetSurfaceHolder(packet);
   EGLSurface old_surface = EGL_NO_SURFACE;
@@ -121,11 +151,11 @@ JNIEXPORT void JNICALL MEDIAPIPE_SURFACE_OUTPUT_METHOD(nativeSetEglSurface)(
   }
 
   if (old_surface != EGL_NO_SURFACE) {
-    MEDIAPIPE_CHECK_OK(
-        gl_context->Run([gl_context, old_surface]() -> absl::Status {
-          RET_CHECK(eglDestroySurface(gl_context->egl_display(), old_surface))
-              << "eglDestroySurface failed:" << eglGetError();
-          return absl::OkStatus();
-        }));
+    auto status = gl_context->Run([gl_context, old_surface]() -> absl::Status {
+      RET_CHECK(eglDestroySurface(gl_context->egl_display(), old_surface))
+          << "eglDestroySurface failed:" << eglGetError();
+      return absl::OkStatus();
+    });
+    mediapipe::android::ThrowIfError(env, status);
   }
 }

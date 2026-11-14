@@ -24,7 +24,6 @@ android_binary(
     manifest_values = {
         "applicationId": "com.google.mediapipe.examples.facedetection",
     },
-    multidex = "native",
     resource_files = ["//mediapipe/examples/android/solutions:resource_files"],
     deps = [
         "//mediapipe/framework/formats:detection_java_proto_lite",
@@ -34,11 +33,11 @@ android_binary(
         "//mediapipe/java/com/google/mediapipe/solutioncore:solution_rendering",
         "//mediapipe/java/com/google/mediapipe/solutioncore:video_input",
         "//mediapipe/java/com/google/mediapipe/solutions/facedetection",
-        "//third_party:androidx_appcompat",
-        "//third_party:androidx_constraint_layout",
         "//third_party:opencv",
         "@maven//:androidx_activity_activity",
+        "@maven//:androidx_appcompat_appcompat",
         "@maven//:androidx_concurrent_concurrent_futures",
+        "@maven//:androidx_constraintlayout_constraintlayout",
         "@maven//:androidx_exifinterface_exifinterface",
         "@maven//:androidx_fragment_fragment",
         "@maven//:com_google_guava_guava",

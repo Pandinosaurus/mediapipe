@@ -22,10 +22,13 @@
 #include <memory>
 #include <vector>
 
-#include "Eigen/Core"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/strings/substitute.h"
+#include "Eigen/Core"                   // from @eigen
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/strings/string_view.h"   // from @com_google_absl
+#include "absl/strings/substitute.h"    // from @com_google_absl
 #include "audio/dsp/mfcc/mel_filterbank.h"
 #include "audio/dsp/mfcc/mfcc.h"
 #include "mediapipe/calculators/audio/mfcc_mel_calculators.pb.h"
@@ -33,7 +36,6 @@
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/time_series_header.pb.h"
 #include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/time_series_util.h"
 
 namespace mediapipe {
@@ -104,7 +106,7 @@ class FramewiseTransformCalculatorBase : public CalculatorBase {
 
 absl::Status FramewiseTransformCalculatorBase::Open(CalculatorContext* cc) {
   TimeSeriesHeader input_header;
-  MP_RETURN_IF_ERROR(time_series_util::FillTimeSeriesHeaderIfValid(
+  ABSL_RETURN_IF_ERROR(time_series_util::FillTimeSeriesHeaderIfValid(
       cc->Inputs().Index(0).Header(), &input_header));
 
   absl::Status status = ConfigureTransform(input_header, cc);
@@ -138,7 +140,7 @@ absl::Status FramewiseTransformCalculatorBase::Process(CalculatorContext* cc) {
     TransformFrame(input_frame, &output_frame);
 
     // Copy output from vector<float> to Eigen::Vector.
-    CHECK_EQ(output_frame.size(), num_output_channels_);
+    ABSL_CHECK_EQ(output_frame.size(), num_output_channels_);
     Eigen::Map<const Eigen::MatrixXd> output_frame_map(&output_frame[0],
                                                        output_frame.size(), 1);
     output->col(frame) = output_frame_map.cast<float>();

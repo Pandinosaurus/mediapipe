@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 licenses(["notice"])
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(
+    default_visibility = ["//visibility:public"],
+)
 
 cc_library(
     name = "face_geometry_from_landmarks_graph",
@@ -28,7 +33,6 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:subgraph",
         "//mediapipe/framework/api2:builder",
-        "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/tasks/cc/vision/face_geometry/calculators:env_generator_calculator",
         "//mediapipe/tasks/cc/vision/face_geometry/calculators:env_generator_calculator_cc_proto",
@@ -38,6 +42,8 @@ cc_library(
         "//mediapipe/tasks/cc/vision/face_geometry/proto:face_geometry_cc_proto",
         "//mediapipe/tasks/cc/vision/face_geometry/proto:face_geometry_graph_options_cc_proto",
         "//mediapipe/util:graph_builder_utils",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,

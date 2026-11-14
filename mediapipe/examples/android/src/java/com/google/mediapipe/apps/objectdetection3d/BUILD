@@ -13,6 +13,8 @@
 # limitations under the License.
 
 load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(":build_defs.bzl", "generate_manifest_values")
 
 licenses(["notice"])
@@ -179,12 +181,12 @@ android_binary(
         ":use_shoe_1stage": generate_manifest_values("com.google.mediapipe.apps.objectdetection3d_shoe_1stage", "Single Stage Shoe Objectron"),
         ":use_chair_1stage": generate_manifest_values("com.google.mediapipe.apps.objectdetection3d_chair_1stage", "Single Stage Chair Objectron"),
     }),
-    multidex = "native",
     deps = [
         ":manifest_lib",
         ":mediapipe_jni_lib",
         "//mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:basic_lib",
         "//mediapipe/framework/formats:landmark_java_proto_lite",
         "//mediapipe/java/com/google/mediapipe/framework:android_framework",
+        "//third_party:libc++_shared_lib",
     ],
 )

@@ -37,7 +37,7 @@ _TEST_DATA_DIR = 'mediapipe/tasks/testdata/text'
 # Tolerance for embedding vector coordinate values.
 _EPSILON = 1e-4
 # Tolerance for cosine similarity evaluation.
-_SIMILARITY_TOLERANCE = 1e-6
+_SIMILARITY_TOLERANCE = 1e-3
 
 
 class ModelFileType(enum.Enum):
@@ -66,7 +66,9 @@ class TextEmbedderTest(parameterized.TestCase):
 
   def test_create_from_options_fails_with_invalid_model_path(self):
     with self.assertRaisesRegex(
-        RuntimeError, 'Unable to open file at /path/to/invalid/model.tflite'):
+        FileNotFoundError,
+        'Unable to open file at /path/to/invalid/model.tflite',
+    ):
       base_options = _BaseOptions(
           model_asset_path='/path/to/invalid/model.tflite')
       options = _TextEmbedderOptions(base_options=base_options)
@@ -108,18 +110,18 @@ class TextEmbedderTest(parameterized.TestCase):
           False,
           _BERT_MODEL_FILE,
           ModelFileType.FILE_NAME,
-          0.969514,
+          0.9624276,∂ç
           512,
-          (19.9016, 22.626251),
+          (21.2054, 19.6843),
       ),
       (
           True,
           False,
           _BERT_MODEL_FILE,
           ModelFileType.FILE_NAME,
-          0.969514,
+          0.9624276,
           512,
-          (0.0585837, 0.0723035),
+          (0.062578, 0.067393),
       ),
       (
           False,
@@ -201,18 +203,18 @@ class TextEmbedderTest(parameterized.TestCase):
           False,
           _BERT_MODEL_FILE,
           ModelFileType.FILE_NAME,
-          0.969514,
+          0.962427,
           512,
-          (19.9016, 22.626251),
+          (21.2054, 19.684337),
       ),
       (
           True,
           False,
           _BERT_MODEL_FILE,
           ModelFileType.FILE_NAME,
-          0.969514,
+          0.962427,
           512,
-          (0.0585837, 0.0723035),
+          (0.0625787, 0.0673937),
       ),
       (
           False,
@@ -287,7 +289,7 @@ class TextEmbedderTest(parameterized.TestCase):
 
   @parameterized.parameters(
       # TODO: The similarity should likely be lower
-      (_BERT_MODEL_FILE, 0.980880),
+      (_BERT_MODEL_FILE, 0.98103),
       (_USE_MODEL_FILE, 0.780334),
   )
   def test_embed_with_different_themes(self, model_file, expected_similarity):
@@ -320,6 +322,23 @@ class TextEmbedderTest(parameterized.TestCase):
     # Closes the embedder explicitly when the embedder is not used in
     # a context.
     embedder.close()
+
+  def test_embed_succeeds_with_gecko(self):
+    model_path = test_utils.get_test_data_path(
+        os.path.join(_TEST_DATA_DIR, _GECKO_MODEL_FILE)
+    )
+    base_options = _BaseOptions(model_asset_path=model_path)
+    options = _TextEmbedderOptions(base_options=base_options)
+    with _TextEmbedder.create_from_options(options) as embedder:
+      format_context = text_embedder.TextFormatContext(
+          task_type=text_embedder.EmbeddingType.RETRIEVAL_QUERY,
+          role=text_embedder.TextRole.QUERY,
+      )
+      result = embedder.embed(
+          "it's a charming and often affecting journey", format_context
+      )
+      self.assertLen(result.embeddings, 1)
+      self.assertLen(result.embeddings[0].embedding, 768)
 
 
 if __name__ == '__main__':

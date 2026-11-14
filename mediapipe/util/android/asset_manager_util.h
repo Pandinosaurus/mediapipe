@@ -15,27 +15,29 @@
 #ifndef MEDIAPIPE_ANDROID_UTIL_ASSET_MANAGER_UTIL_H_
 #define MEDIAPIPE_ANDROID_UTIL_ASSET_MANAGER_UTIL_H_
 
-#include <string>
-#include <vector>
-
 #ifdef __ANDROID__
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <jni.h>
 
-#include "mediapipe/framework/port/canonical_errors.h"
+#include <string>
+
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/status/statusor.h"      // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/port/singleton.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/statusor.h"
 
 namespace mediapipe {
 
 // Thin wrapper over AAssetManager provided by JNI. This class is meant to be
-// used as a singleton.
+// used as a singleton. (Singleton<AssetManager>::get()->Initialize/ReadFile...)
 //
-// Usage: Call one of Initialize* functions from a JNI function that has access
-// to a context/activity/etc. This initializes the asset manager and now files
-// bundled in the assets folder can be read using ReadFile().
+// USAGE: call one of Initialize* functions from a JNI function that has access
+// to a context/activity/etc. (See
+// mediapipe/java/com/google/mediapipe/framework/AndroidAssetUtil.java
+// for initialization method you can use right away.) This initializes the
+// AssetManager and MediaPipe's GetResourceContents should be able to read
+// resources from the assets folder using AssetManager::ReadFile()
 //
 // NOTE: initialization should happen strictly once and guaranteed to complete
 // before any possible use, otherwise it cannot be used safely across multiple
@@ -74,10 +76,10 @@ class AssetManager {
   // Checks if a file exists. Returns true on success, false otherwise. If it
   // does exist, then 'is_dir' will be set to indicate whether the file is a
   // directory.
-  bool FileExists(const std::string& filename, bool* is_dir = nullptr);
+  bool FileExists(absl::string_view filename, bool* is_dir = nullptr);
 
   // Reads a file into output. Returns true on success, false otherwise.
-  bool ReadFile(const std::string& filename, std::string* output);
+  bool ReadFile(absl::string_view filename, std::string* output);
 
   // Reads the raw bytes referred to by the supplied content URI. Returns true
   // on success, false otherwise.
@@ -93,8 +95,7 @@ class AssetManager {
   // to a filesystem file.
   // NOTE: this is _not_ thread-safe, e.g. if two threads are requesting the
   // same file
-  absl::StatusOr<std::string> CachedFileFromAsset(
-      const std::string& asset_path);
+  absl::StatusOr<std::string> CachedFileFromAsset(absl::string_view asset_path);
 
  private:
   // Private constructor since this class is meant to be a singleton.

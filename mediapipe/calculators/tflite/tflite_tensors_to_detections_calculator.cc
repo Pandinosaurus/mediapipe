@@ -15,8 +15,12 @@
 #include <unordered_map>
 #include <vector>
 
-#include "absl/strings/str_format.h"
-#include "absl/types/span.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
+#include "absl/types/span.h"            // from @com_google_absl
 #include "mediapipe/calculators/tflite/tflite_tensors_to_detections_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/file_path.h"
@@ -25,14 +29,14 @@
 #include "mediapipe/framework/formats/object_detection/anchor.pb.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/tflite/config.h"
-#include "tensorflow/lite/interpreter.h"
+#include "tflite/interpreter.h"  // from @litert
 
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
 #include "mediapipe/gpu/gl_calculator_helper.h"
-#include "tensorflow/lite/delegates/gpu/gl/gl_buffer.h"
-#include "tensorflow/lite/delegates/gpu/gl/gl_program.h"
-#include "tensorflow/lite/delegates/gpu/gl/gl_shader.h"
-#include "tensorflow/lite/delegates/gpu/gl_delegate.h"
+#include "tflite/delegates/gpu/gl/gl_buffer.h"   // from @litert
+#include "tflite/delegates/gpu/gl/gl_program.h"  // from @litert
+#include "tflite/delegates/gpu/gl/gl_shader.h"   // from @litert
+#include "tflite/delegates/gpu/gl_delegate.h"    // from @litert
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
 #if MEDIAPIPE_TFLITE_METAL_INFERENCE
@@ -43,7 +47,7 @@
 #import "mediapipe/gpu/MPPMetalHelper.h"
 #include "mediapipe/gpu/MPPMetalUtil.h"
 #include "mediapipe/gpu/gpu_buffer.h"
-#include "tensorflow/lite/delegates/gpu/metal_delegate.h"
+#include "tflite/delegates/gpu/metal_delegate.h"  // from @litert
 #endif  // MEDIAPIPE_TFLITE_METAL_INFERENCE
 
 namespace {
@@ -93,7 +97,7 @@ void ConvertRawValuesToAnchors(const float* raw_anchors, int num_boxes,
 
 void ConvertAnchorsToRawValues(const std::vector<Anchor>& anchors,
                                int num_boxes, float* raw_anchors) {
-  CHECK_EQ(anchors.size(), num_boxes);
+  ABSL_CHECK_EQ(anchors.size(), num_boxes);
   int box = 0;
   for (const auto& anchor : anchors) {
     raw_anchors[box * kNumCoordsPerBox + 0] = anchor.y_center();
@@ -114,7 +118,7 @@ void ConvertAnchorsToRawValues(const std::vector<Anchor>& anchors,
 //               tensors can have 2 or 3 tensors. First tensor is the predicted
 //               raw boxes/keypoints. The size of the values must be (num_boxes
 //               * num_predicted_values). Second tensor is the score tensor. The
-//               size of the valuse must be (num_boxes * num_classes). It's
+//               size of the values must be (num_boxes * num_classes). It's
 //               optional to pass in a third tensor for anchors (e.g. for SSD
 //               models) depend on the outputs of the detection model. The size
 //               of anchor tensor must be (num_boxes * 4).
@@ -218,9 +222,9 @@ absl::Status TfLiteTensorsToDetectionsCalculator::GetContract(
 
   if (use_gpu) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
-    MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
+    ABSL_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
 #elif MEDIAPIPE_TFLITE_METAL_INFERENCE
-    MP_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
+    ABSL_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
@@ -233,18 +237,18 @@ absl::Status TfLiteTensorsToDetectionsCalculator::Open(CalculatorContext* cc) {
   if (cc->Inputs().HasTag(kTensorsGpuTag)) {
     gpu_input_ = true;
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
-    MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+    ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
 #elif MEDIAPIPE_TFLITE_METAL_INFERENCE
     gpu_helper_ = [[MPPMetalHelper alloc] initWithCalculatorContext:cc];
     RET_CHECK(gpu_helper_);
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
-  MP_RETURN_IF_ERROR(LoadOptions(cc));
+  ABSL_RETURN_IF_ERROR(LoadOptions(cc));
   side_packet_anchors_ = cc->InputSidePackets().HasTag("ANCHORS");
 
   if (gpu_input_) {
-    MP_RETURN_IF_ERROR(GpuInit(cc));
+    ABSL_RETURN_IF_ERROR(GpuInit(cc));
   }
 
   return absl::OkStatus();
@@ -257,12 +261,12 @@ absl::Status TfLiteTensorsToDetectionsCalculator::Process(
     return absl::OkStatus();
   }
 
-  auto output_detections = absl::make_unique<std::vector<Detection>>();
+  auto output_detections = std::make_unique<std::vector<Detection>>();
 
   if (gpu_input_) {
-    MP_RETURN_IF_ERROR(ProcessGPU(cc, output_detections.get()));
+    ABSL_RETURN_IF_ERROR(ProcessGPU(cc, output_detections.get()));
   } else {
-    MP_RETURN_IF_ERROR(ProcessCPU(cc, output_detections.get()));
+    ABSL_RETURN_IF_ERROR(ProcessCPU(cc, output_detections.get()));
   }
 
   // Output
@@ -288,14 +292,14 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
     const TfLiteTensor* raw_score_tensor = &input_tensors[1];
 
     // TODO: Add flexible input tensor size handling.
-    CHECK_EQ(raw_box_tensor->dims->size, 3);
-    CHECK_EQ(raw_box_tensor->dims->data[0], 1);
-    CHECK_EQ(raw_box_tensor->dims->data[1], num_boxes_);
-    CHECK_EQ(raw_box_tensor->dims->data[2], num_coords_);
-    CHECK_EQ(raw_score_tensor->dims->size, 3);
-    CHECK_EQ(raw_score_tensor->dims->data[0], 1);
-    CHECK_EQ(raw_score_tensor->dims->data[1], num_boxes_);
-    CHECK_EQ(raw_score_tensor->dims->data[2], num_classes_);
+    ABSL_CHECK_EQ(raw_box_tensor->dims->size, 3);
+    ABSL_CHECK_EQ(raw_box_tensor->dims->data[0], 1);
+    ABSL_CHECK_EQ(raw_box_tensor->dims->data[1], num_boxes_);
+    ABSL_CHECK_EQ(raw_box_tensor->dims->data[2], num_coords_);
+    ABSL_CHECK_EQ(raw_score_tensor->dims->size, 3);
+    ABSL_CHECK_EQ(raw_score_tensor->dims->data[0], 1);
+    ABSL_CHECK_EQ(raw_score_tensor->dims->data[1], num_boxes_);
+    ABSL_CHECK_EQ(raw_score_tensor->dims->data[2], num_classes_);
     const float* raw_boxes = raw_box_tensor->data.f;
     const float* raw_scores = raw_score_tensor->data.f;
 
@@ -303,13 +307,13 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
     if (!anchors_init_) {
       if (input_tensors.size() == kNumInputTensorsWithAnchors) {
         const TfLiteTensor* anchor_tensor = &input_tensors[2];
-        CHECK_EQ(anchor_tensor->dims->size, 2);
-        CHECK_EQ(anchor_tensor->dims->data[0], num_boxes_);
-        CHECK_EQ(anchor_tensor->dims->data[1], kNumCoordsPerBox);
+        ABSL_CHECK_EQ(anchor_tensor->dims->size, 2);
+        ABSL_CHECK_EQ(anchor_tensor->dims->data[0], num_boxes_);
+        ABSL_CHECK_EQ(anchor_tensor->dims->data[1], kNumCoordsPerBox);
         const float* raw_anchors = anchor_tensor->data.f;
         ConvertRawValuesToAnchors(raw_anchors, num_boxes_, &anchors_);
       } else if (side_packet_anchors_) {
-        CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
+        ABSL_CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
         anchors_ =
             cc->InputSidePackets().Tag("ANCHORS").Get<std::vector<Anchor>>();
       } else {
@@ -318,7 +322,7 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
       anchors_init_ = true;
     }
     std::vector<float> boxes(num_boxes_ * num_coords_);
-    MP_RETURN_IF_ERROR(DecodeBoxes(raw_boxes, anchors_, &boxes));
+    ABSL_RETURN_IF_ERROR(DecodeBoxes(raw_boxes, anchors_, &boxes));
 
     std::vector<float> detection_scores(num_boxes_);
     std::vector<int> detection_classes(num_boxes_);
@@ -352,7 +356,7 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
       detection_classes[i] = class_id;
     }
 
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         ConvertToDetections(boxes.data(), detection_scores.data(),
                             detection_classes.data(), output_detections));
   } else {
@@ -386,9 +390,9 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessCPU(
       detection_classes[i] =
           static_cast<int>(detection_classes_tensor->data.f[i]);
     }
-    MP_RETURN_IF_ERROR(ConvertToDetections(detection_boxes, detection_scores,
-                                           detection_classes.data(),
-                                           output_detections));
+    ABSL_RETURN_IF_ERROR(ConvertToDetections(detection_boxes, detection_scores,
+                                             detection_classes.data(),
+                                             output_detections));
   }
   return absl::OkStatus();
 }
@@ -399,26 +403,26 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
       cc->Inputs().Tag(kTensorsGpuTag).Get<std::vector<GpuTensor>>();
   RET_CHECK_GE(input_tensors.size(), 2);
 
-  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, &input_tensors, &cc,
-                                                 &output_detections]()
-                                                    -> absl::Status {
+  ABSL_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, &input_tensors, &cc,
+                                                   &output_detections]()
+                                                      -> absl::Status {
     // Copy inputs.
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         CopyBuffer(input_tensors[0], gpu_data_->raw_boxes_buffer));
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         CopyBuffer(input_tensors[1], gpu_data_->raw_scores_buffer));
     if (!anchors_init_) {
       if (side_packet_anchors_) {
-        CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
+        ABSL_CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
         const auto& anchors =
             cc->InputSidePackets().Tag("ANCHORS").Get<std::vector<Anchor>>();
         std::vector<float> raw_anchors(num_boxes_ * kNumCoordsPerBox);
         ConvertAnchorsToRawValues(anchors, num_boxes_, raw_anchors.data());
-        MP_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.Write<float>(
+        ABSL_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.Write<float>(
             absl::MakeSpan(raw_anchors)));
       } else {
-        CHECK_EQ(input_tensors.size(), kNumInputTensorsWithAnchors);
-        MP_RETURN_IF_ERROR(
+        ABSL_CHECK_EQ(input_tensors.size(), kNumInputTensorsWithAnchors);
+        ABSL_RETURN_IF_ERROR(
             CopyBuffer(input_tensors[2], gpu_data_->raw_anchors_buffer));
       }
       anchors_init_ = true;
@@ -426,24 +430,24 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
 
     // Run shaders.
     // Decode boxes.
-    MP_RETURN_IF_ERROR(gpu_data_->decoded_boxes_buffer.BindToIndex(0));
-    MP_RETURN_IF_ERROR(gpu_data_->raw_boxes_buffer.BindToIndex(1));
-    MP_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.BindToIndex(2));
+    ABSL_RETURN_IF_ERROR(gpu_data_->decoded_boxes_buffer.BindToIndex(0));
+    ABSL_RETURN_IF_ERROR(gpu_data_->raw_boxes_buffer.BindToIndex(1));
+    ABSL_RETURN_IF_ERROR(gpu_data_->raw_anchors_buffer.BindToIndex(2));
     const tflite::gpu::uint3 decode_workgroups = {num_boxes_, 1, 1};
-    MP_RETURN_IF_ERROR(gpu_data_->decode_program.Dispatch(decode_workgroups));
+    ABSL_RETURN_IF_ERROR(gpu_data_->decode_program.Dispatch(decode_workgroups));
 
     // Score boxes.
-    MP_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.BindToIndex(0));
-    MP_RETURN_IF_ERROR(gpu_data_->raw_scores_buffer.BindToIndex(1));
+    ABSL_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.BindToIndex(0));
+    ABSL_RETURN_IF_ERROR(gpu_data_->raw_scores_buffer.BindToIndex(1));
     const tflite::gpu::uint3 score_workgroups = {num_boxes_, 1, 1};
-    MP_RETURN_IF_ERROR(gpu_data_->score_program.Dispatch(score_workgroups));
+    ABSL_RETURN_IF_ERROR(gpu_data_->score_program.Dispatch(score_workgroups));
 
     // Copy decoded boxes from GPU to CPU.
     std::vector<float> boxes(num_boxes_ * num_coords_);
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         gpu_data_->decoded_boxes_buffer.Read(absl::MakeSpan(boxes)));
     std::vector<float> score_class_id_pairs(num_boxes_ * 2);
-    MP_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.Read(
+    ABSL_RETURN_IF_ERROR(gpu_data_->scored_boxes_buffer.Read(
         absl::MakeSpan(score_class_id_pairs)));
 
     // TODO: b/138851969. Is it possible to output a float vector
@@ -454,7 +458,7 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
       detection_scores[i] = score_class_id_pairs[i * 2];
       detection_classes[i] = static_cast<int>(score_class_id_pairs[i * 2 + 1]);
     }
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         ConvertToDetections(boxes.data(), detection_scores.data(),
                             detection_classes.data(), output_detections));
 
@@ -477,7 +481,7 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
                     commandBuffer:[gpu_helper_ commandBuffer]];
   if (!anchors_init_) {
     if (side_packet_anchors_) {
-      CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
+      ABSL_CHECK(!cc->InputSidePackets().Tag("ANCHORS").IsEmpty());
       const auto& anchors =
           cc->InputSidePackets().Tag("ANCHORS").Get<std::vector<Anchor>>();
       std::vector<float> raw_anchors(num_boxes_ * kNumCoordsPerBox);
@@ -536,12 +540,12 @@ absl::Status TfLiteTensorsToDetectionsCalculator::ProcessGPU(
     detection_scores[i] = score_class_id_pairs[i * 2];
     detection_classes[i] = static_cast<int>(score_class_id_pairs[i * 2 + 1]);
   }
-  MP_RETURN_IF_ERROR(ConvertToDetections(boxes.data(), detection_scores.data(),
-                                         detection_classes.data(),
-                                         output_detections));
+  ABSL_RETURN_IF_ERROR(
+      ConvertToDetections(boxes.data(), detection_scores.data(),
+                          detection_classes.data(), output_detections));
 
 #else
-  LOG(ERROR) << "GPU input on non-Android not supported yet.";
+  ABSL_LOG(ERROR) << "GPU input on non-Android not supported yet.";
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   return absl::OkStatus();
 }
@@ -567,12 +571,12 @@ absl::Status TfLiteTensorsToDetectionsCalculator::LoadOptions(
   num_coords_ = options_.num_coords();
 
   // Currently only support 2D when num_values_per_keypoint equals to 2.
-  CHECK_EQ(options_.num_values_per_keypoint(), 2);
+  ABSL_CHECK_EQ(options_.num_values_per_keypoint(), 2);
 
   // Check if the output size is equal to the requested boxes and keypoints.
-  CHECK_EQ(options_.num_keypoints() * options_.num_values_per_keypoint() +
-               kNumCoordsPerBox,
-           num_coords_);
+  ABSL_CHECK_EQ(options_.num_keypoints() * options_.num_values_per_keypoint() +
+                    kNumCoordsPerBox,
+                num_coords_);
 
   for (int i = 0; i < options_.ignore_classes_size(); ++i) {
     ignore_classes_.insert(options_.ignore_classes(i));
@@ -709,7 +713,7 @@ Detection TfLiteTensorsToDetectionsCalculator::ConvertToDetection(
 absl::Status TfLiteTensorsToDetectionsCalculator::GpuInit(
     CalculatorContext* cc) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
-  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this]() -> absl::Status {
+  ABSL_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this]() -> absl::Status {
     gpu_data_ = absl::make_unique<GPUData>();
 
     // A shader to decode detection boxes.
@@ -810,20 +814,20 @@ void main() {
 
     // Shader program
     GlShader decode_shader;
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         GlShader::CompileShader(GL_COMPUTE_SHADER, decode_src, &decode_shader));
-    MP_RETURN_IF_ERROR(GpuProgram::CreateWithShader(
+    ABSL_RETURN_IF_ERROR(GpuProgram::CreateWithShader(
         decode_shader, &gpu_data_->decode_program));
     // Outputs
     size_t decoded_boxes_length = num_boxes_ * num_coords_;
-    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
+    ABSL_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         decoded_boxes_length, &gpu_data_->decoded_boxes_buffer));
     // Inputs
     size_t raw_boxes_length = num_boxes_ * num_coords_;
-    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
+    ABSL_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_boxes_length, &gpu_data_->raw_boxes_buffer));
     size_t raw_anchors_length = num_boxes_ * kNumCoordsPerBox;
-    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
+    ABSL_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_anchors_length, &gpu_data_->raw_anchors_buffer));
     // Parameters
     glUseProgram(gpu_data_->decode_program.id());
@@ -897,24 +901,25 @@ void main() {
     int max_wg_size;  //  typically <= 1024
     glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1,
                     &max_wg_size);  // y-dim
-    CHECK_LT(num_classes_, max_wg_size)
+    ABSL_CHECK_LT(num_classes_, max_wg_size)
         << "# classes must be < " << max_wg_size;
     // TODO support better filtering.
-    CHECK_LE(ignore_classes_.size(), 1) << "Only ignore class 0 is allowed";
+    ABSL_CHECK_LE(ignore_classes_.size(), 1)
+        << "Only ignore class 0 is allowed";
 
     // Shader program
     GlShader score_shader;
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         GlShader::CompileShader(GL_COMPUTE_SHADER, score_src, &score_shader));
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         GpuProgram::CreateWithShader(score_shader, &gpu_data_->score_program));
     // Outputs
     size_t scored_boxes_length = num_boxes_ * 2;  // score, class
-    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
+    ABSL_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         scored_boxes_length, &gpu_data_->scored_boxes_buffer));
     // Inputs
     size_t raw_scores_length = num_boxes_ * num_classes_;
-    MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
+    ABSL_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
         raw_scores_length, &gpu_data_->raw_scores_buffer));
 
     return absl::OkStatus();
@@ -1115,7 +1120,7 @@ kernel void scoreKernel(
       ignore_classes_.size() ? 1 : 0);
 
   // TODO support better filtering.
-  CHECK_LE(ignore_classes_.size(), 1) << "Only ignore class 0 is allowed";
+  ABSL_CHECK_LE(ignore_classes_.size(), 1) << "Only ignore class 0 is allowed";
 
   {
     // Shader program
@@ -1147,7 +1152,8 @@ kernel void scoreKernel(
                             options:MTLResourceStorageModeShared];
     // # filter classes supported is hardware dependent.
     int max_wg_size = gpu_data_->score_program.maxTotalThreadsPerThreadgroup;
-    CHECK_LT(num_classes_, max_wg_size) << "# classes must be <" << max_wg_size;
+    ABSL_CHECK_LT(num_classes_, max_wg_size)
+        << "# classes must be <" << max_wg_size;
   }
 
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE

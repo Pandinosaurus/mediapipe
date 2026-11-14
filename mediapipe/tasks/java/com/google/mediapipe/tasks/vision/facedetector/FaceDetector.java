@@ -81,6 +81,10 @@ public final class FaceDetector extends BaseVisionTaskApi {
   private static final String TASK_GRAPH_NAME =
       "mediapipe.tasks.vision.face_detector.FaceDetectorGraph";
 
+  static {
+    System.loadLibrary("mediapipe_tasks_jni");
+  }
+
   /**
    * Creates a {@link FaceDetector} instance from a model file and the default {@link
    * FaceDetectorOptions}.
@@ -161,7 +165,7 @@ public final class FaceDetector extends BaseVisionTaskApi {
           @Override
           public MPImage convertToTaskInput(List<Packet> packets) {
             return new BitmapImageBuilder(
-                    AndroidPacketGetter.getBitmapFromRgb(packets.get(IMAGE_OUT_STREAM_INDEX)))
+                    AndroidPacketGetter.getBitmap(packets.get(IMAGE_OUT_STREAM_INDEX)))
                 .build();
           }
         });
@@ -171,7 +175,7 @@ public final class FaceDetector extends BaseVisionTaskApi {
         TaskRunner.create(
             context,
             TaskInfo.<FaceDetectorOptions>builder()
-                .setTaskName(FaceDetector.class.getSimpleName())
+                .setTaskName("FaceDetector")
                 .setTaskRunningModeName(detectorOptions.runningMode().name())
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(INPUT_STREAMS)
@@ -368,13 +372,13 @@ public final class FaceDetector extends BaseVisionTaskApi {
        * Sets the minimum confidence score for the face detection to be considered successful. The
        * default minDetectionConfidence is 0.5.
        */
-      public abstract Builder setMinDetectionConfidence(Float value);
+      public abstract Builder setMinDetectionConfidence(float value);
 
       /**
        * Sets the minimum non-maximum-suppression threshold for face detection to be considered
        * overlapped. The default minSuppressionThreshold is 0.3.
        */
-      public abstract Builder setMinSuppressionThreshold(Float value);
+      public abstract Builder setMinSuppressionThreshold(float value);
 
       /**
        * Sets the {@link ResultListener} to receive the detection results asynchronously when the
@@ -436,7 +440,7 @@ public final class FaceDetector extends BaseVisionTaskApi {
       BaseOptionsProto.BaseOptions.Builder baseOptionsBuilder =
           BaseOptionsProto.BaseOptions.newBuilder();
       baseOptionsBuilder.setUseStreamMode(runningMode() != RunningMode.IMAGE);
-      baseOptionsBuilder.mergeFrom(convertBaseOptionsToProto(baseOptions()));
+      baseOptionsBuilder.mergeFrom(convertBaseOptionsToProto(baseOptions(), /* useLiteRt= */ true));
       FaceDetectorGraphOptionsProto.FaceDetectorGraphOptions.Builder taskOptionsBuilder =
           FaceDetectorGraphOptionsProto.FaceDetectorGraphOptions.newBuilder()
               .setBaseOptions(baseOptionsBuilder);

@@ -12,48 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#import "mediapipe/tasks/ios/common/utils/sources/NSString+Helpers.h"
 #import "mediapipe/tasks/ios/components/containers/utils/sources/MPPEmbedding+Helpers.h"
 
-#include <memory>
-
-namespace {
-using EmbeddingProto = ::mediapipe::tasks::components::containers::proto::Embedding;
-}
+#include "mediapipe/tasks/c/components/containers/embedding_result.h"
 
 @implementation MPPEmbedding (Helpers)
 
-+ (MPPEmbedding *)embeddingWithProto:(const EmbeddingProto &)embeddingProto {
++ (MPPEmbedding *)embeddingWithCEmbedding:(const MpEmbedding &)cEmbedding {
+  NSMutableArray<NSNumber *> *floatEmbedding = nil;
+  NSMutableArray<NSNumber *> *quantizedEmbedding = nil;
+  NSString *headName =
+      cEmbedding.head_name ? [NSString stringWithUTF8String:cEmbedding.head_name] : nil;
 
-  NSMutableArray<NSNumber *> *floatEmbedding;
-  NSMutableArray<NSNumber *> *quantizedEmbedding;
-  NSString *headName;
-
-  if (embeddingProto.has_float_embedding()) {
-    floatEmbedding =
-        [NSMutableArray arrayWithCapacity:embeddingProto.float_embedding().values_size()];
-
-    for (const auto value : embeddingProto.float_embedding().values()) {
-      [floatEmbedding addObject:[NSNumber numberWithFloat:value]];
+  if (cEmbedding.float_embedding && cEmbedding.values_count > 0) {
+    floatEmbedding = [NSMutableArray arrayWithCapacity:cEmbedding.values_count];
+    for (uint32_t i = 0; i < cEmbedding.values_count; ++i) {
+      [floatEmbedding addObject:@(cEmbedding.float_embedding[i])];
     }
   }
 
-  if (embeddingProto.has_quantized_embedding()) {
-    const std::string &cppQuantizedEmbedding = embeddingProto.quantized_embedding().values();
-    quantizedEmbedding = [NSMutableArray arrayWithCapacity:cppQuantizedEmbedding.length()];
-
-    for (char ch : cppQuantizedEmbedding) {
-      [quantizedEmbedding addObject:[NSNumber numberWithChar:ch]];
+  if (cEmbedding.quantized_embedding && cEmbedding.values_count > 0) {
+    quantizedEmbedding = [NSMutableArray arrayWithCapacity:cEmbedding.values_count];
+    for (uint32_t i = 0; i < cEmbedding.values_count; ++i) {
+      [quantizedEmbedding addObject:@(cEmbedding.quantized_embedding[i])];
     }
-  }
-
-  if (embeddingProto.has_head_name()) {
-    headName = [NSString stringWithCppString:embeddingProto.head_name()];
   }
 
   return [[MPPEmbedding alloc] initWithFloatEmbedding:floatEmbedding
                                    quantizedEmbedding:quantizedEmbedding
-                                            headIndex:embeddingProto.head_index()
+                                            headIndex:cEmbedding.head_index
                                              headName:headName];
 }
 

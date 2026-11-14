@@ -21,19 +21,24 @@
 #include <string>
 #include <vector>
 
-#include "absl/memory/memory.h"
-#include "absl/strings/str_format.h"
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/memory/memory.h"         // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
 #include "mediapipe/calculators/tensor/inference_calculator.h"
+#include "mediapipe/calculators/tensor/inference_io_mapper.h"
+#include "mediapipe/calculators/tensor/tensor_span.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/formats/tensor_mtl_buffer_view.h"
 #import "mediapipe/gpu/MPPMetalHelper.h"
 #include "mediapipe/gpu/MPPMetalUtil.h"
 #include "mediapipe/gpu/gpu_buffer.h"
 #include "mediapipe/util/tflite/config.h"
-#include "tensorflow/lite/delegates/gpu/common/shape.h"
-#include "tensorflow/lite/delegates/gpu/metal/buffer_convert.h"
-#include "tensorflow/lite/delegates/gpu/metal_delegate.h"
-#include "tensorflow/lite/delegates/gpu/metal_delegate_internal.h"
+#include "tflite/delegates/gpu/common/shape.h"             // from @litert
+#include "tflite/delegates/gpu/metal/buffer_convert.h"     // from @litert
+#include "tflite/delegates/gpu/metal_delegate.h"           // from @litert
+#include "tflite/delegates/gpu/metal_delegate_internal.h"  // from @litert
 
 namespace {
 
@@ -74,7 +79,7 @@ tflite::gpu::BHWC BhwcFromTensorShape(const Tensor::Shape& shape) {
       break;
     default:
       // Handles 0 and >4.
-      LOG(FATAL)
+      ABSL_LOG(FATAL)
           << "Dimensions size must be in range [1,4] for GPU inference, but "
           << shape.dims.size() << " is provided";
   }
@@ -84,15 +89,17 @@ tflite::gpu::BHWC BhwcFromTensorShape(const Tensor::Shape& shape) {
 #endif  // MEDIAPIPE_TFLITE_METAL_INFERENCE
 
 class InferenceCalculatorMetalImpl
-    : public NodeImpl<InferenceCalculatorMetal, InferenceCalculatorMetalImpl> {
+    : public InferenceCalculatorNodeImpl<InferenceCalculatorMetal,
+                                         InferenceCalculatorMetalImpl> {
  public:
   static absl::Status UpdateContract(CalculatorContract* cc);
 
   absl::Status Open(CalculatorContext* cc) override;
-  absl::Status Process(CalculatorContext* cc) override;
   absl::Status Close(CalculatorContext* cc) override;
 
  private:
+  absl::StatusOr<std::vector<Tensor>> Process(
+      CalculatorContext* cc, const TensorSpan& tensor_span) override;
   absl::Status InitInterpreter(CalculatorContext* cc);
   void AddDelegate(CalculatorContext* cc,
                    tflite::InterpreterBuilder* interpreter_builder);
@@ -119,13 +126,16 @@ class InferenceCalculatorMetalImpl
 
 absl::Status InferenceCalculatorMetalImpl::UpdateContract(
     CalculatorContract* cc) {
+  ABSL_RETURN_IF_ERROR(TensorContractCheck(cc));
+
   RET_CHECK(!kDelegate(cc).IsConnected())
       << "Delegate configuration through side packet is not supported.";
   const auto& options = cc->Options<mediapipe::InferenceCalculatorOptions>();
   RET_CHECK(!options.model_path().empty() ^ kSideInModel(cc).IsConnected())
       << "Either model as side packet or model path in options is required.";
 
-  MP_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
+  WarnFeedbackTensorsUnsupported(cc);
+  ABSL_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
   return absl::OkStatus();
 }
 
@@ -138,24 +148,20 @@ absl::Status InferenceCalculatorMetalImpl::Open(CalculatorContext* cc) {
   return InitInterpreter(cc);
 }
 
-absl::Status InferenceCalculatorMetalImpl::Process(CalculatorContext* cc) {
-  if (kInTensors(cc).IsEmpty()) {
-    return absl::OkStatus();
-  }
-  const auto& input_tensors = *kInTensors(cc);
-  RET_CHECK(!input_tensors.empty());
-  auto output_tensors = absl::make_unique<std::vector<Tensor>>();
+absl::StatusOr<std::vector<Tensor>> InferenceCalculatorMetalImpl::Process(
+    CalculatorContext* cc, const TensorSpan& tensor_span) {
+  std::vector<Tensor> output_tensors;
 
   id<MTLCommandBuffer> command_buffer;
 
   command_buffer = [gpu_helper_ commandBuffer];
   command_buffer.label = @"InferenceCalculator";
   // Explicit copy input with conversion float 32 bits to 16 bits.
-  for (int i = 0; i < input_tensors.size(); ++i) {
+  for (int i = 0; i < tensor_span.size(); ++i) {
     auto input_view =
-        MtlBufferView::GetReadView(input_tensors[i], command_buffer);
+        MtlBufferView::GetReadView(tensor_span[i], command_buffer);
     // Reshape tensor.
-    tflite::gpu::BHWC shape = BhwcFromTensorShape(input_tensors[i].shape());
+    tflite::gpu::BHWC shape = BhwcFromTensorShape(tensor_span[i].shape());
     auto gpu_buffer_view =
         MtlBufferView::GetWriteView(*gpu_buffers_in_[i], command_buffer);
     id<MTLComputeCommandEncoder> input_encoder =
@@ -171,16 +177,16 @@ absl::Status InferenceCalculatorMetalImpl::Process(CalculatorContext* cc) {
   RET_CHECK(TFLGpuDelegateSetCommandBuffer(delegate_.get(), command_buffer));
   RET_CHECK_EQ(interpreter_->Invoke(), kTfLiteOk);
 
-  output_tensors->reserve(output_shapes_.size());
+  output_tensors.reserve(output_shapes_.size());
   for (int i = 0; i < output_shapes_.size(); ++i) {
-    output_tensors->emplace_back(Tensor::ElementType::kFloat32,
-                                 output_shapes_[i]);
+    output_tensors.emplace_back(Tensor::ElementType::kFloat32,
+                                output_shapes_[i]);
     // Reshape tensor.
     tflite::gpu::BHWC shape = BhwcFromTensorShape(output_shapes_[i]);
     auto read_view =
         MtlBufferView::GetReadView(*gpu_buffers_out_[i], command_buffer);
     auto write_view =
-        MtlBufferView::GetWriteView(output_tensors->at(i), command_buffer);
+        MtlBufferView::GetWriteView(output_tensors[i], command_buffer);
     id<MTLComputeCommandEncoder> output_encoder =
         [command_buffer computeCommandEncoder];
     [converter_from_BPHWC4_ convertWithEncoder:output_encoder
@@ -190,9 +196,13 @@ absl::Status InferenceCalculatorMetalImpl::Process(CalculatorContext* cc) {
     [output_encoder endEncoding];
   }
   [command_buffer commit];
+  // The below call is found (manual testing) to resolve flickering issues for
+  // some use cases where multiple Metal calculators are involved.
+  // TODO: investigate and ensure proper synchronization
+  // (e.g. fences/barriers/events).
+  [command_buffer waitUntilScheduled];
 
-  kOutTensors(cc).Send(std::move(output_tensors));
-  return absl::OkStatus();
+  return output_tensors;
 }
 
 absl::Status InferenceCalculatorMetalImpl::Close(CalculatorContext* cc) {
@@ -207,9 +217,9 @@ absl::Status InferenceCalculatorMetalImpl::Close(CalculatorContext* cc) {
 
 absl::Status InferenceCalculatorMetalImpl::InitInterpreter(
     CalculatorContext* cc) {
-  ASSIGN_OR_RETURN(model_packet_, GetModelAsPacket(cc));
+  ABSL_ASSIGN_OR_RETURN(model_packet_, GetModelAsPacket(cc));
   const auto& model = *model_packet_.Get();
-  ASSIGN_OR_RETURN(auto op_resolver_packet, GetOpResolverAsPacket(cc));
+  ABSL_ASSIGN_OR_RETURN(auto op_resolver_packet, GetOpResolverAsPacket(cc));
   const auto& op_resolver = op_resolver_packet.Get();
   tflite::InterpreterBuilder interpreter_builder(model, op_resolver);
   AddDelegate(cc, &interpreter_builder);
@@ -217,13 +227,21 @@ absl::Status InferenceCalculatorMetalImpl::InitInterpreter(
       cc->Options<mediapipe::InferenceCalculatorOptions>().cpu_num_thread());
   RET_CHECK_EQ(interpreter_builder(&interpreter_), kTfLiteOk);
   RET_CHECK(interpreter_);
+  ABSL_ASSIGN_OR_RETURN(
+      const auto& io_mapping,
+      InferenceIoMapper::GetInputOutputTensorNamesFromInterpreter(
+          *interpreter_));
+  ABSL_RETURN_IF_ERROR(
+      InferenceCalculatorNodeImpl::UpdateIoMapping(cc, io_mapping));
 
-  MP_RETURN_IF_ERROR(CreateConverters(cc));
+  ABSL_RETURN_IF_ERROR(CreateConverters(cc));
   RET_CHECK_EQ(interpreter_->AllocateTensors(), kTfLiteOk);
   // TODO: Support quantized tensors.
-  RET_CHECK_NE(
-      interpreter_->tensor(interpreter_->inputs()[0])->quantization.type,
-      kTfLiteAffineQuantization);
+  if (interpreter_->tensor(interpreter_->inputs()[0])->quantization.type ==
+      kTfLiteAffineQuantization) {
+    return absl::InvalidArgumentError(
+        "Quantized tensors are not supported by the macOS/iOS GPU delegate.");
+  }
   return absl::OkStatus();
 }
 
@@ -302,8 +320,7 @@ absl::Status InferenceCalculatorMetalImpl::CreateConverters(
                                      isFloat16:allow_precision_loss_
                                convertToPBHWC4:true];
   if (converter_to_BPHWC4_ == nil) {
-    return mediapipe::InternalError(
-        "Error initializating input buffer converter");
+    return absl::InternalError("Error initializating input buffer converter");
   }
   // Create converter for GPU output.
   converter_from_BPHWC4_ =

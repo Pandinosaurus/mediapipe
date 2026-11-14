@@ -15,15 +15,16 @@
 // Calculator converts from one-dimensional Tensor of DT_FLOAT to Matrix
 // OR from (batched) two-dimensional Tensor of DT_FLOAT to Matrix.
 
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensorflow/tensor_to_matrix_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/time_series_header.pb.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/status_macros.h"
-#include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/framework/types.h"
+#include "tensorflow/core/framework/tensor.h"  // from @org_tensorflow
+#include "tensorflow/core/framework/types.h"   // from @org_tensorflow
 
 namespace mediapipe {
 
@@ -36,7 +37,7 @@ constexpr char kReference[] = "REFERENCE";
 
 absl::Status FillTimeSeriesHeaderIfValid(const Packet& header_packet,
                                          TimeSeriesHeader* header) {
-  CHECK(header);
+  ABSL_CHECK(header);
   if (header_packet.IsEmpty()) {
     return absl::UnknownError("No header found.");
   }
@@ -66,8 +67,10 @@ absl::Status FillTimeSeriesHeaderIfValid(const Packet& header_packet,
 // -- 1-D or 2-D Tensor
 // Output:
 // -- Matrix with the same values as the Tensor
-// If input tensor is 1 dimensional, the ouput Matrix is of (1xn) shape.
-// If input tensor is 2 dimensional (batched), the ouput Matrix is (mxn) shape.
+// If input tensor is 1 dimensional, the output Matrix is of (nx1) shape.
+// It is a 1-D column vector, with n rows and 1 column.
+// If input tensor is 2 dimensional (mxn), the output Matrix is (nxm) shape.
+// It has n rows and m columns.
 //
 // Example Config
 // node: {
@@ -147,7 +150,7 @@ absl::Status TensorToMatrixCalculator::GetContract(CalculatorContract* cc) {
 }
 
 absl::Status TensorToMatrixCalculator::Open(CalculatorContext* cc) {
-  auto input_header = absl::make_unique<TimeSeriesHeader>();
+  auto input_header = std::make_unique<TimeSeriesHeader>();
   absl::Status header_status;
   if (cc->Inputs().HasTag(kReference)) {
     header_status = FillTimeSeriesHeaderIfValid(
@@ -191,7 +194,7 @@ absl::Status TensorToMatrixCalculator::Process(CalculatorContext* cc) {
       << "Tensor stream packet does not contain a Tensor.";
 
   const tf::Tensor& input_tensor = cc->Inputs().Tag(kTensor).Get<tf::Tensor>();
-  CHECK(1 == input_tensor.dims() || 2 == input_tensor.dims())
+  ABSL_CHECK(1 == input_tensor.dims() || 2 == input_tensor.dims())
       << "Only 1-D or 2-D Tensors can be converted to matrices.";
   const int32_t length = input_tensor.dim_size(input_tensor.dims() - 1);
   const int32_t width =
@@ -204,7 +207,7 @@ absl::Status TensorToMatrixCalculator::Process(CalculatorContext* cc) {
     RET_CHECK_EQ(width, header_.num_samples())
         << "The number of samples at runtime does not match the header.";
   }
-  auto output = absl::make_unique<Matrix>(width, length);
+  auto output = std::make_unique<Matrix>(width, length);
   *output =
       Eigen::MatrixXf::Map(input_tensor.flat<float>().data(), length, width);
   cc->Outputs().Tag(kMatrix).Add(output.release(), cc->InputTimestamp());

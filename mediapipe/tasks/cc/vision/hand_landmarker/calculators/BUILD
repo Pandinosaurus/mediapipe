@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
-package(default_visibility = [
-    "//mediapipe/tasks:internal",
-])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -32,16 +32,20 @@ mediapipe_proto_library(
 cc_library(
     name = "hand_association_calculator",
     srcs = ["hand_association_calculator.cc"],
+    hdrs = ["hand_association_calculator.h"],
     deps = [
         ":hand_association_calculator_cc_proto",
         "//mediapipe/calculators/util:association_calculator",
-        "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework:collection_item_id",
-        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api3:calculator",
+        "//mediapipe/framework/api3:calculator_context",
+        "//mediapipe/framework/api3:contract",
+        "//mediapipe/framework/api3:node",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:rectangle",
-        "//mediapipe/framework/port:status",
         "//mediapipe/util:rectangle_util",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
     alwayslink = 1,
 )
@@ -51,19 +55,22 @@ cc_library(
     srcs = ["hand_landmarks_deduplication_calculator.cc"],
     hdrs = ["hand_landmarks_deduplication_calculator.h"],
     deps = [
-        "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework/api2:builder",
-        "//mediapipe/framework/api2:node",
-        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/api3:calculator",
+        "//mediapipe/framework/api3:calculator_context",
+        "//mediapipe/framework/api3:contract",
+        "//mediapipe/framework/api3:node",
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
+        "//mediapipe/framework/port:ret_check",
         "//mediapipe/tasks/cc/components/containers:rect",
         "//mediapipe/tasks/cc/vision/utils:landmarks_duplicates_finder",
         "//mediapipe/tasks/cc/vision/utils:landmarks_utils",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:optional",
     ],

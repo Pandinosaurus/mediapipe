@@ -14,16 +14,26 @@
 
 #include "mediapipe/framework/profiler/graph_profiler.h"
 
-#include "absl/status/statusor.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/time.h"
+#include <functional>
+#include <memory>
+#include <queue>
+
+#include "absl/log/absl_check.h"         // from @com_google_absl
+#include "absl/log/absl_log.h"           // from @com_google_absl
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/status/statusor.h"        // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/time/time.h"              // from @com_google_absl
+#include "file/base/helpers.h"
+#include "file/base/options.h"
+#include "file/memfile/mutable_memfile.h"
 #include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/executor.h"
 #include "mediapipe/framework/mediapipe_profiling.h"
 #include "mediapipe/framework/port/core_proto_inc.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/status_matchers.h"
-#include "mediapipe/framework/port/statusor.h"
 #include "mediapipe/framework/profiler/test_context_builder.h"
 #include "mediapipe/framework/tool/simulation_clock.h"
 #include "mediapipe/framework/tool/tag_map_helper.h"
@@ -35,6 +45,24 @@ namespace mediapipe {
 namespace {
 
 constexpr char kDummyTestCalculatorName[] = "DummyTestCalculator";
+
+// A simple executor that runs all tasks in the queue sequentially.
+class DelayExecutor : public Executor {
+ public:
+  ~DelayExecutor() override = default;
+
+  void Schedule(std::function<void()> task) override { task_queue_.push(task); }
+
+  void Run() {
+    while (!task_queue_.empty()) {
+      task_queue_.front()();
+      task_queue_.pop();
+    }
+  }
+
+ private:
+  std::queue<std::function<void()>> task_queue_;
+};
 
 CalculatorGraphConfig::Node CreateNodeConfig(
     const std::string& raw_node_config) {
@@ -59,21 +87,22 @@ CalculatorProfile GetProfileWithName(
       return p;
     }
   }
-  LOG(FATAL) << "Cannot find calulator profile with name " << calculator_name;
+  ABSL_LOG(FATAL) << "Cannot find calulator profile with name "
+                  << calculator_name;
   return CalculatorProfile::default_instance();
 }
 
-TimeHistogram CreateTimeHistogram(int64 total, std::vector<int64> counts) {
+TimeHistogram CreateTimeHistogram(int64_t total, std::vector<int64_t> counts) {
   TimeHistogram time_histogram;
   time_histogram.set_total(total);
-  for (int64 c : counts) {
+  for (int64_t c : counts) {
     time_histogram.add_count(c);
   }
   return time_histogram;
 }
 
 using PacketInfoMap =
-    ShardedMap<std::string, std::list<std::pair<int64, PacketInfo>>>;
+    ShardedMap<std::string, std::list<std::pair<int64_t, PacketInfo>>>;
 
 // Returns a PacketInfo from a PacketInfoMap.
 PacketInfo* GetPacketInfo(PacketInfoMap* map, const PacketId& packet_id) {
@@ -96,27 +125,27 @@ class GraphProfilerTestPeer : public testing::Test {
   void SetUp() override { packet_type_.SetAny(); }
 
   bool GetIsInitialized() {
-    absl::ReaderMutexLock lock(&profiler_.profiler_mutex_);
+    absl::ReaderMutexLock lock(profiler_.profiler_mutex_);
     return profiler_.is_initialized_;
   }
 
   bool GetIsProfiling() {
-    absl::ReaderMutexLock lock(&profiler_.profiler_mutex_);
+    absl::ReaderMutexLock lock(profiler_.profiler_mutex_);
     return profiler_.is_profiling_;
   }
 
   bool GetIsProfilingStreamLatency() {
-    absl::ReaderMutexLock lock(&profiler_.profiler_mutex_);
+    absl::ReaderMutexLock lock(profiler_.profiler_mutex_);
     return profiler_.profiler_config_.enable_stream_latency();
   }
 
   bool GetTraceLogDisabled() {
-    absl::ReaderMutexLock lock(&profiler_.profiler_mutex_);
+    absl::ReaderMutexLock lock(profiler_.profiler_mutex_);
     return profiler_.profiler_config_.trace_log_disabled();
   }
 
   bool GetUsePacketTimeStampForAddedPacket() {
-    absl::ReaderMutexLock lock(&profiler_.profiler_mutex_);
+    absl::ReaderMutexLock lock(profiler_.profiler_mutex_);
     return profiler_.profiler_config_.use_packet_timestamp_for_added_packet();
   }
 
@@ -132,14 +161,14 @@ class GraphProfilerTestPeer : public testing::Test {
     return &profiler_.packets_info_;
   }
 
-  static void InitializeTimeHistogram(int64 interval_size_usec,
-                                      int64 num_intervals,
+  static void InitializeTimeHistogram(int64_t interval_size_usec,
+                                      int64_t num_intervals,
                                       TimeHistogram* histogram) {
     GraphProfiler::InitializeTimeHistogram(interval_size_usec, num_intervals,
                                            histogram);
   }
 
-  static void AddTimeSample(int64 start_time_usec, int64 end_time_usec,
+  static void AddTimeSample(int64_t start_time_usec, int64_t end_time_usec,
                             TimeHistogram* histogram) {
     GraphProfiler::AddTimeSample(start_time_usec, end_time_usec, histogram);
   }
@@ -149,7 +178,7 @@ class GraphProfilerTestPeer : public testing::Test {
   }
 
   void InitializeInputStreams(const CalculatorGraphConfig::Node& node_config,
-                              int64 interval_size_usec, int64 num_intervals,
+                              int64_t interval_size_usec, int64_t num_intervals,
                               CalculatorProfile* calculator_profile) {
     profiler_.InitializeInputStreams(node_config, interval_size_usec,
                                      num_intervals, calculator_profile);
@@ -157,20 +186,20 @@ class GraphProfilerTestPeer : public testing::Test {
 
   void InitializeProfilerWithGraphConfig(const std::string& raw_graph_config) {
     auto graph_config = CreateGraphConfig(raw_graph_config);
-    mediapipe::ValidatedGraphConfig validated_graph;
-    QCHECK_OK(validated_graph.Initialize(graph_config));
-    profiler_.Initialize(validated_graph);
-    QCHECK_OK(profiler_.Start(nullptr));
+    validated_graph_ptr_ = std::make_unique<mediapipe::ValidatedGraphConfig>();
+    ABSL_QCHECK_OK(validated_graph_ptr_->Initialize(graph_config));
+    profiler_.Initialize(*validated_graph_ptr_);
+    ABSL_QCHECK_OK(profiler_.Start(nullptr));
   }
 
   void SetOpenRuntime(const CalculatorContext& calculator_context,
-                      int64 start_time_usec, int64 end_time_usec) {
+                      int64_t start_time_usec, int64_t end_time_usec) {
     profiler_.SetOpenRuntime(calculator_context, start_time_usec,
                              end_time_usec);
   }
 
   void SetCloseRuntime(const CalculatorContext& calculator_context,
-                       int64 start_time_usec, int64 end_time_usec) {
+                       int64_t start_time_usec, int64_t end_time_usec) {
     profiler_.SetCloseRuntime(calculator_context, start_time_usec,
                               end_time_usec);
   }
@@ -178,7 +207,7 @@ class GraphProfilerTestPeer : public testing::Test {
   // Updates the Process() data for calculator.
   // Requires ReaderLock for is_profiling_.
   void AddProcessSample(const CalculatorContext& calculator_context,
-                        int64 start_time_usec, int64 end_time_usec) {
+                        int64_t start_time_usec, int64_t end_time_usec) {
     profiler_.AddProcessSample(calculator_context, start_time_usec,
                                end_time_usec);
   }
@@ -211,6 +240,7 @@ class GraphProfilerTestPeer : public testing::Test {
     return result;
   }
 
+  std::unique_ptr<mediapipe::ValidatedGraphConfig> validated_graph_ptr_;
   std::shared_ptr<ProfilingContext> profiler_ptr_ =
       std::make_shared<ProfilingContext>();
   ProfilingContext& profiler_ = *profiler_ptr_;
@@ -462,7 +492,7 @@ TEST_F(GraphProfilerTestPeer, InitializeMultipleProfilers) {
         std::make_shared<ProfilingContext>();
     auto graph_config = CreateGraphConfig(raw_graph_config);
     mediapipe::ValidatedGraphConfig validated_graph;
-    QCHECK_OK(validated_graph.Initialize(graph_config));
+    ABSL_QCHECK_OK(validated_graph.Initialize(graph_config));
     profiler->Initialize(validated_graph);
 
     int id = profiler->GetGraphId();
@@ -601,7 +631,7 @@ TEST_F(GraphProfilerTestPeer, AddPacketInfoUsingProfilerClock) {
                          .set_input_ts(packet.Timestamp())
                          .set_packet_ts(packet.Timestamp())
                          .set_packet_data_id(&packet));
-  int64 profiler_now_usec = ToUnixMicros(simulation_clock->TimeNow());
+  int64_t profiler_now_usec = ToUnixMicros(simulation_clock->TimeNow());
 
   PacketInfo expected_packet_info = {
       0,
@@ -959,8 +989,8 @@ TEST_F(GraphProfilerTestPeer, InitializeOutputStreams) {
 // excluding the back edges or input side packets.
 TEST_F(GraphProfilerTestPeer, InitializeInputStreams) {
   CalculatorProfile profile;
-  int64 interval_size_usec = 100;
-  int64 num_intervals = 1;
+  int64_t interval_size_usec = 100;
+  int64_t num_intervals = 1;
   // Without any input stream.
   auto node_config = CreateNodeConfig(R"(
     calculator: "SourceCalculator"
@@ -1074,8 +1104,8 @@ TEST_F(GraphProfilerTestPeer, AddProcessSampleWithStreamLatency) {
   source_context.AddOutputs(
       {{}, {MakePacket<std::string>("15").At(Timestamp(100))}});
 
-  int64 when_source_started = 1000;
-  int64 when_source_finished = when_source_started + 150;
+  int64_t when_source_started = 1000;
+  int64_t when_source_finished = when_source_started + 150;
   simulation_clock->SleepUntil(absl::FromUnixMicros(when_source_started));
   {
     GraphProfiler::Scope profiler_scope(GraphTrace::PROCESS,
@@ -1199,19 +1229,19 @@ TEST(GraphProfilerTest, ParallelReads) {
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("out_1", [&](const Packet& packet) {
-    absl::MutexLock lock(&out_1_mutex);
+    absl::MutexLock lock(out_1_mutex);
     out_1_packets.push_back(packet);
     return absl::OkStatus();
   }));
   MP_EXPECT_OK(graph.StartRun(
-      {{"range_step", MakePacket<std::pair<uint32, uint32>>(1000, 1)}}));
+      {{"range_step", MakePacket<std::pair<uint32_t, uint32_t>>(1000, 1)}}));
 
   // Repeatedly poll for profile data while the graph runs.
   while (true) {
     std::vector<CalculatorProfile> profiles;
     MP_ASSERT_OK(graph.profiler()->GetCalculatorProfiles(&profiles));
     EXPECT_EQ(2, profiles.size());
-    absl::MutexLock lock(&out_1_mutex);
+    absl::MutexLock lock(out_1_mutex);
     if (out_1_packets.size() >= 1001) {
       break;
     }
@@ -1227,7 +1257,7 @@ TEST(GraphProfilerTest, ParallelReads) {
     EXPECT_EQ(1003, profiles[0].process_runtime().count(0));
     EXPECT_EQ(1000, profiles[1].process_runtime().count(0));
   } else {
-    LOG(FATAL) << "Unexpected profile name " << profiles[0].name();
+    ABSL_LOG(FATAL) << "Unexpected profile name " << profiles[0].name();
   }
   EXPECT_EQ(1001, out_1_packets.size());
 }
@@ -1337,6 +1367,115 @@ TEST(GraphProfilerTest, CaptureProfilePopulateConfig) {
                     calculator_name: "DummyTestCalculator_1"
                     calculator_name: "DummyTestCalculator_2"
                   )pb"))));
+}
+
+TEST_F(GraphProfilerTestPeer, ExecutorRunEarly) {
+  // Checks defaults before initialization.
+  ASSERT_EQ(GetIsInitialized(), false);
+  ASSERT_EQ(GetIsProfiling(), false);
+  ASSERT_EQ(GetIsProfilingStreamLatency(), false);
+  ASSERT_EQ(GetTraceLogDisabled(), false);
+  ASSERT_EQ(GetUsePacketTimeStampForAddedPacket(), false);
+
+  CalculatorGraphConfig graph_config = CreateGraphConfig(R"(
+    profiler_config {
+      histogram_interval_size_usec: 1000
+      num_histogram_intervals: 3
+      enable_profiler: true
+      enable_stream_latency: true
+      use_packet_timestamp_for_added_packet: true
+      trace_enabled: true
+    }
+    input_stream: "input_stream"
+    node {
+      calculator: "DummyTestCalculator"
+      input_stream: "input_stream"
+    })");
+
+  mediapipe::ValidatedGraphConfig validated_graph;
+  MP_ASSERT_OK(validated_graph.Initialize(graph_config));
+  profiler_.Initialize(validated_graph);
+
+  DelayExecutor executor;
+  MP_ASSERT_OK(profiler_.Start(&executor));
+
+  ASSERT_EQ(GetIsInitialized(), true);
+  ASSERT_EQ(GetIsProfiling(), true);
+  ASSERT_EQ(GetIsProfilingStreamLatency(), true);
+  ASSERT_EQ(GetUsePacketTimeStampForAddedPacket(), true);
+
+  MP_ASSERT_OK(profiler_.Stop());
+  executor.Run();
+}
+
+TEST_F(GraphProfilerTestPeer, ExecutorRunLate) {
+  // Checks defaults before initialization.
+  ASSERT_EQ(GetIsInitialized(), false);
+  ASSERT_EQ(GetIsProfiling(), false);
+  ASSERT_EQ(GetIsProfilingStreamLatency(), false);
+  ASSERT_EQ(GetTraceLogDisabled(), false);
+  ASSERT_EQ(GetUsePacketTimeStampForAddedPacket(), false);
+
+  CalculatorGraphConfig graph_config = CreateGraphConfig(R"(
+    profiler_config {
+      histogram_interval_size_usec: 1000
+      num_histogram_intervals: 3
+      enable_profiler: true
+      enable_stream_latency: true
+      use_packet_timestamp_for_added_packet: true
+      trace_enabled: true
+    }
+    input_stream: "input_stream"
+    node {
+      calculator: "DummyTestCalculator"
+      input_stream: "input_stream"
+    })");
+
+  mediapipe::ValidatedGraphConfig validated_graph;
+  MP_ASSERT_OK(validated_graph.Initialize(graph_config));
+  profiler_.Initialize(validated_graph);
+
+  DelayExecutor executor;
+  MP_ASSERT_OK(profiler_.Start(&executor));
+
+  ASSERT_EQ(GetIsInitialized(), true);
+  ASSERT_EQ(GetIsProfiling(), true);
+  ASSERT_EQ(GetIsProfilingStreamLatency(), true);
+  ASSERT_EQ(GetUsePacketTimeStampForAddedPacket(), true);
+
+  MP_ASSERT_OK(profiler_.Stop());
+
+  // Destroy the profiler before the executor runs should not crash.
+  profiler_ptr_.reset();
+  executor.Run();
+}
+
+TEST_F(GraphProfilerTestPeer, WriteToMutableMemfile) {
+  RegisteredMutableMemFile trace_log("/mmemfile/test_trace_log_0.binarypb");
+  InitializeProfilerWithGraphConfig(R"pb(
+    profiler_config {
+      enable_profiler: true
+      trace_enabled: true
+      trace_log_path: "/mmemfile/test_trace_log_"
+      trace_log_count: 1
+      trace_log_interval_count: 1
+    }
+  )pb");
+
+  std::string input_stream_name = "input_stream";
+  Packet packet = MakePacket<std::string>("hello").At(Timestamp(100));
+  profiler_.LogEvent(TraceEvent(GraphTrace::PROCESS)
+                         .set_stream_id(&input_stream_name)
+                         .set_input_ts(packet.Timestamp())
+                         .set_packet_ts(packet.Timestamp())
+                         .set_packet_data_id(&packet));
+
+  MP_EXPECT_OK(profiler_.WriteProfile());
+
+  std::string content;
+  MP_EXPECT_OK(file::GetContents("/mmemfile/test_trace_log_0.binarypb",
+                                 &content, file::Defaults()));
+  EXPECT_FALSE(content.empty());
 }
 
 }  // namespace

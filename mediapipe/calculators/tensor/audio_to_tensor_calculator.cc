@@ -20,10 +20,12 @@
 #include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/memory/memory.h"         // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
 #include "audio/dsp/resampler_q.h"
 #include "audio/dsp/window_functions.h"
 #include "mediapipe/calculators/tensor/audio_to_tensor_calculator.pb.h"
@@ -34,9 +36,11 @@
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/formats/time_series_header.pb.h"
+#include "mediapipe/framework/memory_manager.h"
+#include "mediapipe/framework/memory_manager_service.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/time_series_util.h"
-#include "pffft.h"
+#include "pffft.h"  // from @pffft
 
 namespace mediapipe {
 namespace api2 {
@@ -108,7 +112,7 @@ bool IsValidFftSize(int size) {
 //   Non-streaming mode: when "stream_mode" is set to false in the calculator
 //     options, the calculators treats the packets in the input audio stream as
 //     a batch of unrelated audio buffers. In each Process() call, the input
-//     buffer will be frist resampled, and framed as fixed-sized, possibly
+//     buffer will be first resampled, and framed as fixed-sized, possibly
 //     overlapping tensors. The last tensor produced by a Process() invocation
 //     will be zero-padding if the remaining samples are insufficient. As the
 //     calculator treats the input packets as unrelated, all samples will be
@@ -158,7 +162,7 @@ class AudioToTensorCalculator : public Node {
  public:
   static constexpr Input<Matrix> kAudioIn{"AUDIO"};
   // TODO: Removes this optional input stream when the "AUDIO" stream
-  // uses the new mediapipe audio data containers that carry audio metatdata,
+  // uses the new mediapipe audio data containers that carry audio metadata,
   // such as sample rate.
   static constexpr Input<double>::Optional kAudioSampleRateIn{"SAMPLE_RATE"};
   static constexpr Output<std::vector<Tensor>> kTensorsOut{"TENSORS"};
@@ -205,6 +209,9 @@ class AudioToTensorCalculator : public Node {
   int processed_buffer_cols_ = 0;
   double gain_ = 1.0;
 
+  // Enable pooling of AHWBs in Tensor instances.
+  MemoryManager* memory_manager_ = nullptr;
+
   // The internal state of the FFT library.
   PFFFT_Setup* fft_state_ = nullptr;
   int fft_size_ = 0;
@@ -235,7 +242,7 @@ absl::Status AudioToTensorCalculator::UpdateContract(CalculatorContract* cc) {
   if (!options.has_num_channels() || !options.has_num_samples() ||
       !options.has_target_sample_rate()) {
     return absl::InvalidArgumentError(
-        "AudioToTensorCalculatorOptions must specifiy "
+        "AudioToTensorCalculatorOptions must specify "
         "`num_channels`, `num_samples`, and `target_sample_rate`.");
   }
   if (options.stream_mode()) {
@@ -254,10 +261,14 @@ absl::Status AudioToTensorCalculator::UpdateContract(CalculatorContract* cc) {
       options.flush_mode() != Options::PROCEED_AS_USUAL) {
     return absl::InvalidArgumentError("Unsupported flush mode");
   }
+  cc->UseService(kMemoryManagerService).Optional();
   return absl::OkStatus();
 }
 
 absl::Status AudioToTensorCalculator::Open(CalculatorContext* cc) {
+  if (cc->Service(kMemoryManagerService).IsAvailable()) {
+    memory_manager_ = &cc->Service(kMemoryManagerService).GetObject();
+  }
   const auto& options =
       cc->Options<mediapipe::AudioToTensorCalculatorOptions>();
   num_channels_ = options.num_channels();
@@ -282,18 +293,24 @@ absl::Status AudioToTensorCalculator::Open(CalculatorContext* cc) {
   if (options.has_volume_gain_db()) {
     gain_ = pow(10, options.volume_gain_db() / 20.0);
   }
-  RET_CHECK(kAudioSampleRateIn(cc).IsConnected() ^
-            !kAudioIn(cc).Header().IsEmpty())
-      << "Must either specify the time series header of the \"AUDIO\" stream "
-         "or have the \"SAMPLE_RATE\" stream connected.";
-  if (!kAudioIn(cc).Header().IsEmpty()) {
-    mediapipe::TimeSeriesHeader input_header;
-    MP_RETURN_IF_ERROR(mediapipe::time_series_util::FillTimeSeriesHeaderIfValid(
-        kAudioIn(cc).Header(), &input_header));
-    if (stream_mode_) {
-      MP_RETURN_IF_ERROR(SetupStreamingResampler(input_header.sample_rate()));
-    } else {
-      source_sample_rate_ = input_header.sample_rate();
+  if (options.has_source_sample_rate()) {
+    source_sample_rate_ = options.source_sample_rate();
+  } else {
+    RET_CHECK(kAudioSampleRateIn(cc).IsConnected() ^
+              !kAudioIn(cc).Header().IsEmpty())
+        << "Must either specify the time series header of the \"AUDIO\" stream "
+           "or have the \"SAMPLE_RATE\" stream connected.";
+    if (!kAudioIn(cc).Header().IsEmpty()) {
+      mediapipe::TimeSeriesHeader input_header;
+      ABSL_RETURN_IF_ERROR(
+          mediapipe::time_series_util::FillTimeSeriesHeaderIfValid(
+              kAudioIn(cc).Header(), &input_header));
+      if (stream_mode_) {
+        ABSL_RETURN_IF_ERROR(
+            SetupStreamingResampler(input_header.sample_rate()));
+      } else {
+        source_sample_rate_ = input_header.sample_rate();
+      }
     }
   }
   AppendZerosToSampleBuffer(padding_samples_before_);
@@ -343,7 +360,7 @@ absl::Status AudioToTensorCalculator::Process(CalculatorContext* cc) {
     return absl::InvalidArgumentError(
         "The audio data should be stored in column-major.");
   }
-  CHECK(channels_match || mono_output);
+  ABSL_CHECK(channels_match || mono_output);
   const Matrix& input = channels_match ? input_frame
                                        // Mono mixdown.
                                        : input_frame.colwise().mean();
@@ -365,7 +382,8 @@ absl::Status AudioToTensorCalculator::Close(CalculatorContext* cc) {
     AppendToSampleBuffer(std::move(resampled_buffer));
   }
   AppendZerosToSampleBuffer(padding_samples_after_);
-  MP_RETURN_IF_ERROR(ProcessBuffer(sample_buffer_, /*should_flush=*/true, cc));
+  ABSL_RETURN_IF_ERROR(
+      ProcessBuffer(sample_buffer_, /*should_flush=*/true, cc));
   if (fft_state_) {
     pffft_destroy_setup(fft_state_);
   }
@@ -390,7 +408,7 @@ absl::Status AudioToTensorCalculator::ProcessStreamingData(
     if (resampler_) {
       RET_CHECK_EQ(current_source_sample_rate, source_sample_rate_);
     } else {
-      MP_RETURN_IF_ERROR(SetupStreamingResampler(current_source_sample_rate));
+      ABSL_RETURN_IF_ERROR(SetupStreamingResampler(current_source_sample_rate));
     }
   }
 
@@ -410,7 +428,8 @@ absl::Status AudioToTensorCalculator::ProcessStreamingData(
     }
   }
 
-  MP_RETURN_IF_ERROR(ProcessBuffer(sample_buffer_, /*should_flush=*/false, cc));
+  ABSL_RETURN_IF_ERROR(
+      ProcessBuffer(sample_buffer_, /*should_flush=*/false, cc));
   // Removes the processed samples from the global sample buffer.
   sample_buffer_ = Matrix(sample_buffer_.rightCols(sample_buffer_.cols() -
                                                    processed_buffer_cols_ - 1));
@@ -442,7 +461,7 @@ absl::Status AudioToTensorCalculator::SetupStreamingResampler(
   }
   source_sample_rate_ = input_sample_rate;
   if (source_sample_rate_ != target_sample_rate_) {
-    resampler_ = absl::make_unique<audio_dsp::QResampler<float>>(
+    resampler_ = std::make_unique<audio_dsp::QResampler<float>>(
         source_sample_rate_, target_sample_rate_, num_channels_, params_);
     if (!resampler_) {
       return absl::InternalError("Failed to initialize resampler.");
@@ -452,7 +471,7 @@ absl::Status AudioToTensorCalculator::SetupStreamingResampler(
 }
 
 void AudioToTensorCalculator::AppendZerosToSampleBuffer(int num_samples) {
-  CHECK_GE(num_samples, 0);  // Ensured by `UpdateContract`.
+  ABSL_CHECK_GE(num_samples, 0);  // Ensured by `UpdateContract`.
   if (num_samples == 0) {
     return;
   }
@@ -469,7 +488,8 @@ void AudioToTensorCalculator::AppendToSampleBuffer(Matrix buffer_to_append) {
 
 absl::StatusOr<std::vector<Tensor>> AudioToTensorCalculator::ConvertToTensor(
     const Matrix& block, std::vector<int> tensor_dims) {
-  Tensor tensor(Tensor::ElementType::kFloat32, Tensor::Shape(tensor_dims));
+  Tensor tensor(Tensor::ElementType::kFloat32, Tensor::Shape(tensor_dims),
+                memory_manager_);
   auto buffer_view = tensor.GetCpuWriteView();
   int total_size = 1;
   for (int dim : tensor_dims) {
@@ -511,8 +531,9 @@ absl::Status AudioToTensorCalculator::OutputTensor(const Matrix& block,
         // The last two elements are Nyquist component.
         fft_output_matrix(fft_size_ - 2) = fft_output_[1];  // Nyquist real part
         fft_output_matrix(fft_size_ - 1) = 0.0f;  // Nyquist imagery part
-        ASSIGN_OR_RETURN(output_tensor, ConvertToTensor(fft_output_matrix,
-                                                        {2, fft_size_ / 2}));
+        ABSL_ASSIGN_OR_RETURN(
+            output_tensor,
+            ConvertToTensor(fft_output_matrix, {2, fft_size_ / 2}));
         break;
       }
       case Options::WITH_DC_AND_NYQUIST: {
@@ -523,7 +544,7 @@ absl::Status AudioToTensorCalculator::OutputTensor(const Matrix& block,
         // The last two elements are  Nyquist component.
         fft_output_matrix(fft_size_) = fft_output_[1];  // Nyquist real part
         fft_output_matrix(fft_size_ + 1) = 0.0f;        // Nyquist imagery part
-        ASSIGN_OR_RETURN(
+        ABSL_ASSIGN_OR_RETURN(
             output_tensor,
             ConvertToTensor(fft_output_matrix, {2, (fft_size_ + 2) / 2}));
         break;
@@ -531,7 +552,7 @@ absl::Status AudioToTensorCalculator::OutputTensor(const Matrix& block,
       case Options::WITHOUT_DC_AND_NYQUIST: {
         Matrix fft_output_matrix =
             Eigen::Map<const Matrix>(fft_output_.data() + 2, 1, fft_size_ - 2);
-        ASSIGN_OR_RETURN(
+        ABSL_ASSIGN_OR_RETURN(
             output_tensor,
             ConvertToTensor(fft_output_matrix, {2, (fft_size_ - 2) / 2}));
         break;
@@ -541,8 +562,8 @@ absl::Status AudioToTensorCalculator::OutputTensor(const Matrix& block,
     }
 
   } else {
-    ASSIGN_OR_RETURN(output_tensor,
-                     ConvertToTensor(block, {num_channels_, num_samples_}));
+    ABSL_ASSIGN_OR_RETURN(
+        output_tensor, ConvertToTensor(block, {num_channels_, num_samples_}));
   }
   kTensorsOut(cc).Send(std::move(output_tensor), timestamp);
   return absl::OkStatus();
@@ -558,7 +579,7 @@ absl::Status AudioToTensorCalculator::ProcessBuffer(const Matrix& buffer,
   std::vector<Timestamp> timestamps;
   if (!should_flush_at_timestamp_max) {
     while (next_frame_first_col + num_samples_ <= buffer.cols()) {
-      MP_RETURN_IF_ERROR(OutputTensor(
+      ABSL_RETURN_IF_ERROR(OutputTensor(
           buffer.block(0, next_frame_first_col, num_channels_, num_samples_),
           next_output_timestamp_, cc));
       timestamps.push_back(next_output_timestamp_);
@@ -574,7 +595,7 @@ absl::Status AudioToTensorCalculator::ProcessBuffer(const Matrix& buffer,
     Timestamp timestamp = should_flush_at_timestamp_max
                               ? Timestamp::Max()
                               : next_output_timestamp_;
-    MP_RETURN_IF_ERROR(OutputTensor(
+    ABSL_RETURN_IF_ERROR(OutputTensor(
         buffer.block(
             0, next_frame_first_col, num_channels_,
             std::min(num_samples_, (int)buffer.cols() - next_frame_first_col)),

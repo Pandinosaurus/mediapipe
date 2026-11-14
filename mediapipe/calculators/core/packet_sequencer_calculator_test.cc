@@ -15,7 +15,8 @@
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_cat.h"
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/gmock.h"
@@ -71,7 +72,7 @@ TEST_F(PacketSequencerCalculatorTest, IsRegistered) {
       CalculatorBaseRegistry::IsRegistered("PacketSequencerCalculator"));
 }
 
-// Shows how control packets recieve timestamps before and after frame packets
+// Shows how control packets receive timestamps before and after frame packets
 // have arrived.
 TEST_F(PacketSequencerCalculatorTest, ChannelEarly) {
   CalculatorGraphConfig::Node node_config = BuildNodeConfig();

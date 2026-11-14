@@ -12,14 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 licenses(["notice"])
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "running_mode",
     hdrs = ["running_mode.h"],
-    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/tasks/cc/core:running_mode",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 cc_library(
@@ -28,9 +35,11 @@ cc_library(
     deps = [
         ":running_mode",
         "//mediapipe/calculators/core:flow_limiter_calculator",
+        "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/core:base_task_api",
         "//mediapipe/tasks/cc/core:task_runner",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
@@ -41,11 +50,16 @@ cc_library(
     hdrs = ["audio_task_api_factory.h"],
     deps = [
         ":base_audio_task_api",
+        ":running_mode",
         "//mediapipe/calculators/core:flow_limiter_calculator",
         "//mediapipe/framework:calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/tasks/cc/core:task_api_factory",
+        "//mediapipe/tasks/cc/core:task_runner",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@org_tensorflow//tensorflow/lite/core/api:op_resolver",
+        "@litert//tflite/core/api:op_resolver",
     ],
 )

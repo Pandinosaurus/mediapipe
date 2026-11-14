@@ -12,17 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
 package(default_visibility = ["//mediapipe/tasks:internal"])
 
 licenses(["notice"])
+
+exports_files(glob(["sources/*.h"]))
 
 objc_library(
     name = "MPPCategoryHelpers",
     srcs = ["sources/MPPCategory+Helpers.mm"],
     hdrs = ["sources/MPPCategory+Helpers.h"],
     deps = [
-        "//mediapipe/framework/formats:classification_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:category",
         "//mediapipe/tasks/ios/components/containers:MPPCategory",
     ],
 )
@@ -33,8 +36,8 @@ objc_library(
     hdrs = ["sources/MPPClassificationResult+Helpers.h"],
     deps = [
         ":MPPCategoryHelpers",
-        "//mediapipe/tasks/cc/components/containers/proto:classifications_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:category",
+        "//mediapipe/tasks/c/components/containers:classification_result",
         "//mediapipe/tasks/ios/components/containers:MPPClassificationResult",
     ],
 )
@@ -44,8 +47,7 @@ objc_library(
     srcs = ["sources/MPPEmbedding+Helpers.mm"],
     hdrs = ["sources/MPPEmbedding+Helpers.h"],
     deps = [
-        "//mediapipe/tasks/cc/components/containers/proto:embeddings_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:embedding_result",
         "//mediapipe/tasks/ios/components/containers:MPPEmbedding",
     ],
 )
@@ -56,8 +58,7 @@ objc_library(
     hdrs = ["sources/MPPEmbeddingResult+Helpers.h"],
     deps = [
         ":MPPEmbeddingHelpers",
-        "//mediapipe/tasks/cc/components/containers/proto:embeddings_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:embedding_result",
         "//mediapipe/tasks/ios/components/containers:MPPEmbeddingResult",
     ],
 )
@@ -67,9 +68,11 @@ objc_library(
     srcs = ["sources/MPPDetection+Helpers.mm"],
     hdrs = ["sources/MPPDetection+Helpers.h"],
     deps = [
-        "//mediapipe/framework/formats:detection_cc_proto",
-        "//mediapipe/framework/formats:location_data_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:category",
+        "//mediapipe/tasks/c/components/containers:detection_result",
+        "//mediapipe/tasks/c/components/containers:keypoint",
+        "//mediapipe/tasks/c/components/containers:rect",
+        "//mediapipe/tasks/ios/components/containers:MPPCategory",
         "//mediapipe/tasks/ios/components/containers:MPPDetection",
     ],
 )
@@ -79,8 +82,21 @@ objc_library(
     srcs = ["sources/MPPLandmark+Helpers.mm"],
     hdrs = ["sources/MPPLandmark+Helpers.h"],
     deps = [
-        "//mediapipe/framework/formats:landmark_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/containers:landmark",
         "//mediapipe/tasks/ios/components/containers:MPPLandmark",
+    ],
+)
+
+objc_library(
+    name = "MPPRegionOfInterestHelpers",
+    srcs = ["sources/MPPRegionOfInterest+Helpers.mm"],
+    hdrs = ["sources/MPPRegionOfInterest+Helpers.h"],
+    deps = [
+        "//mediapipe/tasks/c/components/containers:keypoint",
+        "//mediapipe/tasks/c/vision/interactive_segmenter_legacy:interactive_segmenter_legacy_lib",
+        "//mediapipe/tasks/ios/common:MPPCommon",
+        "//mediapipe/tasks/ios/common/utils:MPPCommonUtils",
+        "//mediapipe/tasks/ios/components/containers:MPPDetection",
+        "//mediapipe/tasks/ios/components/containers:MPPRegionOfInterest",
     ],
 )

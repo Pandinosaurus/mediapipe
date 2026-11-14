@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//mediapipe/tasks:internal",
-])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -24,10 +25,10 @@ cc_library(
     name = "hand_landmarker",
     srcs = ["hand_landmarker.cc"],
     hdrs = ["hand_landmarker.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":hand_landmarker_graph",
         ":hand_landmarker_result",
+        "//mediapipe/calculators/tensor:inference_calculator_litert",  # buildcleaner: keep
         "//mediapipe/framework/api2:builder",
         "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:classification_cc_proto",
@@ -50,20 +51,17 @@ cc_library(
         "//mediapipe/tasks/cc/vision/hand_detector/proto:hand_detector_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarks_detector_graph_options_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
-)
-
-cc_library(
-    name = "hand_landmark",
-    hdrs = ["hand_landmark.h"],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "hand_landmarks_detector_graph",
     srcs = ["hand_landmarks_detector_graph.cc"],
     deps = [
+        "@com_google_absl//absl/status:status_macros",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarks_detector_graph_options_cc_proto",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -83,13 +81,15 @@ cc_library(
         "//mediapipe/calculators/util:thresholding_calculator",
         "//mediapipe/calculators/util:thresholding_calculator_cc_proto",
         "//mediapipe/calculators/util:world_landmark_projection_calculator",
+        "//mediapipe/framework:calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:subgraph",
         "//mediapipe/framework/api2:builder",
         "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
-        "//mediapipe/framework/formats:tensor",
         # TODO: move calculators in modules/hand_landmark/calculators to tasks dir.
         "//mediapipe/modules/hand_landmark/calculators:hand_landmarks_to_rect_calculator",
         "//mediapipe/tasks/cc:common",
@@ -97,13 +97,8 @@ cc_library(
         "//mediapipe/tasks/cc/components/processors:image_preprocessing_graph",
         "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core:model_task_graph",
-        "//mediapipe/tasks/cc/core:utils",
-        "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
         "//mediapipe/tasks/cc/vision/utils:image_tensor_specs",
         "//mediapipe/util:label_map_cc_proto",
-        "//mediapipe/util:label_map_util",
-        "//mediapipe/tasks/cc/metadata:metadata_extractor",
-        "//mediapipe/tasks/metadata:metadata_schema_cc",
     ],
     alwayslink = 1,
 )
@@ -133,7 +128,6 @@ cc_library(
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/formats:tensor",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/utils:gate",
         "//mediapipe/tasks/cc/core:model_asset_bundle_resources",
@@ -149,6 +143,45 @@ cc_library(
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarks_detector_graph_options_cc_proto",
         "//mediapipe/util:graph_builder_utils",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "hand_landmarks_connections",
+    hdrs = ["hand_landmarks_connections.h"],
+)
+
+# TODO: open source hand joints graph
+
+cc_library(
+    name = "hand_roi_refinement_graph",
+    srcs = ["hand_roi_refinement_graph.cc"],
+    deps = [
+        "//mediapipe/calculators/tensor:image_to_tensor_calculator_cc_proto",
+        "//mediapipe/calculators/tensor:inference_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/api2/stream:detections_to_rects",
+        "//mediapipe/framework/api2/stream:landmarks_projection",
+        "//mediapipe/framework/api2/stream:landmarks_to_detection",
+        "//mediapipe/framework/api2/stream:rect_transformation",
+        "//mediapipe/framework/formats:image",
+        "//mediapipe/framework/formats:landmark_cc_proto",
+        "//mediapipe/framework/formats:rect_cc_proto",
+        "//mediapipe/framework/formats:tensor",
+        "//mediapipe/tasks/cc/components/processors:image_preprocessing_graph",
+        "//mediapipe/tasks/cc/components/processors/proto:image_preprocessing_graph_options_cc_proto",
+        "//mediapipe/tasks/cc/core:model_task_graph",
+        "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_roi_refinement_graph_options_cc_proto",
+        "//mediapipe/tasks/cc/vision/utils:image_tensor_specs",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,
 )
@@ -157,7 +190,6 @@ cc_library(
     name = "hand_landmarker_result",
     srcs = ["hand_landmarker_result.cc"],
     hdrs = ["hand_landmarker_result.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:landmark_cc_proto",
@@ -167,3 +199,8 @@ cc_library(
 )
 
 # TODO: Enable this test
+
+cc_library(
+    name = "hand_topology",
+    hdrs = ["hand_topology.h"],
+)

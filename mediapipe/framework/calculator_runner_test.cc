@@ -16,7 +16,9 @@
 
 #include "mediapipe/framework/calculator_runner.h"
 
-#include "absl/strings/str_cat.h"
+#include "absl/log/absl_log.h"     // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_base.h"
 #include "mediapipe/framework/calculator_registry.h"
 #include "mediapipe/framework/input_stream.h"
@@ -24,8 +26,6 @@
 #include "mediapipe/framework/packet_type.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/timestamp.h"
 
@@ -105,7 +105,7 @@ class CalculatorRunnerMultiTagTestCalculator : public CalculatorBase {
 
   absl::Status Process(CalculatorContext* cc) override {
     for (const std::string& tag : cc->Inputs().GetTags()) {
-      auto sum = absl::make_unique<int>(0);
+      auto sum = std::make_unique<int>(0);
       for (CollectionItemId item_id = cc->Inputs().BeginId(tag);
            item_id < cc->Inputs().EndId(tag); ++item_id) {
         if (!cc->Inputs().Get(item_id).IsEmpty()) {
@@ -136,7 +136,7 @@ TEST(CalculatorRunner, RunsCalculator) {
   // Run CalculatorRunner::Run() several times, with different inputs. This
   // tests that a CalculatorRunner instance can be reused.
   for (int iter = 0; iter < 3; ++iter) {
-    LOG(INFO) << "iter: " << iter;
+    ABSL_LOG(INFO) << "iter: " << iter;
     const int length = iter;
     // Generate the inputs at timestamps 0 ... length-1, at timestamp t having
     // values t and t*2 for the two streams, respectively.

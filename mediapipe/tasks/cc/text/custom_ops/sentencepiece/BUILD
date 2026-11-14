@@ -13,8 +13,10 @@
 # limitations under the License.
 
 load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -108,7 +110,7 @@ cc_library(
         ":sentencepiece_constants",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_sentencepiece//src:sentencepiece_model_cc_proto",
+        "@com_google_sentencepiece//:sentencepiece_model_cc_proto",
     ],
 )
 
@@ -131,19 +133,16 @@ cc_library(
     name = "sentencepiece_tokenizer_tflite",
     srcs = ["sentencepiece_tokenizer_tflite.cc"],
     hdrs = ["sentencepiece_tokenizer_tflite.h"],
-    visibility = [
-        "//visibility:public",
-    ],
     deps =
         [
             ":optimized_encoder",
             "@flatbuffers",
-            "@org_tensorflow//tensorflow/lite:framework",
-            "@org_tensorflow//tensorflow/lite:string_util",
-            "@org_tensorflow//tensorflow/lite/c:common",
-            "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
-            "@org_tensorflow//tensorflow/lite/kernels:kernel_util",
-            "@org_tensorflow//tensorflow/lite/kernels/internal:tensor",
+            "@litert//tflite:framework",
+            "@litert//tflite:string_util",
+            "@litert//tflite/c:common",
+            "@litert//tflite/kernels:builtin_ops",
+            "@litert//tflite/kernels:kernel_util",
+            "@litert//tflite/kernels/internal:tensor",
         ],
 )
 
@@ -165,8 +164,8 @@ cc_test(
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
-        "@com_google_sentencepiece//src:sentencepiece_cc_proto",
-        "@com_google_sentencepiece//src:sentencepiece_processor",
+        "@com_google_sentencepiece//:sentencepiece_cc_proto",
+        "@com_google_sentencepiece//:sentencepiece_processor",
         "@org_tensorflow//tensorflow/core:lib",
     ],
 )

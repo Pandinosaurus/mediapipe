@@ -15,7 +15,7 @@
 package com.google.mediapipe.framework;
 
 // Package java.nio.charset is not yet available in all Android apps.
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 /** This class represents an error reported by the MediaPipe framework. */
 public class MediaPipeException extends RuntimeException {
@@ -25,9 +25,14 @@ public class MediaPipeException extends RuntimeException {
     this.statusMessage = statusMessage;
   }
 
+  public MediaPipeException(StatusCode statusCode, String statusMessage, Throwable cause) {
+    super(statusCode.description() + ": " + statusMessage, cause);
+    this.statusCode = statusCode;
+    this.statusMessage = statusMessage;
+  }
+
   // Package base.Charsets is deprecated by package java.nio.charset is not
   // yet available in all Android apps.
-  @SuppressWarnings("deprecation")
   MediaPipeException(int code, byte[] message) {
     this(code, new String(message, UTF_8));
   }
@@ -70,7 +75,7 @@ public class MediaPipeException extends RuntimeException {
     }
 
     private final String description;
-  };
+  }
 
   private final StatusCode statusCode;
   private final String statusMessage;

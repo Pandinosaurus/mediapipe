@@ -18,6 +18,7 @@ import dataclasses
 from typing import List, Optional
 
 import flatbuffers
+
 from mediapipe.tasks.metadata import metadata_schema_py_generated as _metadata_fb
 from mediapipe.tasks.metadata import object_detector_metadata_schema_py_generated as _detector_metadata_fb
 from mediapipe.tasks.python.metadata import metadata
@@ -155,7 +156,7 @@ class ObjectDetectorOptionsMd(metadata_info.CustomMetadataMd):
     ssd_anchors_options = _detector_metadata_fb.SsdAnchorsOptionsT()
     fixed_anchors_schema = _detector_metadata_fb.FixedAnchorsSchemaT()
     fixed_anchors_schema.anchors = []
-    for anchor in self.ssd_anchors_options.fixed_anchors_schema.anchors:
+    for anchor in self.ssd_anchors_options.fixed_anchors_schema.anchors:  # pyrefly: ignore[missing-attribute]
       anchor_t = _detector_metadata_fb.FixedAnchorT()
       anchor_t.xCenter = anchor.x_center
       anchor_t.yCenter = anchor.y_center

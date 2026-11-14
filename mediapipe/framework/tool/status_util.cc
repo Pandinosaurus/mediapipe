@@ -14,11 +14,16 @@
 
 #include "mediapipe/framework/tool/status_util.h"
 
+#include <string>
 #include <vector>
 
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/string_view.h"
+#include "absl/base/no_destructor.h"   // from @com_google_absl
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/strings/str_cat.h"      // from @com_google_absl
+#include "absl/strings/str_join.h"     // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/types/span.h"           // from @com_google_absl
 
 namespace mediapipe {
 namespace tool {
@@ -31,9 +36,10 @@ absl::Status StatusFail(absl::string_view message) {
   return absl::Status(absl::StatusCode::kUnknown, message);
 }
 
-absl::Status StatusStop() {
-  return absl::Status(absl::StatusCode::kOutOfRange,
-                      "mediapipe::tool::StatusStop()");
+const absl::Status& StatusStop() {
+  static const absl::NoDestructor<absl::Status> kStatusStop(
+      absl::StatusCode::kOutOfRange, "mediapipe::tool::StatusStop()");
+  return *kStatusStop;
 }
 
 absl::Status AddStatusPrefix(absl::string_view prefix,
@@ -59,8 +65,8 @@ absl::Status CombinedStatus(absl::string_view general_comment,
       }
     }
   }
-  if (error_code == StatusCode::kOk) return OkStatus();
-  Status combined;
+  if (error_code == absl::StatusCode::kOk) return absl::OkStatus();
+  absl::Status combined;
   combined = absl::Status(
       error_code,
       absl::StrCat(general_comment, "\n", absl::StrJoin(errors, "\n")));

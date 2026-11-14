@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/memory/memory.h"
-#include "absl/strings/numbers.h"
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "mediapipe/calculators/core/packet_resampler_calculator.pb.h"
 #include "mediapipe/calculators/tensorflow/unpack_media_sequence_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -21,11 +27,10 @@
 #include "mediapipe/framework/formats/location.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/rectangle.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/util/audio_decoder.pb.h"
 #include "mediapipe/util/sequence/media_sequence.h"
-#include "tensorflow/core/example/example.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 namespace {
@@ -37,6 +42,9 @@ constexpr char kImageFrameRateTag[] = "IMAGE_FRAME_RATE";
 constexpr char kEncodedMediaStartTimestampTag[] =
     "ENCODED_MEDIA_START_TIMESTAMP";
 constexpr char kEncodedMediaTag[] = "ENCODED_MEDIA";
+constexpr char kEncodedAudioStartTimestampTag[] =
+    "ENCODED_MEDIA_START_TIMESTAMP_AUDIO";
+constexpr char kEncodedAudioTag[] = "ENCODED_MEDIA_AUDIO";
 constexpr char kResamplerOptionsTag[] = "RESAMPLER_OPTIONS";
 constexpr char kSandboxedDecoderOptionsTag[] = "SANDBOXED_DECODER_OPTIONS";
 constexpr char kDecoderOptionsTag[] = "DECODER_OPTIONS";
@@ -81,12 +89,12 @@ class UnpackMediaSequenceCalculatorTest : public ::testing::Test {
     if (options != nullptr) {
       *config.mutable_options() = *options;
     }
-    LOG(INFO) << config.DebugString();
-    runner_ = absl::make_unique<CalculatorRunner>(config);
+    ABSL_LOG(INFO) << config.DebugString();
+    runner_ = std::make_unique<CalculatorRunner>(config);
   }
 
   void SetUp() override {
-    sequence_ = absl::make_unique<tf::SequenceExample>();
+    sequence_ = std::make_unique<tf::SequenceExample>();
     mpms::SetClipMediaId(video_id_, sequence_.get());
     mpms::SetClipDataPath(data_path_, sequence_.get());
     mpms::SetClipStartTimestamp(start_time_, sequence_.get());
@@ -94,6 +102,10 @@ class UnpackMediaSequenceCalculatorTest : public ::testing::Test {
     mpms::SetClipEncodedMediaBytes(encoded_video_data_, sequence_.get());
     mpms::SetClipEncodedMediaStartTimestamp(encoded_video_start_timestamp_,
                                             sequence_.get());
+    mpms::SetClipEncodedMediaBytes("AUDIO", encoded_audio_data_,
+                                   sequence_.get());
+    mpms::SetClipEncodedMediaStartTimestamp(
+        "AUDIO", encoded_audio_start_timestamp_, sequence_.get());
     mpms::SetImageFrameRate(image_frame_rate_, sequence_.get());
   }
 
@@ -105,12 +117,14 @@ class UnpackMediaSequenceCalculatorTest : public ::testing::Test {
   const int64_t end_time_ = 5000000;
   const std::string encoded_video_data_ = "encoded_video_data";
   const int64_t encoded_video_start_timestamp_ = 1000000;
+  const std::string encoded_audio_data_ = "encoded_audio_data";
+  const int64_t encoded_audio_start_timestamp_ = 2000000;
   const double image_frame_rate_ = 1.0;
 };
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksOneImage) {
   SetUpCalculator({"IMAGE:images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -139,7 +153,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksOneImage) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoImages) {
   SetUpCalculator({"IMAGE:images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -169,7 +183,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoImages) {
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoPrefixedImages) {
   std::string prefix = "PREFIX";
   SetUpCalculator({"IMAGE_PREFIX:images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -198,7 +212,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoPrefixedImages) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksOneForwardFlowImage) {
   SetUpCalculator({"FORWARD_FLOW_ENCODED:flow_images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   const std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -226,7 +240,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksOneForwardFlowImage) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoForwardFlowImages) {
   SetUpCalculator({"FORWARD_FLOW_ENCODED:flow_images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   const std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -255,7 +269,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoForwardFlowImages) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksBBoxes) {
   SetUpCalculator({"BBOX:test", "FLOAT_FEATURE_OTHER:other"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
 
   std::vector<std::vector<Location>> bboxes = {
       {Location::CreateRelativeBBoxLocation(0.1, 0.2, 0.7, 0.7),
@@ -289,7 +303,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksBBoxes) {
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksPrefixedBBoxes) {
   std::string prefix = "PREFIX";
   SetUpCalculator({"BBOX_PREFIX:test", "FLOAT_FEATURE_OTHER:other"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
 
   std::vector<std::vector<Location>> bboxes = {
       {Location::CreateRelativeBBoxLocation(0.1, 0.2, 0.7, 0.7),
@@ -322,7 +336,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksPrefixedBBoxes) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoFloatLists) {
   SetUpCalculator({"FLOAT_FEATURE_TEST:test", "FLOAT_FEATURE_OTHER:other"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
 
   int num_float_lists = 2;
   for (int i = 0; i < num_float_lists; ++i) {
@@ -362,7 +376,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoFloatLists) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksNonOverlappingTimestamps) {
   SetUpCalculator({"IMAGE:images", "FLOAT_FEATURE_OTHER:other"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -407,7 +421,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksNonOverlappingTimestamps) {
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoPostStreamFloatLists) {
   SetUpCalculator(
       {"FLOAT_FEATURE_FDENSE_AVG:avg", "FLOAT_FEATURE_FDENSE_MAX:max"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   mpms::AddFeatureFloats("FDENSE_AVG", {1.0f, 2.0f}, input_sequence.get());
   mpms::AddFeatureTimestamp("FDENSE_AVG", Timestamp::PostStream().Value(),
                             input_sequence.get());
@@ -441,7 +455,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksTwoPostStreamFloatLists) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksImageWithPostStreamFloatList) {
   SetUpCalculator({"IMAGE:images"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -474,7 +488,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksImageWithPostStreamFloatList) {
 
 TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksPostStreamFloatListWithImage) {
   SetUpCalculator({"FLOAT_FEATURE_FDENSE_MAX:max"}, {});
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -510,7 +524,7 @@ TEST_F(UnpackMediaSequenceCalculatorTest, UnpacksPostStreamFloatListAtPre) {
   options.MutableExtension(UnpackMediaSequenceCalculatorOptions::ext)
       ->set_output_poststream_as_prestream(true);
   SetUpCalculator({"FLOAT_FEATURE_FDENSE_MAX:max"}, {}, {}, &options);
-  auto input_sequence = absl::make_unique<tf::SequenceExample>();
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
   std::string test_video_id = "test_video_id";
   mpms::SetClipMediaId(test_video_id, input_sequence.get());
 
@@ -694,6 +708,30 @@ TEST_F(UnpackMediaSequenceCalculatorTest, GetFrameRateFromExample) {
                    .ValidateAsType<double>());
   EXPECT_EQ(runner_->OutputSidePackets().Tag(kImageFrameRateTag).Get<double>(),
             image_frame_rate_);
+}
+
+TEST_F(UnpackMediaSequenceCalculatorTest, DoesNotCrashOnMissingFrames) {
+  SetUpCalculator({"IMAGE:images"}, {});
+  auto input_sequence = std::make_unique<tf::SequenceExample>();
+  std::string test_video_id = "test_video_id";
+  mpms::SetClipMediaId(test_video_id, input_sequence.get());
+
+  std::string test_image_string = "test_image_string";
+
+  int num_images = 1;
+  for (int i = 0; i < num_images; ++i) {
+    // Add Timestamps but not Images.
+    mpms::AddImageTimestamp(i, input_sequence.get());
+  }
+
+  runner_->MutableSidePackets()->Tag(kSequenceExampleTag) =
+      Adopt(input_sequence.release());
+
+  MP_ASSERT_OK(runner_->Run());
+
+  const std::vector<Packet>& output_packets =
+      runner_->Outputs().Tag(kImageTag).packets;
+  ASSERT_EQ(0, output_packets.size());
 }
 
 }  // namespace

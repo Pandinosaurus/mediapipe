@@ -16,31 +16,25 @@ package com.google.mediapipe.tasks.text.textembedder;
 
 import android.content.Context;
 import android.os.ParcelFileDescriptor;
+import androidx.annotation.Nullable;
 import com.google.auto.value.AutoValue;
 import com.google.mediapipe.proto.CalculatorOptionsProto.CalculatorOptions;
 import com.google.mediapipe.framework.MediaPipeException;
-import com.google.mediapipe.framework.Packet;
-import com.google.mediapipe.framework.PacketGetter;
 import com.google.mediapipe.framework.ProtoUtil;
 import com.google.mediapipe.tasks.components.containers.Embedding;
-import com.google.mediapipe.tasks.components.containers.EmbeddingResult;
 import com.google.mediapipe.tasks.components.containers.proto.EmbeddingsProto;
 import com.google.mediapipe.tasks.components.processors.proto.EmbedderOptionsProto;
 import com.google.mediapipe.tasks.components.utils.CosineSimilarity;
 import com.google.mediapipe.tasks.core.BaseOptions;
-import com.google.mediapipe.tasks.core.OutputHandler;
-import com.google.mediapipe.tasks.core.TaskInfo;
+import com.google.mediapipe.tasks.core.BaseOptionsUtils;
+import com.google.mediapipe.tasks.core.EmbeddingProvider;
 import com.google.mediapipe.tasks.core.TaskOptions;
-import com.google.mediapipe.tasks.core.TaskRunner;
 import com.google.mediapipe.tasks.core.proto.BaseOptionsProto;
 import com.google.mediapipe.tasks.text.textembedder.proto.TextEmbedderGraphOptionsProto;
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 /**
  * Performs embedding extraction on text.
@@ -69,23 +63,10 @@ import java.util.Map;
  */
 public final class TextEmbedder implements AutoCloseable {
   private static final String TAG = TextEmbedder.class.getSimpleName();
-  private static final String TEXT_IN_STREAM_NAME = "text_in";
-
-  @SuppressWarnings("ConstantCaseForConstants")
-  private static final List<String> INPUT_STREAMS =
-      Collections.unmodifiableList(Arrays.asList("TEXT:" + TEXT_IN_STREAM_NAME));
-
-  @SuppressWarnings("ConstantCaseForConstants")
-  private static final List<String> OUTPUT_STREAMS =
-      Collections.unmodifiableList(Arrays.asList("EMBEDDINGS:embeddings_out"));
-
-  private static final int EMBEDDINGS_OUT_STREAM_INDEX = 0;
-  private static final String TASK_GRAPH_NAME =
-      "mediapipe.tasks.text.text_embedder.TextEmbedderGraph";
-  private final TaskRunner runner;
+  private final TextEmbedderExecutor executor;
 
   static {
-    System.loadLibrary("mediapipe_tasks_text_jni");
+    System.loadLibrary("mediapipe_tasks_jni");
     ProtoUtil.registerTypeName(
         EmbeddingsProto.EmbeddingResult.class,
         "mediapipe.tasks.components.containers.proto.EmbeddingResult");
@@ -132,51 +113,46 @@ public final class TextEmbedder implements AutoCloseable {
    * @throws MediaPipeException if there is an error during {@link TextEmbedder} creation.
    */
   public static TextEmbedder createFromOptions(Context context, TextEmbedderOptions options) {
-    OutputHandler<TextEmbedderResult, Void> handler = new OutputHandler<>();
-    handler.setOutputPacketConverter(
-        new OutputHandler.OutputPacketConverter<TextEmbedderResult, Void>() {
-          @Override
-          public TextEmbedderResult convertToTaskResult(List<Packet> packets) {
-            try {
-              return TextEmbedderResult.create(
-                  EmbeddingResult.createFromProto(
-                      PacketGetter.getProto(
-                          packets.get(EMBEDDINGS_OUT_STREAM_INDEX),
-                          EmbeddingsProto.EmbeddingResult.getDefaultInstance())),
-                  packets.get(EMBEDDINGS_OUT_STREAM_INDEX).getTimestamp());
-            } catch (IOException e) {
-              throw new MediaPipeException(
-                  MediaPipeException.StatusCode.INTERNAL.ordinal(), e.getMessage());
-            }
-          }
-
-          @Override
-          public Void convertToTaskInput(List<Packet> packets) {
-            return null;
-          }
-        });
-    TaskRunner runner =
-        TaskRunner.create(
-            context,
-            TaskInfo.<TextEmbedderOptions>builder()
-                .setTaskName(TextEmbedder.class.getSimpleName())
-                .setTaskGraphName(TASK_GRAPH_NAME)
-                .setInputStreams(INPUT_STREAMS)
-                .setOutputStreams(OUTPUT_STREAMS)
-                .setTaskOptions(options)
-                .setEnableFlowLimiting(false)
-                .build(),
-            handler);
-    return new TextEmbedder(runner);
+    if (BaseOptionsUtils.isLiteRtLmModel(context, options.baseOptions())) {
+      return new TextEmbedder(createLiteRtLmExecutor(context, options));
+    }
+    return new TextEmbedder(createGraphExecutor(context, options));
   }
 
-  /**
-   * Constructor to initialize a {@link TextEmbedder} from a {@link TaskRunner}.
-   *
-   * @param runner a {@link TaskRunner}.
-   */
-  private TextEmbedder(TaskRunner runner) {
-    this.runner = runner;
+  private static TextEmbedderExecutor createGraphExecutor(
+      Context context, TextEmbedderOptions options) {
+    return TextEmbedderGraphExecutorImpl.create(context, options);
+  }
+
+  private TextEmbedder(TextEmbedderExecutor executor) {
+    this.executor = executor;
+
+  }
+
+  private static TextEmbedderExecutor createLiteRtLmExecutor(
+      Context context, TextEmbedderOptions options) {
+    // This creates the LiteRT-LM EmbeddingEngine via reflection to avoid a hard dependency on the
+    // LiteRT-LM library.
+    try {
+      Class.forName("com.google.ai.edge.litertlm.EmbeddingEngine");
+      return Class.forName(
+              "com.google.mediapipe.tasks.text.textembedder.TextEmbedderLiteRtLmExecutorImpl")
+          .asSubclass(TextEmbedderExecutor.class)
+          .getConstructor(Context.class, TextEmbedderOptions.class)
+          .newInstance(context, options);
+    } catch (ClassNotFoundException e) {
+      throw new MediaPipeException(
+          MediaPipeException.StatusCode.FAILED_PRECONDITION,
+          "LiteRT-LM model detected, but the required com.google.ai.edge.litertlm library is"
+              + " missing from the classpath. Please add the litertlm-android dependency to your"
+              + " build configuration.",
+          e);
+    } catch (ReflectiveOperationException e) {
+      throw new MediaPipeException(
+          MediaPipeException.StatusCode.INTERNAL,
+          "Failed to load LiteRT-LM Text Embedder integration: " + e.getMessage(),
+          e);
+    }
   }
 
   /**
@@ -185,15 +161,47 @@ public final class TextEmbedder implements AutoCloseable {
    * @param inputText a {@link String} for processing.
    */
   public TextEmbedderResult embed(String inputText) {
-    Map<String, Packet> inputPackets = new HashMap<>();
-    inputPackets.put(TEXT_IN_STREAM_NAME, runner.getPacketCreator().createString(inputText));
-    return (TextEmbedderResult) runner.process(inputPackets);
+    return executor.embed(inputText);
+  }
+
+  /**
+   * Performs embedding extraction on the input text, with optional formatting support for Gecko
+   * models.
+   *
+   * @param inputText a {@link String} for processing.
+   * @param formatContext a {@link TextFormatContext} for Gecko model formatting.
+   */
+  public TextEmbedderResult embed(String inputText, TextFormatContext formatContext) {
+    return executor.embed(inputText, formatContext);
   }
 
   /** Closes and cleans up the {@link TextEmbedder}. */
   @Override
   public void close() {
-    runner.close();
+    executor.close();
+  }
+
+  /** Returns a {@link EmbeddingProvider} for this embedder. */
+  @Nullable
+  public EmbeddingProvider getProvider() {
+    return new EmbeddingProvider() {
+      @Override
+      @Nullable
+      public float[] embedContent(List<Object> content) {
+        for (Object part : content) {
+          if (part instanceof String) {
+            TextEmbedderResult result = embed((String) part);
+            if (result.embeddingResult().embeddings().isEmpty()) {
+              return null;
+            }
+            return result.embeddingResult().embeddings().get(0).floatEmbedding();
+          } else {
+            return null;
+          }
+        }
+        return null;
+      }
+    };
   }
 
   /**
@@ -205,6 +213,106 @@ public final class TextEmbedder implements AutoCloseable {
    */
   public static double cosineSimilarity(Embedding u, Embedding v) {
     return CosineSimilarity.compute(u, v);
+  }
+
+  /** The embedding task type, used to format input text. */
+  public enum EmbeddingType {
+    /** Embed text for retrieval query. */
+    RETRIEVAL_QUERY,
+    /** Embed text for retrieval document. */
+    RETRIEVAL_DOCUMENT,
+    /** Embed text for semantic similarity. */
+    SEMANTIC_SIMILARITY,
+    /** Embed text for classification. */
+    CLASSIFICATION,
+    /** Embed text for clustering. */
+    CLUSTERING,
+    /** Embed text for question answering. */
+    QUESTION_ANSWERING,
+    /** Embed text for fact verification. */
+    FACT_CHECKING,
+    /** Embed text for code retrieval. */
+    CODE_RETRIEVAL,
+  }
+
+  /** The role of the text in the context of the embedding task. */
+  public enum TextRole {
+    QUERY,
+    DOCUMENT,
+  }
+
+  /** Encapsulates formatting instructions for models that require it (like Gecko). */
+  @AutoValue
+  public abstract static class TextFormatContext {
+    public abstract EmbeddingType taskType();
+
+    public abstract Optional<String> title();
+
+    public abstract TextRole role();
+
+    public static Builder builder() {
+      return new AutoValue_TextEmbedder_TextFormatContext.Builder().setRole(TextRole.QUERY);
+    }
+
+    /** Builder for {@link TextFormatContext}. */
+    @AutoValue.Builder
+    public abstract static class Builder {
+      public abstract Builder setTaskType(EmbeddingType value);
+
+      public abstract Builder setTitle(String value);
+
+      public abstract Builder setRole(TextRole value);
+
+      public abstract TextFormatContext build();
+    }
+  }
+
+  private static String getTaskString(EmbeddingType taskType) {
+    switch (taskType) {
+      case RETRIEVAL_QUERY:
+        return "search result";
+      case SEMANTIC_SIMILARITY:
+        return "sentence similarity";
+      case CLASSIFICATION:
+        return "classification";
+      case CLUSTERING:
+        return "clustering";
+      case QUESTION_ANSWERING:
+        return "question answering";
+      case FACT_CHECKING:
+        return "fact checking";
+      case CODE_RETRIEVAL:
+        return "code retrieval";
+      case RETRIEVAL_DOCUMENT:
+    }
+    return "search result";
+  }
+
+  static String getGeckoEmbeddingText(String text, TextFormatContext formatContext) {
+    EmbeddingType taskType = formatContext.taskType();
+    boolean isQuery = formatContext.role() != TextRole.DOCUMENT;
+    String title = formatContext.title().orElse("none");
+    if (title.isEmpty()) {
+      title = "none";
+    }
+    switch (taskType) {
+      case RETRIEVAL_DOCUMENT:
+        return "title: " + title + " | text: " + text;
+      case QUESTION_ANSWERING:
+      case FACT_CHECKING:
+      case CODE_RETRIEVAL:
+        if (isQuery) {
+          return "task: " + getTaskString(taskType) + " | query: " + text;
+        } else {
+          return "title: " + title + " | text: " + text;
+        }
+      case RETRIEVAL_QUERY:
+      case SEMANTIC_SIMILARITY:
+      case CLASSIFICATION:
+      case CLUSTERING:
+        return "task: " + getTaskString(taskType) + " | query: " + text;
+    }
+    return "task: " + getTaskString(taskType) + " | query: " + text;
   }
 
   /** Options for setting up a {@link TextEmbedder}. */
@@ -237,15 +345,28 @@ public final class TextEmbedder implements AutoCloseable {
        */
       public abstract Builder setQuantize(boolean quantize);
 
+      /** Builds a {@link TextEmbedderOptions} instance. */
       public abstract TextEmbedderOptions build();
     }
 
-    abstract BaseOptions baseOptions();
+    /** The {@link BaseOptions} for the text embedder task. */
+    public abstract BaseOptions baseOptions();
 
-    abstract boolean l2Normalize();
+    /**
+     * Whether L2 normalization should be performed on the returned embeddings. Use this option only
+     * if the model does not already contain a native <code>L2_NORMALIZATION</code> TF Lite Op. In
+     * most cases, this is already the case and L2 norm is thus achieved through TF Lite inference.
+     */
+    public abstract boolean l2Normalize();
 
-    abstract boolean quantize();
+    /**
+     * Whether the returned embedding should be quantized to bytes via scalar quantization.
+     * Embeddings are implicitly assumed to be unit-norm and therefore any dimension is guaranteed
+     * to have a value in {@code [-1.0, 1.0]}. Use the l2_normalize option if this is not the case.
+     */
+    public abstract boolean quantize();
 
+    /** Instantiates a builder for {@link TextEmbedderOptions}. */
     public static Builder builder() {
       return new AutoValue_TextEmbedder_TextEmbedderOptions.Builder()
           .setL2Normalize(false)

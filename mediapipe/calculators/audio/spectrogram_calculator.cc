@@ -15,19 +15,23 @@
 // Defines SpectrogramCalculator.
 #include <math.h>
 
-#include <complex>
-#include <deque>
+#include <cstdint>
 #include <memory>
-#include <string>
+#include <optional>
+#include <vector>
 
-#include "absl/strings/string_view.h"
+#include "Eigen/Core"                   // from @eigen
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/strings/string_view.h"   // from @com_google_absl
 #include "audio/dsp/spectrogram/spectrogram.h"
 #include "audio/dsp/window_functions.h"
 #include "mediapipe/calculators/audio/spectrogram_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/status_builder.h"
+#include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/time_series_util.h"
 
 namespace mediapipe {
@@ -62,15 +66,23 @@ constexpr char kFrameOverlapTag[] = "FRAME_OVERLAP";
 // Timestamps regardless of a packet's signal length.
 //
 // Both frame_duration_seconds and frame_overlap_seconds will be
-// rounded to the nearest integer number of samples.  Conseqently, all output
+// rounded to the nearest integer number of samples. Consequently, all output
 // frames will be based on the same number of input samples, and each
 // analysis frame will advance from its predecessor by the same time step.
+//
+// If output_layout is set to SPECTROGRAM_CHANNELS_IN_ROWS, the output will be a
+// matrix with each row being one channel of the spectrogram regardless of the
+// number of channels that need to be output.
+//
+// Input tag:
+//   RESET: (Optional) If a packet is received on this tag, the calculator's
+//          internal state is reset. This clears all internal buffers and
+//          resets cumulative counters and timestamps.
 class SpectrogramCalculator : public CalculatorBase {
  public:
   static absl::Status GetContract(CalculatorContract* cc) {
-    cc->Inputs().Index(0).Set<Matrix>(
-        // Input stream with TimeSeriesHeader.
-    );
+    cc->Inputs().Index(0).Set<Matrix>();
+    cc->Inputs().Tag("RESET").SetAny().Optional();
 
     if (cc->InputSidePackets().HasTag(kFrameDurationTag)) {
       cc->InputSidePackets()
@@ -90,7 +102,9 @@ class SpectrogramCalculator : public CalculatorBase {
 
     SpectrogramCalculatorOptions spectrogram_options =
         cc->Options<SpectrogramCalculatorOptions>();
-    if (!spectrogram_options.allow_multichannel_input()) {
+    if (!spectrogram_options.allow_multichannel_input() ||
+        spectrogram_options.output_layout() ==
+            SpectrogramCalculatorOptions::SPECTROGRAM_CHANNELS_IN_ROWS) {
       if (spectrogram_options.output_type() ==
           SpectrogramCalculatorOptions::COMPLEX) {
         cc->Outputs().Index(0).Set<Eigen::MatrixXcf>(
@@ -130,6 +144,8 @@ class SpectrogramCalculator : public CalculatorBase {
   absl::Status Close(CalculatorContext* cc) override;
 
  private:
+  void Reset();
+
   Timestamp CurrentOutputTimestamp(CalculatorContext* cc) {
     if (use_local_timestamp_) {
       const Timestamp now = cc->InputTimestamp();
@@ -152,6 +168,12 @@ class SpectrogramCalculator : public CalculatorBase {
     return initial_input_timestamp_ +
            round(cumulative_completed_frames_ * frame_step_samples() *
                  Timestamp::kTimestampUnitsPerSecond / input_sample_rate_);
+  }
+
+  TimestampDiff TimeStampDurationForSamples(int64_t num_samples) {
+    return TimestampDiff(
+        round(num_samples * Timestamp::kTimestampUnitsPerSecond /
+              input_sample_rate_));
   }
 
   int frame_step_samples() const {
@@ -198,8 +220,14 @@ class SpectrogramCalculator : public CalculatorBase {
   bool allow_multichannel_input_;
   // Vector of Spectrogram objects, one for each channel.
   std::vector<std::unique_ptr<audio_dsp::Spectrogram>> spectrogram_generators_;
+  // Whether to reset the Spectrogram sample buffer on every call to Process.
+  bool reset_sample_buffer_;
+  // Fixed scale factor applied to input values.
+  float input_scale_;
   // Fixed scale factor applied to output values (regardless of type).
   double output_scale_;
+  // Specifies the output layout.
+  SpectrogramCalculatorOptions::OutputLayout output_layout_;
 
   static const float kLnSquaredMagnitudeToDb;
 };
@@ -209,6 +237,23 @@ REGISTER_CALCULATOR(SpectrogramCalculator);
 // =10/ln(10)*ln(SQUARED_MAGNITUDE).
 // Factor to convert ln(SQUARED_MAGNITUDE) to deciBels = 10.0/ln(10.0).
 const float SpectrogramCalculator::kLnSquaredMagnitudeToDb = 4.342944819032518;
+
+namespace {
+std::unique_ptr<audio_dsp::WindowFunction> MakeWindowFun(
+    const SpectrogramCalculatorOptions::WindowType window_type) {
+  switch (window_type) {
+    // The cosine window and square root of Hann are equivalent.
+    case SpectrogramCalculatorOptions::COSINE:
+    case SpectrogramCalculatorOptions::SQRT_HANN:
+      return std::make_unique<audio_dsp::CosineWindow>();
+    case SpectrogramCalculatorOptions::HANN:
+      return std::make_unique<audio_dsp::HannWindow>();
+    case SpectrogramCalculatorOptions::HAMMING:
+      return std::make_unique<audio_dsp::HammingWindow>();
+  }
+  return nullptr;
+}
+}  // namespace
 
 absl::Status SpectrogramCalculator::Open(CalculatorContext* cc) {
   SpectrogramCalculatorOptions spectrogram_options =
@@ -246,7 +291,7 @@ absl::Status SpectrogramCalculator::Open(CalculatorContext* cc) {
   }
 
   TimeSeriesHeader input_header;
-  MP_RETURN_IF_ERROR(time_series_util::FillTimeSeriesHeaderIfValid(
+  ABSL_RETURN_IF_ERROR(time_series_util::FillTimeSeriesHeaderIfValid(
       cc->Inputs().Index(0).Header(), &input_header));
 
   input_sample_rate_ = input_header.sample_rate();
@@ -263,38 +308,45 @@ absl::Status SpectrogramCalculator::Open(CalculatorContext* cc) {
   pad_final_packet_ = spectrogram_options.pad_final_packet();
   output_type_ = spectrogram_options.output_type();
   allow_multichannel_input_ = spectrogram_options.allow_multichannel_input();
+  output_layout_ = spectrogram_options.output_layout();
 
+  input_scale_ = spectrogram_options.input_scale();
   output_scale_ = spectrogram_options.output_scale();
 
-  std::vector<double> window;
-  switch (spectrogram_options.window_type()) {
-    case SpectrogramCalculatorOptions::COSINE:
-      audio_dsp::CosineWindow().GetPeriodicSamples(frame_duration_samples_,
-                                                   &window);
-      break;
-    case SpectrogramCalculatorOptions::HANN:
-      audio_dsp::HannWindow().GetPeriodicSamples(frame_duration_samples_,
-                                                 &window);
-      break;
-    case SpectrogramCalculatorOptions::HAMMING:
-      audio_dsp::HammingWindow().GetPeriodicSamples(frame_duration_samples_,
-                                                    &window);
-      break;
-    case SpectrogramCalculatorOptions::SQRT_HANN: {
-      audio_dsp::HannWindow().GetPeriodicSamples(frame_duration_samples_,
-                                                 &window);
-      absl::c_transform(window, window.begin(),
-                        [](double x) { return std::sqrt(x); });
-      break;
-    }
+  auto window_fun = MakeWindowFun(spectrogram_options.window_type());
+  if (window_fun == nullptr) {
+    return absl::Status(absl::StatusCode::kInvalidArgument,
+                        absl::StrCat("Invalid window type ",
+                                     spectrogram_options.window_type()));
   }
+  std::vector<double> window;
+
+  window_fun->GetPeriodicSamples(frame_duration_samples_, &window);
 
   // Propagate settings down to the actual Spectrogram object.
+  std::optional<int> fft_size;
+  if (spectrogram_options.fft_size() > 0) {
+    fft_size = spectrogram_options.fft_size();
+  }
+
   spectrogram_generators_.clear();
   for (int i = 0; i < num_input_channels_; i++) {
     spectrogram_generators_.push_back(
-        std::unique_ptr<audio_dsp::Spectrogram>(new audio_dsp::Spectrogram()));
-    spectrogram_generators_[i]->Initialize(window, frame_step_samples());
+        std::make_unique<audio_dsp::Spectrogram>());
+    spectrogram_generators_[i]->Initialize(window, frame_step_samples(),
+                                           fft_size);
+  }
+
+  switch (spectrogram_options.sample_buffer_mode()) {
+    case SpectrogramCalculatorOptions::NONE:
+      reset_sample_buffer_ = false;
+      break;
+    case SpectrogramCalculatorOptions::RESET:
+      reset_sample_buffer_ = true;
+      break;
+    default:
+      return absl::Status(absl::StatusCode::kInvalidArgument,
+                          "Unrecognized spectrogram sample buffer mode.");
   }
 
   num_output_channels_ =
@@ -316,7 +368,9 @@ absl::Status SpectrogramCalculator::Open(CalculatorContext* cc) {
   // output_header.num_samples.
   output_header->clear_packet_rate();
   output_header->clear_num_samples();
-  if (!spectrogram_options.allow_multichannel_input()) {
+  if (!spectrogram_options.allow_multichannel_input() ||
+      output_layout_ ==
+          SpectrogramCalculatorOptions::SPECTROGRAM_CHANNELS_IN_ROWS) {
     cc->Outputs().Index(0).SetHeader(Adopt(output_header.release()));
   } else {
     std::unique_ptr<MultiStreamTimeSeriesHeader> multichannel_output_header(
@@ -341,6 +395,14 @@ absl::Status SpectrogramCalculator::Open(CalculatorContext* cc) {
 }
 
 absl::Status SpectrogramCalculator::Process(CalculatorContext* cc) {
+  if (cc->Inputs().HasTag("RESET") && !cc->Inputs().Tag("RESET").IsEmpty()) {
+    Reset();
+  }
+
+  if (cc->Inputs().Index(0).IsEmpty()) {
+    return absl::OkStatus();
+  }
+
   if (initial_input_timestamp_ == Timestamp::Unstarted()) {
     initial_input_timestamp_ = cc->InputTimestamp();
   }
@@ -353,6 +415,16 @@ absl::Status SpectrogramCalculator::Process(CalculatorContext* cc) {
   cumulative_input_samples_ += input_stream.cols();
 
   return ProcessVector(input_stream, cc);
+}
+
+void SpectrogramCalculator::Reset() {
+  for (int i = 0; i < spectrogram_generators_.size(); ++i) {
+    spectrogram_generators_[i]->ResetSampleBuffer();
+  }
+  cumulative_input_samples_ = 0;
+  cumulative_completed_frames_ = 0;
+  last_completed_frames_ = 0;
+  initial_input_timestamp_ = Timestamp::Unstarted();
 }
 
 template <class OutputMatrixType>
@@ -372,8 +444,11 @@ absl::Status SpectrogramCalculator::ProcessVectorToOutput(
     // Copy one row (channel) of the input matrix into the std::vector.
     std::vector<float> input_vector(input_stream.cols());
     Eigen::Map<Matrix>(&input_vector[0], 1, input_vector.size()) =
-        input_stream.row(channel);
+        input_stream.row(channel) * input_scale_;
 
+    if (reset_sample_buffer_) {
+      spectrogram_generators_[channel]->ResetSampleBuffer();
+    }
     if (!spectrogram_generators_[channel]->ComputeSpectrogram(
             input_vector, &output_vectors)) {
       return absl::Status(absl::StatusCode::kInternal,
@@ -410,13 +485,31 @@ absl::Status SpectrogramCalculator::ProcessVectorToOutput(
   if (!spectrogram_matrices->empty()) {
     RET_CHECK_EQ(spectrogram_matrices->size(), input_stream.rows())
         << "Inconsistent number of spectrogram channels.";
-    if (allow_multichannel_input_) {
-      cc->Outputs().Index(0).Add(spectrogram_matrices.release(),
-                                 CurrentOutputTimestamp(cc));
+
+    if (output_layout_ ==
+        SpectrogramCalculatorOptions::SPECTROGRAM_CHANNELS_IN_ROWS) {
+      int num_frames = spectrogram_matrices->at(0).cols();
+      int num_parameters = spectrogram_matrices->at(0).rows();
+      for (int i = 0; i < num_frames; ++i) {
+        std::unique_ptr<OutputMatrixType> output_matrix(
+            new OutputMatrixType(num_input_channels_, num_parameters));
+        for (int j = 0; j < num_input_channels_; ++j) {
+          output_matrix->row(j) = spectrogram_matrices->at(j).col(i);
+        }
+        auto timestamp = CurrentOutputTimestamp(cc) +
+                         TimeStampDurationForSamples(i * frame_step_samples());
+
+        cc->Outputs().Index(0).Add(output_matrix.release(), timestamp);
+      }
     } else {
-      cc->Outputs().Index(0).Add(
-          new OutputMatrixType(spectrogram_matrices->at(0)),
-          CurrentOutputTimestamp(cc));
+      if (allow_multichannel_input_) {
+        cc->Outputs().Index(0).Add(spectrogram_matrices.release(),
+                                   CurrentOutputTimestamp(cc));
+      } else {
+        cc->Outputs().Index(0).Add(
+            new OutputMatrixType(spectrogram_matrices->at(0)),
+            CurrentOutputTimestamp(cc));
+      }
     }
     cumulative_completed_frames_ += output_vectors.size();
     last_completed_frames_ = output_vectors.size();
@@ -433,9 +526,9 @@ absl::Status SpectrogramCalculator::ProcessVectorToOutput(
 absl::Status SpectrogramCalculator::ProcessVector(const Matrix& input_stream,
                                                   CalculatorContext* cc) {
   switch (output_type_) {
-      // These blocks deliberately ignore clang-format to preserve the
-      // "silhouette" of the different cases.
-      // clang-format off
+    // These blocks deliberately ignore clang-format to preserve the
+    // "silhouette" of the different cases.
+    // clang-format off
     case SpectrogramCalculatorOptions::COMPLEX: {
       return ProcessVectorToOutput(
           input_stream,

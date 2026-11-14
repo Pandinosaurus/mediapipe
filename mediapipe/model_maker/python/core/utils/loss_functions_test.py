@@ -23,6 +23,52 @@ import tensorflow as tf
 from mediapipe.model_maker.python.core.utils import loss_functions
 
 
+class MaskedBinaryCrossentropyTest(tf.test.TestCase, parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='mask_all_ones',
+          mask=tf.constant(
+              [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]]
+          ),
+      ),
+      dict(
+          testcase_name='mask_some_zeros',
+          mask=tf.constant(
+              [[1, 1, 1], [0, 1, 1], [0, 0, 1], [1, 0, 0], [1, 0, 1]]
+          ),
+      ),
+  )
+  def test_masked_binary_crossentropy(self, mask):
+    y_true = tf.constant(
+        [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]]
+    )
+    y_pred = tf.constant([
+        [0.7, 0.1, 0.2],
+        [0.6, 0.3, 0.1],
+        [0.1, 0.5, 0.4],
+        [0.8, 0.1, 0.1],
+        [0.4, 0.5, 0.1],
+    ])
+
+    loss = loss_functions.MaskedBinaryCrossentropy(
+        reduction=tf.keras.losses.Reduction.SUM
+    )
+    loss_value = loss(y_true, y_pred, sample_weight=mask)
+
+    y_true_masked = tf.boolean_mask(y_true, mask)[:, tf.newaxis]
+    y_pred_masked = tf.boolean_mask(y_pred, mask)[:, tf.newaxis]
+    print(y_true_masked)
+    print(y_pred_masked)
+
+    gt_loss = tf.keras.losses.BinaryCrossentropy(
+        reduction=tf.keras.losses.Reduction.SUM
+    )
+    gt_loss_value = gt_loss(y_true_masked, y_pred_masked)
+
+    self.assertAlmostEqual(loss_value, gt_loss_value, delta=1e-4)
+
+
 class FocalLossTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(
@@ -99,6 +145,23 @@ class FocalLossTest(tf.test.TestCase, parameterized.TestCase):
     loss_fn = loss_functions.FocalLoss(gamma=0, class_weight=class_weight)
     loss = loss_fn(y_true, y_pred)
     self.assertNear(loss, expected_loss, 1e-4)
+
+
+class SparseFocalLossTest(tf.test.TestCase):
+
+  def test_sparse_focal_loss_matches_focal_loss(self):
+    num_classes = 2
+    y_pred = tf.constant([[0.8, 0.2], [0.3, 0.7]])
+    y_true = tf.constant([1, 0])
+    y_true_one_hot = tf.one_hot(y_true, num_classes)
+    for gamma in [0.0, 0.5, 1.0]:
+      expected_loss_fn = loss_functions.FocalLoss(gamma=gamma)
+      loss_fn = loss_functions.SparseFocalLoss(
+          gamma=gamma, num_classes=num_classes
+      )
+      expected_loss = expected_loss_fn(y_true_one_hot, y_pred)
+      loss = loss_fn(y_true, y_pred)
+      self.assertNear(loss, expected_loss, 1e-4)
 
 
 class MockPerceptualLoss(loss_functions.PerceptualLoss):

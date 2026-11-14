@@ -14,10 +14,15 @@
 //
 // A simple example to print out "Hello World!" from a MediaPipe graph.
 
-#include "mediapipe/framework/calculator_graph.h"
-#include "mediapipe/framework/port/logging.h"
+#include <string>
+
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/output_stream_poller.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 
@@ -40,21 +45,21 @@ absl::Status PrintHelloWorld() {
       )pb");
 
   CalculatorGraph graph;
-  MP_RETURN_IF_ERROR(graph.Initialize(config));
-  ASSIGN_OR_RETURN(OutputStreamPoller poller,
-                   graph.AddOutputStreamPoller("out"));
-  MP_RETURN_IF_ERROR(graph.StartRun({}));
+  ABSL_RETURN_IF_ERROR(graph.Initialize(config));
+  ABSL_ASSIGN_OR_RETURN(OutputStreamPoller poller,
+                        graph.AddOutputStreamPoller("out"));
+  ABSL_RETURN_IF_ERROR(graph.StartRun({}));
   // Give 10 input packets that contains the same string "Hello World!".
   for (int i = 0; i < 10; ++i) {
-    MP_RETURN_IF_ERROR(graph.AddPacketToInputStream(
+    ABSL_RETURN_IF_ERROR(graph.AddPacketToInputStream(
         "in", MakePacket<std::string>("Hello World!").At(Timestamp(i))));
   }
   // Close the input stream "in".
-  MP_RETURN_IF_ERROR(graph.CloseInputStream("in"));
+  ABSL_RETURN_IF_ERROR(graph.CloseInputStream("in"));
   mediapipe::Packet packet;
   // Get the output packets string.
   while (poller.Next(&packet)) {
-    LOG(INFO) << packet.Get<std::string>();
+    ABSL_LOG(INFO) << packet.Get<std::string>();
   }
   return graph.WaitUntilDone();
 }
@@ -62,6 +67,6 @@ absl::Status PrintHelloWorld() {
 
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
-  CHECK(mediapipe::PrintHelloWorld().ok());
+  ABSL_CHECK(mediapipe::PrintHelloWorld().ok());
   return 0;
 }

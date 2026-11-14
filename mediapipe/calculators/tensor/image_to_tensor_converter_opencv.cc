@@ -17,6 +17,10 @@
 #include <cmath>
 #include <memory>
 
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
 #include "mediapipe/calculators/tensor/image_to_tensor_converter.h"
 #include "mediapipe/calculators/tensor/image_to_tensor_utils.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -24,19 +28,19 @@
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/formats/image_opencv.h"
 #include "mediapipe/framework/formats/tensor.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-#include "mediapipe/framework/port/statusor.h"
 
 namespace mediapipe {
 
 namespace {
 
-class OpenCvProcessor : public ImageToTensorConverter {
+class ImageToTensorOpenCvConverter : public ImageToTensorConverter {
  public:
-  OpenCvProcessor(BorderMode border_mode, Tensor::ElementType tensor_type)
-      : tensor_type_(tensor_type) {
+  ImageToTensorOpenCvConverter(BorderMode border_mode,
+                               Tensor::ElementType tensor_type,
+                               cv::InterpolationFlags flags)
+      : tensor_type_(tensor_type), flags_(flags) {
     switch (border_mode) {
       case BorderMode::kReplicate:
         border_mode_ = cv::BORDER_REPLICATE;
@@ -73,14 +77,14 @@ class OpenCvProcessor : public ImageToTensorConverter {
         input.image_format() == mediapipe::ImageFormat::SRGBA ||
         input.image_format() == mediapipe::ImageFormat::GRAY8;
     if (!is_supported_format) {
-      return InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Unsupported format: ", static_cast<uint32_t>(input.image_format())));
     }
 
     RET_CHECK_GE(tensor_buffer_offset, 0)
         << "The input tensor_buffer_offset needs to be non-negative.";
     const auto& output_shape = output_tensor.shape();
-    MP_RETURN_IF_ERROR(ValidateTensorShape(output_shape));
+    ABSL_RETURN_IF_ERROR(ValidateTensorShape(output_shape));
 
     const int output_height = output_shape.dims[1];
     const int output_width = output_shape.dims[2];
@@ -122,9 +126,11 @@ class OpenCvProcessor : public ImageToTensorConverter {
                           tensor_buffer_offset / sizeof(uint8_t));
         break;
       default:
-        return InvalidArgumentError(
+        return absl::InvalidArgumentError(
             absl::StrCat("Unsupported tensor type: ", tensor_type_));
     }
+
+    ABSL_RETURN_IF_ERROR(ValidateRoi(roi));
 
     const cv::RotatedRect rotated_rect(cv::Point2f(roi.center_x, roi.center_y),
                                        cv::Size2f(roi.width, roi.height),
@@ -148,7 +154,7 @@ class OpenCvProcessor : public ImageToTensorConverter {
     cv::Mat transformed;
     cv::warpPerspective(*src, transformed, projection_matrix,
                         cv::Size(dst_width, dst_height),
-                        /*flags=*/cv::INTER_LINEAR,
+                        /*flags=*/flags_,
                         /*borderMode=*/border_mode_);
 
     if (transformed.channels() > output_channels) {
@@ -159,7 +165,7 @@ class OpenCvProcessor : public ImageToTensorConverter {
 
     constexpr float kInputImageRangeMin = 0.0f;
     constexpr float kInputImageRangeMax = 255.0f;
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         auto transform,
         GetValueRangeTransformation(kInputImageRangeMin, kInputImageRangeMax,
                                     range_min, range_max));
@@ -181,6 +187,7 @@ class OpenCvProcessor : public ImageToTensorConverter {
 
   enum cv::BorderTypes border_mode_;
   Tensor::ElementType tensor_type_;
+  cv::InterpolationFlags flags_;
   int mat_type_;
   int mat_gray_type_;
 };
@@ -189,15 +196,17 @@ class OpenCvProcessor : public ImageToTensorConverter {
 
 absl::StatusOr<std::unique_ptr<ImageToTensorConverter>> CreateOpenCvConverter(
     CalculatorContext* cc, BorderMode border_mode,
-    Tensor::ElementType tensor_type) {
+    Tensor::ElementType tensor_type, cv::InterpolationFlags flags) {
   if (tensor_type != Tensor::ElementType::kInt8 &&
       tensor_type != Tensor::ElementType::kFloat32 &&
       tensor_type != Tensor::ElementType::kUInt8) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Tensor type is currently not supported by OpenCvProcessor, type: ",
-        tensor_type));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Tensor type is currently not supported by "
+                     "ImageToTensorOpenCvConverter, type: ",
+                     tensor_type));
   }
-  return absl::make_unique<OpenCvProcessor>(border_mode, tensor_type);
+  return std::make_unique<ImageToTensorOpenCvConverter>(border_mode,
+                                                        tensor_type, flags);
 }
 
 }  // namespace mediapipe

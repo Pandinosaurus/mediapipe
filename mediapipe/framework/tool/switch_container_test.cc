@@ -17,17 +17,17 @@
 #include <utility>
 #include <vector>
 
-#include "absl/strings/str_replace.h"
-#include "absl/strings/string_view.h"
+#include "absl/log/absl_log.h"         // from @com_google_absl
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/strings/str_replace.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/proto_ns.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/subgraph.h"
 #include "mediapipe/framework/tool/node_chain_subgraph.pb.h"
@@ -385,7 +385,7 @@ TEST(SwitchContainerTest, RunsWithInputStreamHandler) {
   CalculatorGraphConfig supergraph =
       SubnodeContainerExample(R"pb(synchronize_io: true)pb");
   MP_EXPECT_OK(tool::ExpandSubgraphs(&supergraph));
-  LOG(INFO) << supergraph.DebugString();
+  ABSL_LOG(INFO) << supergraph.DebugString();
   RunTestContainer(supergraph, true);
 }
 

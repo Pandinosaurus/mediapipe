@@ -16,7 +16,9 @@ limitations under the License.
 #ifndef MEDIAPIPE_TASKS_CC_COMPONENTS_PROCESSORS_IMAGE_PREPROCESSING_GRAPH_H_
 #define MEDIAPIPE_TASKS_CC_COMPONENTS_PROCESSORS_IMAGE_PREPROCESSING_GRAPH_H_
 
-#include "absl/status/status.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "mediapipe/gpu/gpu_origin.pb.h"
 #include "mediapipe/tasks/cc/components/processors/proto/image_preprocessing_graph_options.pb.h"
 #include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/acceleration.pb.h"
@@ -37,7 +39,7 @@ namespace processors {
 //   core::proto::Acceleration acceleration;
 //   acceleration.mutable_xnnpack();
 //   bool use_gpu = DetermineImagePreprocessingGpuBackend(acceleration);
-//   MP_RETURN_IF_ERROR(ConfigureImagePreprocessingGraph(
+//   ABSL_RETURN_IF_ERROR(ConfigureImagePreprocessingGraph(
 //       model_resources,
 //       use_gpu,
 //       &preprocessing.GetOptions<ImagePreprocessingGraphOptions>()));
@@ -62,6 +64,12 @@ namespace processors {
 //   IMAGE - Image @Optional
 //     The image that has the pixel data stored on the target storage (CPU vs
 //     GPU).
+absl::Status ConfigureImagePreprocessingGraph(
+    const core::ModelResources& model_resources, bool use_gpu,
+    ::mediapipe::GpuOrigin::Mode gpu_origin,
+    proto::ImagePreprocessingGraphOptions* options);
+
+// A convenient function of the above. gpu_origin is set to TOP_LEFT by default.
 absl::Status ConfigureImagePreprocessingGraph(
     const core::ModelResources& model_resources, bool use_gpu,
     proto::ImagePreprocessingGraphOptions* options);

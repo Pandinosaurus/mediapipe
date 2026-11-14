@@ -1,4 +1,5 @@
 load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library", "flatbuffer_py_library")
+load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
 package(
     default_visibility = [
@@ -11,6 +12,12 @@ exports_files(glob([
     "*.fbs",
 ]))
 
+mediapipe_proto_library(
+    name = "bundle_manifest_proto",
+    srcs = ["bundle_manifest.proto"],
+    visibility = ["//visibility:public"],
+)
+
 # Generic schema for model metadata.
 flatbuffer_cc_library(
     name = "metadata_schema_cc",
@@ -19,7 +26,7 @@ flatbuffer_cc_library(
 
 flatbuffer_py_library(
     name = "schema_py",
-    srcs = ["@org_tensorflow//tensorflow/lite/schema:schema.fbs"],
+    srcs = ["@org_tensorflow//tensorflow/compiler/mlir/lite/schema:schema.fbs"],
 )
 
 flatbuffer_py_library(
@@ -45,4 +52,14 @@ flatbuffer_cc_library(
 flatbuffer_py_library(
     name = "object_detector_metadata_schema_py",
     srcs = ["object_detector_metadata_schema.fbs"],
+)
+
+flatbuffer_cc_library(
+    name = "face_detector_metadata_schema_cc",
+    srcs = ["face_detector_metadata_schema.fbs"],
+)
+
+flatbuffer_py_library(
+    name = "face_detector_metadata_schema_py",
+    srcs = ["face_detector_metadata_schema.fbs"],
 )

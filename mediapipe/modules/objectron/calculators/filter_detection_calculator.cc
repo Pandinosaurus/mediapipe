@@ -12,21 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/container/node_hash_set.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
+#include "absl/container/node_hash_set.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"             // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/strings/ascii.h"            // from @com_google_absl
+#include "absl/strings/str_split.h"        // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/detection.pb.h"
 #include "mediapipe/framework/formats/location_data.pb.h"
-#include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/map_util.h"
 #include "mediapipe/framework/port/re2.h"
-#include "mediapipe/framework/port/status.h"
+#include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/modules/objectron/calculators/filter_detection_calculator.pb.h"
 
 namespace mediapipe {
@@ -264,11 +267,11 @@ bool FilterDetectionCalculator::IsValidLabel(const std::string& label) {
 
 bool FilterDetectionCalculator::IsValidScore(float score) {
   if (options_.has_min_score() && score < options_.min_score()) {
-    LOG(ERROR) << "Filter out detection with low score " << score;
+    ABSL_LOG(ERROR) << "Filter out detection with low score " << score;
     return false;
   }
   if (options_.has_max_score() && score > options_.max_score()) {
-    LOG(ERROR) << "Filter out detection with high score " << score;
+    ABSL_LOG(ERROR) << "Filter out detection with high score " << score;
     return false;
   }
   return true;

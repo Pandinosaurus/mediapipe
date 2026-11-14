@@ -14,9 +14,12 @@
 
 #include "mediapipe/framework/output_stream_manager.h"
 
+#include <functional>
 #include <memory>
+#include <string>
 
-#include "absl/memory/memory.h"
+#include "absl/memory/memory.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/input_stream_handler.h"
 #include "mediapipe/framework/input_stream_manager.h"
 #include "mediapipe/framework/output_stream_shard.h"
@@ -32,7 +35,7 @@ namespace {
 
 class OutputStreamManagerTest : public ::testing::Test {
  protected:
-  OutputStreamManagerTest() {}
+  OutputStreamManagerTest() = default;
 
   void SetUp() override {
     packet_type_.Set<std::string>();
@@ -52,7 +55,7 @@ class OutputStreamManagerTest : public ::testing::Test {
         std::bind(&OutputStreamManagerTest::ReportQueueNoOp, this,
                   std::placeholders::_1, std::placeholders::_2);
 
-    output_stream_manager_ = absl::make_unique<OutputStreamManager>();
+    output_stream_manager_ = std::make_unique<OutputStreamManager>();
     MP_ASSERT_OK(output_stream_manager_->Initialize("a_test", &packet_type_));
     output_stream_manager_->PrepareForRun(error_callback_);
     output_stream_shard_.SetSpec(output_stream_manager_->Spec());
@@ -686,6 +689,22 @@ TEST_F(OutputStreamManagerTest, AddPacketAndMovePacket) {
   EXPECT_EQ(Timestamp(21), ComputeBoundAndPropagateUpdates(input_timestamp));
   EXPECT_FALSE(input_stream_manager_.IsEmpty());
   EXPECT_TRUE(errors_.empty());
+}
+
+TEST_F(OutputStreamManagerTest, ShouldReportNumPacketsAdded) {
+  Timestamp input_timestamp = Timestamp(0);
+  output_stream_shard_.AddPacket(
+      MakePacket<std::string>("packet 1").At(Timestamp(1)));
+  output_stream_shard_.AddPacket(
+      MakePacket<std::string>("packet 2").At(Timestamp(2)));
+
+  Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
+      output_stream_shard_, input_timestamp);
+  output_stream_manager_->PropagateUpdatesToMirrors(output_bound,
+                                                    &output_stream_shard_);
+  ASSERT_TRUE(errors_.empty());
+  EXPECT_EQ(input_stream_manager_.NumPacketsAdded(), 2);
+  EXPECT_TRUE(output_stream_shard_.IsEmpty());
 }
 
 }  // namespace

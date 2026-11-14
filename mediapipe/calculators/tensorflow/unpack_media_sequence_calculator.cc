@@ -12,17 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/match.h"
+#include <string>
+#include <utility>
+
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"           // from @com_google_absl
+#include "absl/log/absl_log.h"             // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/status/status_macros.h"     // from @com_google_absl
+#include "absl/strings/match.h"            // from @com_google_absl
+#include "absl/strings/strip.h"            // from @com_google_absl
 #include "mediapipe/calculators/core/packet_resampler_calculator.pb.h"
 #include "mediapipe/calculators/tensorflow/unpack_media_sequence_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/location.h"
-#include "mediapipe/framework/port/status.h"
+#include "mediapipe/framework/port/status_builder.h"
 #include "mediapipe/util/audio_decoder.pb.h"
 #include "mediapipe/util/sequence/media_sequence.h"
-#include "tensorflow/core/example/example.pb.h"
-#include "tensorflow/core/example/feature.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
+#include "tensorflow/core/example/feature.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 
@@ -156,25 +164,19 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
     }
     for (const auto& tag : cc->Outputs().GetTags()) {
       if (absl::StartsWith(tag, kImageTag)) {
-        std::string key = "";
         if (tag != kImageTag) {
           int tag_length = sizeof(kImageTag) / sizeof(*kImageTag) - 1;
-          if (tag[tag_length] == '_') {
-            key = tag.substr(tag_length + 1);
-          } else {
-            continue;  // Skip keys that don't match "(kImageTag)_?"
+          if (tag[tag_length] != '_') {
+            continue;  // Skip keys that don't match "{kImageTag}_*"
           }
         }
         cc->Outputs().Tag(tag).Set<std::string>();
       }
       if (absl::StartsWith(tag, kBBoxTag)) {
-        std::string key = "";
         if (tag != kBBoxTag) {
           int tag_length = sizeof(kBBoxTag) / sizeof(*kBBoxTag) - 1;
-          if (tag[tag_length] == '_') {
-            key = tag.substr(tag_length + 1);
-          } else {
-            continue;  // Skip keys that don't match "(kBBoxTag)_?"
+          if (tag[tag_length] != '_') {
+            continue;  // Skip keys that don't match "{kBBoxTag}_*"
           }
         }
         cc->Outputs().Tag(tag).Set<std::vector<Location>>();
@@ -201,8 +203,8 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
     first_timestamp_seen_ = Timestamp::OneOverPostStream().Value();
     for (const auto& map_kv : sequence_->feature_lists().feature_list()) {
       if (absl::StrContains(map_kv.first, "/timestamp")) {
-        LOG(INFO) << "Found feature timestamps: " << map_kv.first
-                  << " with size: " << map_kv.second.feature_size();
+        ABSL_LOG(INFO) << "Found feature timestamps: " << map_kv.first
+                       << " with size: " << map_kv.second.feature_size();
         int64_t recent_timestamp = Timestamp::PreStream().Value();
         for (int i = 0; i < map_kv.second.feature_size(); ++i) {
           int64_t next_timestamp =
@@ -295,7 +297,7 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
       }
     }
     if (cc->OutputSidePackets().HasTag(kAudioDecoderOptions)) {
-      auto audio_decoder_options = absl::make_unique<AudioDecoderOptions>(
+      auto audio_decoder_options = std::make_unique<AudioDecoderOptions>(
           options.base_audio_decoder_options());
       if (mpms::HasClipStartTimestamp(sequence)) {
         if (options.force_decoding_from_start_of_media()) {
@@ -309,14 +311,14 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
         audio_decoder_options->set_end_time(
             end_time + options.extra_padding_from_media_decoder());
       }
-      LOG(INFO) << "Created AudioDecoderOptions:\n"
-                << audio_decoder_options->DebugString();
+      ABSL_LOG(INFO) << "Created AudioDecoderOptions:\n"
+                     << audio_decoder_options->DebugString();
       cc->OutputSidePackets()
           .Tag(kAudioDecoderOptions)
           .Set(Adopt(audio_decoder_options.release()));
     }
     if (cc->OutputSidePackets().HasTag(kPacketResamplerOptions)) {
-      auto resampler_options = absl::make_unique<CalculatorOptions>();
+      auto resampler_options = std::make_unique<CalculatorOptions>();
       *(resampler_options->MutableExtension(
           PacketResamplerCalculatorOptions::ext)) =
           options.base_packet_resampler_options();
@@ -331,8 +333,8 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
             ->set_end_time(Timestamp::FromSeconds(end_time).Value());
       }
 
-      LOG(INFO) << "Created PacketResamplerOptions:\n"
-                << resampler_options->DebugString();
+      ABSL_LOG(INFO) << "Created PacketResamplerOptions:\n"
+                     << resampler_options->DebugString();
       cc->OutputSidePackets()
           .Tag(kPacketResamplerOptions)
           .Set(Adopt(resampler_options.release()));
@@ -351,7 +353,8 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
   absl::Status Process(CalculatorContext* cc) override {
     if (timestamps_.empty()) {
       // This occurs when we only have metadata to unpack.
-      LOG(INFO) << "only unpacking metadata because there are no timestamps.";
+      ABSL_LOG(INFO)
+          << "only unpacking metadata because there are no timestamps.";
       return tool::StatusStop();
     }
     // In Process(), we loop through timestamps on a reference stream and emit
@@ -404,6 +407,12 @@ class UnpackMediaSequenceCalculator : public CalculatorBase {
               possible_tag = absl::StrCat(kImageTag, "_", feature_key);
             }
             if (cc->Outputs().HasTag(possible_tag)) {
+              // If this is triggered, it means that there's no images to match
+              // the timestamps. This is clearly an error, but we don't want a
+              // segfault.
+              if (mpms::GetImageEncodedSize(feature_key, *sequence_) <= i) {
+                return tool::StatusStop();
+              }
               cc->Outputs()
                   .Tag(possible_tag)
                   .Add(new std::string(

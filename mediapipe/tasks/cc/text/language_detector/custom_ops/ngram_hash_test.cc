@@ -20,17 +20,18 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "flatbuffers/flexbuffers.h"
+#include "absl/log/absl_check.h"      // from @com_google_absl
+#include "absl/types/optional.h"      // from @com_google_absl
+#include "flatbuffers/flexbuffers.h"  // from @flatbuffers
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/tasks/cc/text/language_detector/custom_ops/utils/hash/murmur.h"
-#include "tensorflow/lite/c/common.h"
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/kernels/test_util.h"
-#include "tensorflow/lite/model.h"
-#include "tensorflow/lite/string_util.h"
+#include "tflite/c/common.h"           // from @litert
+#include "tflite/interpreter.h"        // from @litert
+#include "tflite/kernels/register.h"   // from @litert
+#include "tflite/kernels/test_util.h"  // from @litert
+#include "tflite/model.h"              // from @litert
+#include "tflite/string_util.h"        // from @litert
 
 namespace mediapipe::tflite_operations {
 namespace {
@@ -47,7 +48,7 @@ class NGramHashModel : public tflite::SingleOpModel {
   explicit NGramHashModel(const uint64_t seed,
                           const std::vector<int>& ngram_lengths,
                           const std::vector<int>& vocab_sizes,
-                          const absl::optional<int> max_splits = std::nullopt) {
+                          const std::optional<int> max_splits = std::nullopt) {
     // Setup the model inputs.
     Builder fbb;
     size_t start = fbb.StartMap();
@@ -78,13 +79,13 @@ class NGramHashModel : public tflite::SingleOpModel {
 
   void SetupInputTensor(const std::string& input) {
     PopulateStringTensor(input_, {input});
-    CHECK(interpreter_->AllocateTensors() == kTfLiteOk)
+    ABSL_CHECK(interpreter_->AllocateTensors() == kTfLiteOk)
         << "Cannot allocate tensors";
   }
 
   void Invoke(const std::string& input) {
     SetupInputTensor(input);
-    CHECK_EQ(SingleOpModel::Invoke(), kTfLiteOk);
+    ABSL_CHECK_EQ(SingleOpModel::Invoke(), kTfLiteOk);
   }
 
   TfLiteStatus InvokeUnchecked(const std::string& input) {

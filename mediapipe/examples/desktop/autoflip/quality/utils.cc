@@ -19,7 +19,8 @@
 #include <algorithm>
 #include <utility>
 
-#include "absl/memory/memory.h"
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "mediapipe/examples/desktop/autoflip/quality/math_utils.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
@@ -121,12 +122,12 @@ absl::Status PackKeyFrameInfo(const int64_t frame_timestamp_ms,
       ScaleRect(original_detection.location(), scale_x, scale_y, &location);
     } else {
       has_valid_location = false;
-      LOG(ERROR) << "Detection missing a bounding box, skipped.";
+      ABSL_LOG(ERROR) << "Detection missing a bounding box, skipped.";
     }
     if (has_valid_location) {
       if (!ClampRect(original_frame_width, original_frame_height, &location)
                .ok()) {
-        LOG(ERROR) << "Invalid detection bounding box, skipped.";
+        ABSL_LOG(ERROR) << "Invalid detection bounding box, skipped.";
         continue;
       }
       auto* detection = processed_detections->add_detections();
@@ -264,7 +265,7 @@ absl::Status AggregateKeyFrameResults(
     if (!result.required_region_is_empty()) {
       if (required_crop_region_union == nullptr) {
         required_crop_region_union =
-            absl::make_unique<Rect>(result.required_region());
+            std::make_unique<Rect>(result.required_region());
       } else {
         RectUnion(result.required_region(), required_crop_region_union.get());
       }

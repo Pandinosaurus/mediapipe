@@ -19,15 +19,7 @@
 #ifndef MEDIAPIPE_DEPS_MAP_UTIL_H_
 #define MEDIAPIPE_DEPS_MAP_UTIL_H_
 
-#include <stddef.h>
-
-#include <iterator>
-#include <memory>
-#include <string>
-#include <type_traits>
-#include <utility>
-
-#include "mediapipe/framework/port/logging.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
 
 namespace mediapipe {
 
@@ -53,7 +45,7 @@ template <typename M>
 const typename M::value_type::second_type& FindOrDie(
     const M& m, const typename M::value_type::first_type& key) {
   auto it = m.find(key);
-  CHECK(it != m.end()) << "Map key not found: " << key;
+  ABSL_CHECK(it != m.end()) << "Map key not found: " << key;
   return it->second;
 }
 
@@ -63,7 +55,7 @@ typename M::value_type::second_type& FindOrDie(
     M& m,  // NOLINT
     const typename M::value_type::first_type& key) {
   auto it = m.find(key);
-  CHECK(it != m.end()) << "Map key not found: " << key;
+  ABSL_CHECK(it != m.end()) << "Map key not found: " << key;
   return it->second;
 }
 
@@ -138,7 +130,7 @@ bool InsertIfNotPresent(M* m, const typename M::value_type::first_type& key,
 // inserted.
 template <typename M, typename ReverseM>
 bool ReverseMap(const M& m, ReverseM* reverse) {
-  CHECK(reverse != nullptr);
+  ABSL_CHECK(reverse != nullptr);
   for (const auto& kv : m) {
     if (!InsertIfNotPresent(reverse, kv.second, kv.first)) {
       return false;

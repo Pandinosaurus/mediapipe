@@ -18,8 +18,9 @@
 
 #include <string>
 
-#include "absl/status/status.h"  // from @com_google_absl
-#include "absl/strings/cord.h"   // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl  // from @com_google_absl
+#include "absl/strings/cord.h"  // from @com_google_absl   // from @com_google_absl
+#include "mediapipe/tasks/c/core/common.h"
 #include "mediapipe/tasks/cc/common.h"
 
 /** Error domain of MediaPipe task library errors. */
@@ -59,12 +60,12 @@ using absl::StatusCode;
     return NULL;
   }
 
-  void *allocedMemory = malloc(memSize);
-  if (!allocedMemory) {
+  void *allocatedMemory = malloc(memSize);
+  if (!allocatedMemory) {
     exit(-1);
   }
 
-  return allocedMemory;
+  return allocatedMemory;
 }
 
 + (BOOL)checkCppError:(const absl::Status &)status toError:(NSError *_Nullable *)error {
@@ -136,6 +137,108 @@ using absl::StatusCode;
 
   [MPPCommonUtils createCustomError:error withCode:errorCode description:description];
   return NO;
+}
+
++ (BOOL)checkCError:(MpStatus)status
+       errorMessage:(nullable char *)errorMessage
+            toError:(NSError *_Nullable *)error {
+  if (status == kMpOk) {
+    if (errorMessage) {
+      MpErrorFree(errorMessage);
+    }
+    return YES;
+  }
+
+  StatusCode statusCode = StatusCode::kUnknown;
+  switch (status) {
+    case kMpCancelled:
+      statusCode = StatusCode::kCancelled;
+      break;
+    case kMpUnknown:
+      statusCode = StatusCode::kUnknown;
+      break;
+    case kMpInvalidArgument:
+      statusCode = StatusCode::kInvalidArgument;
+      break;
+    case kMpDeadlineExceeded:
+      statusCode = StatusCode::kDeadlineExceeded;
+      break;
+    case kMpNotFound:
+      statusCode = StatusCode::kNotFound;
+      break;
+    case kMpAlreadyExists:
+      statusCode = StatusCode::kAlreadyExists;
+      break;
+    case kMpPermissionDenied:
+      statusCode = StatusCode::kPermissionDenied;
+      break;
+    case kMpResourceExhausted:
+      statusCode = StatusCode::kResourceExhausted;
+      break;
+    case kMpFailedPrecondition:
+      statusCode = StatusCode::kFailedPrecondition;
+      break;
+    case kMpAborted:
+      statusCode = StatusCode::kAborted;
+      break;
+    case kMpOutOfRange:
+      statusCode = StatusCode::kOutOfRange;
+      break;
+    case kMpUnimplemented:
+      statusCode = StatusCode::kUnimplemented;
+      break;
+    case kMpInternal:
+      statusCode = StatusCode::kInternal;
+      break;
+    case kMpUnavailable:
+      statusCode = StatusCode::kUnavailable;
+      break;
+    case kMpDataLoss:
+      statusCode = StatusCode::kDataLoss;
+      break;
+    case kMpUnauthenticated:
+      statusCode = StatusCode::kUnauthenticated;
+      break;
+    default:
+      break;
+  }
+
+  absl::Status cppStatus(statusCode, errorMessage ? errorMessage : "");
+  if (errorMessage) {
+    MpErrorFree(errorMessage);
+  }
+  return [self checkCppError:cppStatus toError:error];
+}
+
++ (nullable NSString *)appID {
+  static NSString *cachedAppID = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    cachedAppID = [[NSBundle mainBundle] bundleIdentifier];
+  });
+  return cachedAppID;
+}
+
++ (nullable NSString *)appVersion {
+  static NSString *cachedAppVersion = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    cachedAppVersion =
+        [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+  });
+  return cachedAppVersion;
+}
+
++ (NSString *)osVersion {
+  static NSString *cachedOSVersion = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    NSOperatingSystemVersion osVersion = [[NSProcessInfo processInfo] operatingSystemVersion];
+    cachedOSVersion =
+        [NSString stringWithFormat:@"%ld.%ld.%ld", (long)osVersion.majorVersion,
+                                   (long)osVersion.minorVersion, (long)osVersion.patchVersion];
+  });
+  return cachedOSVersion;
 }
 
 @end

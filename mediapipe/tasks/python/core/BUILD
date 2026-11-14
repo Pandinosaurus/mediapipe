@@ -26,26 +26,66 @@ py_library(
 )
 
 py_library(
-    name = "base_options",
-    srcs = ["base_options.py"],
-    visibility = [
-        "//mediapipe/model_maker/python/vision/gesture_recognizer:__subpackages__",
-        "//mediapipe/tasks:users",
+    name = "serial_dispatcher",
+    srcs = ["serial_dispatcher.py"],
+    deps = [":mediapipe_c_utils"],
+)
+
+# Foreign Function Interface (FFI) defintion for the MediaPipe Tasks C API.
+py_library(
+    name = "mediapipe_c_bindings",
+    srcs = [
+        "mediapipe_c_bindings.py",
+    ],
+    data = [
+        "//mediapipe/tasks/c:libmediapipe.so",
     ],
     deps = [
-        ":optional_dependencies",
-        "//mediapipe/tasks/cc/core/proto:base_options_py_pb2",
-        "//mediapipe/tasks/cc/core/proto:external_file_py_pb2",
+        ":mediapipe_c_utils",
+        ":serial_dispatcher",
     ],
 )
 
 py_library(
-    name = "task_info",
-    srcs = ["task_info.py"],
-    deps = [
-        ":optional_dependencies",
-        "//mediapipe/calculators/core:flow_limiter_calculator_py_pb2",
-        "//mediapipe/framework:calculator_options_py_pb2",
-        "//mediapipe/framework:calculator_py_pb2",
+    name = "mediapipe_c_bindings_shim",
+    srcs = [
+        "mediapipe_c_bindings.py",
     ],
+    data = [
+        "//mediapipe/tasks/c:libmediapipe.so",
+    ],
+    deps = [
+        ":mediapipe_c_utils",
+        ":serial_dispatcher",
+    ],
+)
+
+py_library(
+    name = "base_options",
+    srcs = ["base_options.py"],
+    visibility = [
+        "//mediapipe/model_maker:__subpackages__",
+        "//mediapipe/tasks:users",
+    ],
+    deps = [
+        ":base_options_c",
+        ":optional_dependencies",
+        "//third_party/py/certifi",
+    ],
+)
+
+py_library(
+    name = "base_options_c",
+    srcs = ["base_options_c.py"],
+)
+
+py_library(
+    name = "mediapipe_c_utils",
+    srcs = ["mediapipe_c_utils.py"],
+)
+
+py_library(
+    name = "async_result_dispatcher",
+    srcs = ["async_result_dispatcher.py"],
+    deps = [":mediapipe_c_utils"],
 )

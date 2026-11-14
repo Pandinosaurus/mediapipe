@@ -14,7 +14,13 @@
 
 #include "mediapipe/framework/output_stream_handler.h"
 
-#include "absl/synchronization/mutex.h"
+#include <string>
+#include <vector>
+
+#include "absl/log/absl_check.h"         // from @com_google_absl
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/strings/str_cat.h"        // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "mediapipe/framework/collection_item_id.h"
 #include "mediapipe/framework/output_stream_shard.h"
 
@@ -31,7 +37,7 @@ absl::Status OutputStreamHandler::InitializeOutputStreamManagers(
 
 absl::Status OutputStreamHandler::SetupOutputShards(
     OutputStreamShardSet* output_shards) {
-  CHECK(output_shards);
+  ABSL_CHECK(output_shards);
   for (CollectionItemId id = output_stream_managers_.BeginId();
        id < output_stream_managers_.EndId(); ++id) {
     OutputStreamManager* manager = output_stream_managers_.Get(id);
@@ -45,14 +51,14 @@ void OutputStreamHandler::PrepareForRun(
   for (auto& manager : output_stream_managers_) {
     manager->PrepareForRun(error_callback);
   }
-  absl::MutexLock lock(&timestamp_mutex_);
+  absl::MutexLock lock(timestamp_mutex_);
   completed_input_timestamps_.clear();
   task_timestamp_bound_ = Timestamp::Unset();
   propagation_state_ = kIdle;
 }
 
 void OutputStreamHandler::Open(OutputStreamShardSet* output_shards) {
-  CHECK(output_shards);
+  ABSL_CHECK(output_shards);
   PropagateOutputPackets(Timestamp::Unstarted(), output_shards);
   for (auto& manager : output_stream_managers_) {
     manager->PropagateHeader();
@@ -62,7 +68,7 @@ void OutputStreamHandler::Open(OutputStreamShardSet* output_shards) {
 
 void OutputStreamHandler::PrepareOutputs(Timestamp input_timestamp,
                                          OutputStreamShardSet* output_shards) {
-  CHECK(output_shards);
+  ABSL_CHECK(output_shards);
   for (CollectionItemId id = output_stream_managers_.BeginId();
        id < output_stream_managers_.EndId(); ++id) {
     output_stream_managers_.Get(id)->ResetShard(&output_shards->Get(id));
@@ -75,11 +81,11 @@ void OutputStreamHandler::UpdateTaskTimestampBound(Timestamp timestamp) {
     return;
   }
   {
-    absl::MutexLock lock(&timestamp_mutex_);
+    absl::MutexLock lock(timestamp_mutex_);
     if (task_timestamp_bound_ == timestamp) {
       return;
     }
-    CHECK_GT(timestamp, task_timestamp_bound_);
+    ABSL_CHECK_GT(timestamp, task_timestamp_bound_);
     task_timestamp_bound_ = timestamp;
     if (propagation_state_ == kPropagatingBound) {
       propagation_state_ = kPropagationPending;
@@ -100,7 +106,7 @@ void OutputStreamHandler::PostProcess(Timestamp input_timestamp) {
     return;
   }
   {
-    absl::MutexLock lock(&timestamp_mutex_);
+    absl::MutexLock lock(timestamp_mutex_);
     completed_input_timestamps_.insert(input_timestamp);
     if (propagation_state_ == kPropagatingBound) {
       propagation_state_ = kPropagationPending;
@@ -118,6 +124,30 @@ std::string OutputStreamHandler::FirstStreamName() const {
     return std::string();
   }
   return (*output_stream_managers_.begin())->Name();
+}
+
+std::string OutputStreamHandler::DebugStreamName(CollectionItemId id) const {
+  const auto tag_map = output_stream_managers_.TagMap();
+  const std::string& stream_name = tag_map->Names()[id.value()];
+  const auto& [stream_tag, stream_idx] = tag_map->TagAndIndexFromId(id);
+  return absl::StrCat(stream_tag, ":", stream_idx, ":", stream_name);
+}
+
+std::vector<OutputStreamHandler::OutputStreamMonitoringInfo>
+OutputStreamHandler::GetMonitoringInfo() {
+  std::vector<OutputStreamMonitoringInfo> monitoring_info_vector;
+  for (CollectionItemId id = output_stream_managers_.BeginId();
+       id < output_stream_managers_.EndId(); ++id) {
+    const auto& stream = output_stream_managers_.Get(id);
+    if (!stream) {
+      continue;
+    }
+    monitoring_info_vector.emplace_back(OutputStreamMonitoringInfo(
+        {.stream_name = DebugStreamName(id),
+         .num_packets_added = stream->NumPacketsAdded(),
+         .next_timestamp_bound = stream->NextTimestampBound()}));
+  }
+  return monitoring_info_vector;
 }
 
 void OutputStreamHandler::TryPropagateTimestampBound(Timestamp input_bound) {
@@ -149,7 +179,7 @@ void OutputStreamHandler::Close(OutputStreamShardSet* output_shards) {
 
 void OutputStreamHandler::PropagateOutputPackets(
     Timestamp input_timestamp, OutputStreamShardSet* output_shards) {
-  CHECK(output_shards);
+  ABSL_CHECK(output_shards);
   for (CollectionItemId id = output_stream_managers_.BeginId();
        id < output_stream_managers_.EndId(); ++id) {
     OutputStreamManager* manager = output_stream_managers_.Get(id);

@@ -15,18 +15,23 @@
 #ifndef MEDIAPIPE_FRAMEWORK_FORMATS_YUV_IMAGE_H_
 #define MEDIAPIPE_FRAMEWORK_FORMATS_YUV_IMAGE_H_
 
-#include <functional>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <utility>
 
-#include "libyuv/video_common.h"
-#include "mediapipe/framework/port/integral_types.h"
+#include "absl/base/attributes.h"           // from @com_google_absl
+#include "absl/functional/any_invocable.h"  // from @com_google_absl
+#include "absl/types/span.h"                // from @com_google_absl
+#include "libyuv/video_common.h"            // from @libyuv
 
 namespace mediapipe {
 
 // Generic data structure for representing various 8-bit YUV image formats with
 // pixel format specification in FourCC. The class is also capable of
 // representing higher bit depth YUV image formats (10-bit, 12-bit, or 16-bit)
-// where each format uses the lower bits of a uint16. For these high bit depth
+// where each format uses the lower bits of a uint16_t. For these high bit depth
 // configurations, only the fully planar representation (i.e., u/v are not
 // interleaved) with chroma subsampling of 420 is supported. Although there are
 // high bit depth fourcc codes, none of them are defined or supported by libyuv,
@@ -57,22 +62,28 @@ namespace mediapipe {
 //   const size_t y_size = frame.linesize[0] * height;
 //   const size_t u_size = frame.linesize[1] * ((height + 1) / 2);
 //   const size_t v_size = frame.linesize[2] * ((height + 1) / 2);
-//   auto y = absl::make_unique<uint8[]> y(y_size);
-//   auto u = absl::make_unique<uint8[]> u(u_size);
-//   auto v = absl::make_unique<uint8[]> v(v_size);
+//   const size_t total_size = y_size + u_size + v_size;
+//   auto data = std::make_unique<uint8_t[]>(total_size);
+//   auto data_span = absl::MakeSpan(data.get(), total_size);
+//   auto y = data_span.subspan(0, y_size);
+//   auto u = data_span.subspan(y_size, u_size);
+//   auto v = data_span.subspan(y_size + u_size, v_size);
 //   libyuv::I420Copy(frame.data[0], frame.linesize[0],
 //                    frame.data[1], frame.linesize[1],
 //                    frame.data[2], frame.linesize[2],
-//                    y.get(), frame.linesize[0],
-//                    u.get(), frame.linesize[1],
-//                    v.get(), frame.linesize[2],
+//                    y.data(), frame.linesize[0],
+//                    u.data(), frame.linesize[1],
+//                    v.data(), frame.linesize[2],
 //                    width, height);
-//   Outputs().Tag("VIDEO")->Add(new YUVImage(libyuv::FOURCC_I420,
-//                                            std::move(y), frame.linesize[0],
-//                                            std::move(u), frame.linesize[1],
-//                                            std::move(v), frame.linesize[2],
-//                                            width, height),
-//                               timestamp);
+//   auto yuv_image = std::make_unique<YUVImage>();
+//   yuv_image->Initialize(
+//       libyuv::FOURCC_I420,
+//       [data = std::move(data)]() mutable { data.reset(); },  //
+//       y, frame.linesize[0],                                  //
+//       u, frame.linesize[1],                                  //
+//       v, frame.linesize[2],                                  //
+//       width, height);
+//   Outputs().Tag("VIDEO")->Add(yuv_image.release(), timestamp);
 //
 // Note that for formats with subsampled U and V channels, like I420, the
 // dimensions of the U and V channels are half the dimensions of the Y channel,
@@ -118,71 +129,132 @@ class YUVImage {
   YUVImage() = default;
   ~YUVImage() { Clear(); }
 
+  // YUVImage is move-only.
+  YUVImage(const YUVImage&) = delete;
+  YUVImage& operator=(const YUVImage&) = delete;
+  YUVImage(YUVImage&& b) { *this = std::move(b); }
+
+  YUVImage& operator=(YUVImage&& b) {
+    if (this != &b) {
+      Clear();
+      deallocation_function_ = std::exchange(b.deallocation_function_, nullptr);
+      fourcc_ = std::exchange(b.fourcc_, libyuv::FOURCC_ANY);
+      std::swap_ranges(data_, data_ + kMaxNumPlanes, b.data_);
+      std::swap_ranges(stride_, stride_ + kMaxNumPlanes, b.stride_);
+      width_ = std::exchange(b.width_, 0);
+      height_ = std::exchange(b.height_, 0);
+      bit_depth_ = std::exchange(b.bit_depth_, 0);
+      matrix_coefficients_ = std::exchange(
+          b.matrix_coefficients_, COLOR_MATRIX_COEFFICIENTS_UNSPECIFIED);
+      full_range_ = std::exchange(b.full_range_, false);
+    }
+    return *this;
+  }
+
   // Convenience constructor
-  YUVImage(libyuv::FourCC fourcc,                   //
-           std::unique_ptr<uint8[]> data_location,  //
-           uint8* data0, int stride0,               //
-           uint8* data1, int stride1,               //
-           uint8* data2, int stride2,               //
+  ABSL_DEPRECATED("Use the span-based Initialize instead.")
+  YUVImage(libyuv::FourCC fourcc,                     //
+           std::unique_ptr<uint8_t[]> data_location,  //
+           uint8_t* data0, int stride0,               //
+           uint8_t* data1, int stride1,               //
+           uint8_t* data2, int stride2,               //
            int width, int height, int bit_depth = 8) {
-    uint8* tmp = data_location.release();
-    std::function<void()> deallocate = [tmp]() { delete[] tmp; };
-    Initialize(fourcc,          //
-               deallocate,      //
-               data0, stride0,  //
-               data1, stride1,  //
-               data2, stride2,  //
+    absl::AnyInvocable<void()> deallocation_function =
+        [data = std::move(data_location)]() mutable { data.reset(); };
+    Initialize(fourcc,                            //
+               std::move(deallocation_function),  //
+               data0, stride0,                    //
+               data1, stride1,                    //
+               data2, stride2,                    //
                width, height, bit_depth);
   }
 
   // Convenience constructor to construct the YUVImage with data stored
   // in three unique_ptrs.
-  YUVImage(libyuv::FourCC fourcc,                        //
-           std::unique_ptr<uint8[]> data0, int stride0,  //
-           std::unique_ptr<uint8[]> data1, int stride1,  //
-           std::unique_ptr<uint8[]> data2, int stride2,  //
+  ABSL_DEPRECATED("Use the span-based Initialize instead.")
+  YUVImage(libyuv::FourCC fourcc,                          //
+           std::unique_ptr<uint8_t[]> data0, int stride0,  //
+           std::unique_ptr<uint8_t[]> data1, int stride1,  //
+           std::unique_ptr<uint8_t[]> data2, int stride2,  //
            int width, int height, int bit_depth = 8) {
-    uint8* tmp0 = data0.release();
-    uint8* tmp1 = data1.release();
-    uint8* tmp2 = data2.release();
-    std::function<void()> deallocate = [tmp0, tmp1, tmp2]() {
-      delete[] tmp0;
-      delete[] tmp1;
-      delete[] tmp2;
-    };
-    Initialize(fourcc,         //
-               deallocate,     //
-               tmp0, stride0,  //
-               tmp1, stride1,  //
-               tmp2, stride2,  //
+    uint8_t* ptr0 = data0.get();
+    uint8_t* ptr1 = data1.get();
+    uint8_t* ptr2 = data2.get();
+    absl::AnyInvocable<void()> deallocation_function =
+        [d0 = std::move(data0), d1 = std::move(data1),
+         d2 = std::move(data2)]() mutable {
+          d0.reset();
+          d1.reset();
+          d2.reset();
+        };
+    Initialize(fourcc,                            //
+               std::move(deallocation_function),  //
+               ptr0, stride0,                     //
+               ptr1, stride1,                     //
+               ptr2, stride2,                     //
+               width, height,                     //
+               bit_depth);
+  }
+
+  // Convenience constructor to resolve ambiguity when nullptr is passed for all
+  // planes.
+  ABSL_DEPRECATED("Use the span-based Initialize instead.")
+  YUVImage(libyuv::FourCC fourcc,        //
+           std::nullptr_t, int stride0,  //
+           std::nullptr_t, int stride1,  //
+           std::nullptr_t, int stride2,  //
+           int width, int height, int bit_depth = 8)
+      : YUVImage(fourcc, std::unique_ptr<uint8_t[]>(), stride0,
+                 std::unique_ptr<uint8_t[]>(), stride1,
+                 std::unique_ptr<uint8_t[]>(), stride2, width, height,
+                 bit_depth) {}
+
+  ABSL_DEPRECATED("Use the span-based Initialize instead.")
+  void Initialize(libyuv::FourCC fourcc,                             //
+                  absl::AnyInvocable<void()> deallocation_function,  //
+                  uint8_t* data0, int stride0,                       //
+                  uint8_t* data1, int stride1,                       //
+                  uint8_t* data2, int stride2,                       //
+                  int width, int height, int bit_depth = 8) {
+    // SAFETY: The span size is a best-effort guess based on stride, height,
+    // fourcc and bit depth.
+    Initialize(fourcc,                            //
+               std::move(deallocation_function),  //
+               SpanFromPtr(data0, stride0, fourcc, 0, height, bit_depth),
+               stride0,  //
+               SpanFromPtr(data1, stride1, fourcc, 1, height, bit_depth),
+               stride1,  //
+               SpanFromPtr(data2, stride2, fourcc, 2, height, bit_depth),
+               stride2,  //
                width, height, bit_depth);
   }
 
   // Clear and initialize member variables.
   //
   // First argument is an enum of FourCC (see http://www.fourcc.org/yuv.php)
-  // defined in libyuv/video_common.h
+  // defined in third_party/libyuv/include/libyuv/video_common.h
   //
   // A deallocation function is provided which will be called on the next
   // Clear() or on destruction.
   //
-  // The next three argument pairs are pointer to pixel data buffer for each
+  // The next three argument pairs are spans to pixel data buffers for each
   // plane and its image stride (http://en.wikipedia.org/wiki/Stride).
+  // Spans that are empty are treated as null planes.
   //
   // The class is very generic and it is up to the user how they want
   // to use this data holder class.  For example, if one intends to
   // use this for NV21, one can ignore data2 and stride2 by giving
-  // nullptr and 0, respectively, and call the right libyuv functions
+  // an empty span and 0, respectively, and call the right libyuv functions
   // for actual processing.  This class is agnostic of the data and the
   // pixel format it holds.
-  void Initialize(libyuv::FourCC fourcc,                        //
-                  std::function<void()> deallocation_function,  //
-                  uint8* data0, int stride0,                    //
-                  uint8* data1, int stride1,                    //
-                  uint8* data2, int stride2,                    //
+  void Initialize(libyuv::FourCC fourcc,                             //
+                  absl::AnyInvocable<void()> deallocation_function,  //
+                  absl::Span<uint8_t> data0, int stride0,            //
+                  absl::Span<uint8_t> data1, int stride1,            //
+                  absl::Span<uint8_t> data2, int stride2,            //
                   int width, int height, int bit_depth = 8) {
     Clear();
-    deallocation_function_ = deallocation_function;
+    deallocation_function_ = std::move(deallocation_function);
     fourcc_ = fourcc;
     data_[0] = data0;
     stride_[0] = stride0;
@@ -201,9 +273,9 @@ class YUVImage {
       deallocation_function_ = nullptr;
     }
     fourcc_ = libyuv::FOURCC_ANY;
-    data_[0] = nullptr;
-    data_[1] = nullptr;
-    data_[2] = nullptr;
+    data_[0] = {};
+    data_[1] = {};
+    data_[2] = {};
     stride_[0] = 0;
     stride_[1] = 0;
     stride_[2] = 0;
@@ -214,7 +286,10 @@ class YUVImage {
 
   // Getters.
   libyuv::FourCC fourcc() const { return fourcc_; }
-  const uint8* data(int index) const { return data_[index]; }
+  const uint8_t* data(int index) const {
+    return data_[index].empty() ? nullptr : data_[index].data();
+  }
+  absl::Span<const uint8_t> data_span(int index) const { return data_[index]; }
   int stride(int index) const { return stride_[index]; }
   int width() const { return width_; }
   int height() const { return height_; }
@@ -226,7 +301,10 @@ class YUVImage {
 
   // Setters.
   void set_fourcc(libyuv::FourCC fourcc) { fourcc_ = fourcc; }
-  uint8* mutable_data(int index) { return data_[index]; }
+  uint8_t* mutable_data(int index) {
+    return data_[index].empty() ? nullptr : data_[index].data();
+  }
+  absl::Span<uint8_t> mutable_data_span(int index) { return data_[index]; }
   void set_stride(int index, int stride) { stride_[index] = stride; }
   void set_width(int width) { width_ = width; }
   void set_height(int height) { height_ = height; }
@@ -238,11 +316,94 @@ class YUVImage {
  private:
   static constexpr int kMaxNumPlanes = 3;
 
-  std::function<void()> deallocation_function_;
+  // Constructs a span from a raw pointer by guessing the buffer size.
+  //
+  // This is a terrible thing to do in general, but exists as a fallback to
+  // support callers that use YUVImage's legacy constructors with raw pointers.
+  static absl::Span<uint8_t> SpanFromPtr(uint8_t* data, int stride,
+                                         libyuv::FourCC fourcc, int plane_index,
+                                         int height, int bit_depth) {
+    if (data == nullptr || stride <= 0 || height <= 0) {
+      return {};
+    }
+    const uint32_t canonical_fourcc =
+        libyuv::CanonicalFourCC(static_cast<uint32_t>(fourcc));
+
+    // Formats with only 1 plane (luma-only or packed): planes 1 and 2 are
+    // empty.
+    if (plane_index > 0) {
+      switch (canonical_fourcc) {
+        case libyuv::FOURCC_I400:
+        case libyuv::FOURCC_J400:
+        case libyuv::FOURCC_YUY2:
+        case libyuv::FOURCC_UYVY:
+        case libyuv::FOURCC_MJPG:
+        case libyuv::FOURCC_ARGB:
+        case libyuv::FOURCC_BGRA:
+        case libyuv::FOURCC_ABGR:
+        case libyuv::FOURCC_RGBA:
+        case libyuv::FOURCC_RAW:
+        case libyuv::FOURCC_24BG:
+        case libyuv::FOURCC_RGBP:
+        case libyuv::FOURCC_RGBO:
+        case libyuv::FOURCC_R444:
+        case libyuv::FOURCC_AR30:
+        case libyuv::FOURCC_AB30:
+        case libyuv::FOURCC_AR64:
+        case libyuv::FOURCC_AB64:
+          return {};
+        default:
+          break;
+      }
+    }
+
+    // Semi-planar formats: plane 2 is empty (UV are interleaved in plane 1).
+    if (plane_index == 2) {
+      switch (canonical_fourcc) {
+        case libyuv::FOURCC_NV12:
+        case libyuv::FOURCC_NV21:
+        case libyuv::FOURCC_P010:
+        case libyuv::FOURCC_P210:
+        case libyuv::FOURCC_M420:
+          return {};
+        default:
+          break;
+      }
+    }
+
+    int plane_height = height;
+    if (plane_index > 0) {
+      if (bit_depth > 8) {
+        plane_height = (height + 1) / 2;
+      } else {
+        switch (canonical_fourcc) {
+          case libyuv::FOURCC_I420:
+          case libyuv::FOURCC_YV12:
+          case libyuv::FOURCC_NV12:
+          case libyuv::FOURCC_NV21:
+          case libyuv::FOURCC_J420:
+          case libyuv::FOURCC_H420:
+          case libyuv::FOURCC_F420:
+          case libyuv::FOURCC_U420:
+          case libyuv::FOURCC_M420:
+          case libyuv::FOURCC_Q420:
+            plane_height = (height + 1) / 2;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    // SAFETY: This is a best-effort guess. For unknown formats, stride * height
+    // is used as an upper bound for all standard YUV plane sizes.
+    return absl::MakeSpan(data, static_cast<size_t>(stride) * plane_height);
+  }
+
+  absl::AnyInvocable<void()> deallocation_function_;
 
   libyuv::FourCC fourcc_ = libyuv::FOURCC_ANY;
-  uint8* data_[kMaxNumPlanes];
-  int stride_[kMaxNumPlanes];
+  absl::Span<uint8_t> data_[kMaxNumPlanes] = {};
+  int stride_[kMaxNumPlanes] = {};
   int width_ = 0;
   int height_ = 0;
   int bit_depth_ = 0;

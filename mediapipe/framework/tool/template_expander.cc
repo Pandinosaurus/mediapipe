@@ -15,23 +15,20 @@
 #include "mediapipe/framework/tool/template_expander.h"
 
 #include <algorithm>
-#include <map>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "absl/strings/ascii.h"
-#include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/ascii.h"         // from @com_google_absl
+#include "absl/strings/match.h"         // from @com_google_absl
+#include "absl/strings/numbers.h"       // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
-#include "mediapipe/framework/port/canonical_errors.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/numbers.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/tool/calculator_graph_template.pb.h"
 #include "mediapipe/framework/tool/proto_util_lite.h"
 
@@ -130,7 +127,7 @@ absl::Status SetMapKeyTypes(const std::vector<FieldType>& key_types,
     if (entry.map_id >= 0) {
       FieldType key_type = key_types[i++];
       std::vector<FieldValue> key_value;
-      MP_RETURN_IF_ERROR(
+      ABSL_RETURN_IF_ERROR(
           ProtoUtilLite::Serialize({entry.key_value}, key_type, &key_value));
       entry.key_type = key_type;
       entry.key_value = key_value.front();
@@ -149,7 +146,7 @@ absl::Status ProtoPathSplit(const std::string& path, ProtoPath* result) {
     rest = rest.substr(1);
   }
   while (!rest.empty()) {
-    MP_RETURN_IF_ERROR(ParseEntry(rest, result));
+    ABSL_RETURN_IF_ERROR(ParseEntry(rest, result));
   }
   return absl::OkStatus();
 }
@@ -158,13 +155,13 @@ absl::Status ProtoPathSplit(const std::string& path, ProtoPath* result) {
 absl::Status ParseProtoPath(const TemplateExpression& rule,
                             std::string base_path, ProtoPath* result) {
   ProtoPath base_entries;
-  MP_RETURN_IF_ERROR(ProtoPathSplit(base_path, &base_entries));
-  MP_RETURN_IF_ERROR(ProtoPathSplit(rule.path(), result));
+  ABSL_RETURN_IF_ERROR(ProtoPathSplit(base_path, &base_entries));
+  ABSL_RETURN_IF_ERROR(ProtoPathSplit(rule.path(), result));
   std::vector<FieldType> key_types;
   for (int type : rule.key_type()) {
     key_types.push_back(static_cast<FieldType>(type));
   }
-  MP_RETURN_IF_ERROR(SetMapKeyTypes(key_types, result));
+  ABSL_RETURN_IF_ERROR(SetMapKeyTypes(key_types, result));
   result->erase(result->begin(), result->begin() + base_entries.size());
   return absl::OkStatus();
 }
@@ -183,8 +180,8 @@ FieldType GetFieldType(const TemplateExpression& rule) {
 int FieldCount(const FieldValue& base, ProtoPath field_path,
                FieldType field_type) {
   int result = 0;
-  CHECK(
-      ProtoUtilLite::GetFieldCount(base, field_path, field_type, &result).ok());
+  ABSL_CHECK_OK(
+      ProtoUtilLite::GetFieldCount(base, field_path, field_type, &result));
   return result;
 }
 
@@ -276,7 +273,7 @@ class TemplateExpanderImpl {
       return absl::OkStatus();
     }
     ProtoPath field_path;
-    MP_RETURN_IF_ERROR(ParseProtoPath(rule, base_path, &field_path));
+    ABSL_RETURN_IF_ERROR(ParseProtoPath(rule, base_path, &field_path));
     return ProtoUtilLite::GetFieldRange(output, field_path, 1,
                                         GetFieldType(rule), base);
   }
@@ -293,7 +290,7 @@ class TemplateExpanderImpl {
       return absl::OkStatus();
     }
     ProtoPath field_path;
-    MP_RETURN_IF_ERROR(ParseProtoPath(rule, base_path, &field_path));
+    ABSL_RETURN_IF_ERROR(ParseProtoPath(rule, base_path, &field_path));
     int field_count = 1;
     if (rule.has_field_value()) {
       // For a non-repeated field, only one value can be specified.
@@ -647,14 +644,14 @@ class TemplateExpanderImpl {
     for (int i = 0; i < args.size(); ++i) {
       if (args[i].has_dict()) {
         FieldValue dict_bytes;
-        CHECK(args[i].dict().SerializePartialToString(&dict_bytes));
+        ABSL_CHECK(args[i].dict().SerializePartialToString(&dict_bytes));
         result->push_back(dict_bytes);
       } else if (args[i].has_num() || args[i].has_str()) {
         std::string text_value = args[i].has_num()
                                      ? mediapipe::SimpleDtoa(args[i].num())
                                      : args[i].str();
         std::vector<FieldValue> r;
-        MP_RETURN_IF_ERROR(
+        ABSL_RETURN_IF_ERROR(
             ProtoUtilLite::Serialize({text_value}, field_type, &r));
         result->push_back(r[0]);
       }
@@ -680,7 +677,7 @@ class TemplateExpanderImpl {
   std::vector<absl::Status>* errors_;
 };
 
-TemplateExpander::TemplateExpander() {}
+TemplateExpander::TemplateExpander() = default;
 
 // Expands template rules within a proto message.
 // Replaces template rules with expanded sub-messages.
@@ -694,7 +691,7 @@ absl::Status TemplateExpander::ExpandTemplates(
   }
   absl::Status status;
   for (const absl::Status& error : errors_) {
-    LOG(ERROR) << error;
+    ABSL_LOG(ERROR) << error;
     status.Update(error);
   }
   return status;

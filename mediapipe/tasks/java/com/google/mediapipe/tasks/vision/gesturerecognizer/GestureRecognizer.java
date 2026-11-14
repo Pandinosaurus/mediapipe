@@ -93,6 +93,10 @@ public final class GestureRecognizer extends BaseVisionTaskApi {
   private static final String TASK_GRAPH_NAME =
       "mediapipe.tasks.vision.gesture_recognizer.GestureRecognizerGraph";
 
+  static {
+    System.loadLibrary("mediapipe_tasks_jni");
+  }
+
   /**
    * Creates a {@link GestureRecognizer} instance from a model file and the default {@link
    * GestureRecognizerOptions}.
@@ -184,7 +188,7 @@ public final class GestureRecognizer extends BaseVisionTaskApi {
           @Override
           public MPImage convertToTaskInput(List<Packet> packets) {
             return new BitmapImageBuilder(
-                    AndroidPacketGetter.getBitmapFromRgb(packets.get(IMAGE_OUT_STREAM_INDEX)))
+                    AndroidPacketGetter.getBitmap(packets.get(IMAGE_OUT_STREAM_INDEX)))
                 .build();
           }
         });
@@ -194,7 +198,7 @@ public final class GestureRecognizer extends BaseVisionTaskApi {
         TaskRunner.create(
             context,
             TaskInfo.<GestureRecognizerOptions>builder()
-                .setTaskName(GestureRecognizer.class.getSimpleName())
+                .setTaskName("GestureRecognizer")
                 .setTaskRunningModeName(recognizerOptions.runningMode().name())
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(INPUT_STREAMS)
@@ -499,7 +503,7 @@ public final class GestureRecognizer extends BaseVisionTaskApi {
               .setBaseOptions(
                   BaseOptionsProto.BaseOptions.newBuilder()
                       .setUseStreamMode(runningMode() != RunningMode.IMAGE)
-                      .mergeFrom(convertBaseOptionsToProto(baseOptions()))
+                      .mergeFrom(convertBaseOptionsToProto(baseOptions(), /* useLiteRt= */ true))
                       .build());
 
       // Setup HandDetectorGraphOptions.

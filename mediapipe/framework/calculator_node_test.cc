@@ -18,14 +18,15 @@
 
 #include <memory>
 
-#include "absl/memory/memory.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/output_side_packet_impl.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -95,7 +96,8 @@ int CountCalculator::num_destroyed_ = 0;
 void SourceNodeOpenedNoOp() {}
 
 void CheckFail(const absl::Status& status) {
-  LOG(FATAL) << "The test triggered the error callback with status: " << status;
+  ABSL_LOG(FATAL) << "The test triggered the error callback with status: "
+                  << status;
 }
 
 class CalculatorNodeTest : public ::testing::Test {
@@ -103,7 +105,7 @@ class CalculatorNodeTest : public ::testing::Test {
   void ReadyForOpen(int* count) { ++(*count); }
 
   void Notification(CalculatorContext* cc, int* count) {
-    CHECK(cc);
+    ABSL_CHECK(cc);
     cc_ = cc;
     ++(*count);
   }
@@ -152,17 +154,18 @@ class CalculatorNodeTest : public ::testing::Test {
           "  input_side_packet: \"input_a\"\n"  // Input side packet index 3
           "}\n");
     }
-    MEDIAPIPE_CHECK_OK(validated_graph_.Initialize(graph_config));
-    MEDIAPIPE_CHECK_OK(InitializeStreams());
+    ABSL_CHECK_OK(validated_graph_.Initialize(graph_config));
+    ABSL_CHECK_OK(InitializeStreams());
 
     input_side_packets_.emplace("input_a", Adopt(new int(42)));
     input_side_packets_.emplace("input_b", Adopt(new int(42)));
 
-    node_ = absl::make_unique<CalculatorNode>();
+    node_ = std::make_unique<CalculatorNode>();
     MP_ASSERT_OK(node_->Initialize(
         &validated_graph_, {NodeTypeInfo::NodeType::CALCULATOR, 2},
         input_stream_managers_.get(), output_stream_managers_.get(),
-        output_side_packets_.get(), &buffer_size_hint_, graph_profiler_));
+        output_side_packets_.get(), &buffer_size_hint_, graph_profiler_,
+        /*graph_service_manager=*/nullptr));
   }
 
   absl::Status PrepareNodeForRun() {
@@ -184,13 +187,13 @@ class CalculatorNodeTest : public ::testing::Test {
     // START OF: code is copied from
     // CalculatorGraph::InitializePacketGeneratorGraph.
     // Create and initialize the output side packets.
-    output_side_packets_ = absl::make_unique<OutputSidePacketImpl[]>(
+    output_side_packets_ = std::make_unique<OutputSidePacketImpl[]>(
         validated_graph_.OutputSidePacketInfos().size());
     for (int index = 0; index < validated_graph_.OutputSidePacketInfos().size();
          ++index) {
       const EdgeInfo& edge_info =
           validated_graph_.OutputSidePacketInfos()[index];
-      MP_RETURN_IF_ERROR(output_side_packets_[index].Initialize(
+      ABSL_RETURN_IF_ERROR(output_side_packets_[index].Initialize(
           edge_info.name, edge_info.packet_type));
     }
     // END OF: code is copied from
@@ -203,7 +206,7 @@ class CalculatorNodeTest : public ::testing::Test {
     for (int index = 0; index < validated_graph_.InputStreamInfos().size();
          ++index) {
       const EdgeInfo& edge_info = validated_graph_.InputStreamInfos()[index];
-      MP_RETURN_IF_ERROR(input_stream_managers_[index].Initialize(
+      ABSL_RETURN_IF_ERROR(input_stream_managers_[index].Initialize(
           edge_info.name, edge_info.packet_type, edge_info.back_edge));
     }
 
@@ -213,7 +216,7 @@ class CalculatorNodeTest : public ::testing::Test {
     for (int index = 0; index < validated_graph_.OutputStreamInfos().size();
          ++index) {
       const EdgeInfo& edge_info = validated_graph_.OutputStreamInfos()[index];
-      MP_RETURN_IF_ERROR(output_stream_managers_[index].Initialize(
+      ABSL_RETURN_IF_ERROR(output_stream_managers_[index].Initialize(
           edge_info.name, edge_info.packet_type));
     }
     // END OF: code is copied from CalculatorGraph::InitializeStreams.
@@ -567,6 +570,44 @@ TEST_F(CalculatorNodeTest, CleanupAfterRunTwice) {
 TEST_F(CalculatorNodeTest, CleanupAfterRunTwiceWithTags) {
   InitializeEnvironment(/*use_tags=*/true);
   TestCleanupAfterRunTwice();
+}
+
+TEST_F(CalculatorNodeTest, ShouldGenerateStreamMonitoringInfo) {
+  InitializeEnvironment(/*use_tags=*/false);
+  MP_ASSERT_OK(PrepareNodeForRun());
+
+  SimulateParentOpenNode();
+  MP_EXPECT_OK(node_->OpenNode());
+
+  OutputStreamShard stream_a_shard;
+  stream_a_shard.SetSpec(stream_a_manager_->Spec());
+  stream_a_shard.Add(new int(1), Timestamp(1));
+  stream_a_manager_->PropagateUpdatesToMirrors(Timestamp(2), &stream_a_shard);
+  EXPECT_EQ(1, schedule_count_);
+  EXPECT_TRUE(node_->TryToBeginScheduling());
+  MP_EXPECT_OK(node_->ProcessNode(cc_));
+  cc_ = nullptr;
+  node_->EndScheduling();
+  EXPECT_EQ(1, schedule_count_);
+
+  const auto stream_monitoring_info = node_->GetStreamMonitoringInfo();
+  EXPECT_EQ(stream_monitoring_info.calculator_name(), "CountCalculator");
+  EXPECT_EQ(stream_monitoring_info.input_stream_infos_size(), 1);
+  EXPECT_THAT(stream_monitoring_info.input_stream_infos(0),
+              mediapipe::EqualsProto(
+                  mediapipe::ParseTextProtoOrDie<InputStreamRuntimeInfo>(R"pb(
+                    stream_name: ":0:stream_a"
+                    number_of_packets_added: 1
+                    minimum_timestamp_or_bound: 2
+                  )pb")));
+  EXPECT_EQ(stream_monitoring_info.output_stream_infos_size(), 1);
+  EXPECT_THAT(stream_monitoring_info.output_stream_infos(0),
+              mediapipe::EqualsProto(
+                  mediapipe::ParseTextProtoOrDie<OutputStreamRuntimeInfo>(R"pb(
+                    stream_name: ":0:stream_b"
+                    number_of_packets_added: 1
+                    minimum_timestamp_or_bound: 2
+                  )pb")));
 }
 
 }  // namespace

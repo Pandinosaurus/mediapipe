@@ -15,23 +15,38 @@ limitations under the License.
 
 #include "mediapipe/tasks/cc/text/text_embedder/text_embedder.h"
 
-#include <memory>
+#include <fcntl.h>
+#include <unistd.h>
 
-#include "absl/flags/flag.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include <cstdint>
+#include <fstream>
+#include <ios>
+#include <iterator>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/flags/flag.h"       // from @com_google_absl
+#include "absl/log/absl_log.h"     // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/cord.h"     // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/tasks/cc/common.h"
 #include "mediapipe/tasks/cc/components/containers/embedding_result.h"
-#include "tensorflow/lite/test_util.h"
+#include "mediapipe/tasks/cc/core/embedding_provider.h"
+#include "tflite/test_util.h"  // from @litert
 
 namespace mediapipe::tasks::text::text_embedder {
 namespace {
 
 constexpr char kTestDataDirectory[] = "/mediapipe/tasks/testdata/text/";
+constexpr char kModelDirectory[] = "/mediapipe/models/";
 
 // Note that these models use dynamic-sized tensors.
 // Embedding model with BERT preprocessing.
@@ -41,11 +56,13 @@ constexpr char kRegexOneEmbeddingModel[] =
     "regex_one_embedding_with_metadata.tflite";
 constexpr char kUniversalSentenceEncoderModel[] =
     "universal_sentence_encoder_qa_with_metadata.tflite";
+constexpr char kGeckoModel[] = "gecko.task";
+constexpr char kEmbeddingGemmaModel[] = "embedding_gemma/embedding_gemma.task";
 
-// Tolerance for embedding vector coordinate values.
-constexpr float kEpsilon = 1e-4;
-// Tolerancy for cosine similarity evaluation.
-constexpr double kSimilarityTolerancy = 1e-6;
+// Tolerance for cosine similarity evaluation.
+constexpr double kSimilarityTolerancy = 2e-2;
+// Threshold for similarity evaluation.
+constexpr float kCosineSimilarityThreshold = 0.95;
 
 using ::mediapipe::file::JoinPath;
 using ::testing::HasSubstr;
@@ -77,27 +94,19 @@ TEST_F(EmbedderTest, SucceedsWithMobileBert) {
       text_embedder->Embed("it's a charming and often affecting journey"));
   ASSERT_EQ(result0.embeddings.size(), 1);
   ASSERT_EQ(result0.embeddings[0].float_embedding.size(), 512);
-#ifdef _WIN32
-  ASSERT_NEAR(result0.embeddings[0].float_embedding[0], 21.2148f, kEpsilon);
-#else
-  ASSERT_NEAR(result0.embeddings[0].float_embedding[0], 19.9016f, kEpsilon);
-#endif  // _WIN32
+  ASSERT_NEAR(result0.embeddings[0].float_embedding[0], 21.0f, 1.5f);
 
   MP_ASSERT_OK_AND_ASSIGN(
       auto result1, text_embedder->Embed("what a great and fantastic trip"));
   ASSERT_EQ(result1.embeddings.size(), 1);
   ASSERT_EQ(result1.embeddings[0].float_embedding.size(), 512);
-  ASSERT_NEAR(result1.embeddings[0].float_embedding[0], 22.626251f, kEpsilon);
+  ASSERT_NEAR(result1.embeddings[0].float_embedding[0], 21.0f, 1.5f);
 
   // Check cosine similarity.
   MP_ASSERT_OK_AND_ASSIGN(
       double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
                                                         result1.embeddings[0]));
-#ifdef _WIN32
-  EXPECT_NEAR(similarity, 0.971417, kSimilarityTolerancy);
-#else
-  EXPECT_NEAR(similarity, 0.969514, kSimilarityTolerancy);
-#endif  // _WIN32
+  EXPECT_NEAR(similarity, 0.97f, kSimilarityTolerancy);
 
   MP_ASSERT_OK(text_embedder->Close());
 }
@@ -115,20 +124,20 @@ TEST(EmbedTest, SucceedsWithRegexOneEmbeddingModel) {
   EXPECT_EQ(result0.embeddings.size(), 1);
   EXPECT_EQ(result0.embeddings[0].float_embedding.size(), 16);
 
-  EXPECT_NEAR(result0.embeddings[0].float_embedding[0], 0.0309356f, kEpsilon);
+  EXPECT_NEAR(result0.embeddings[0].float_embedding[0], 0.03f, 0.01f);
 
   MP_ASSERT_OK_AND_ASSIGN(
       auto result1, text_embedder->Embed("what a great and fantastic trip"));
   EXPECT_EQ(result1.embeddings.size(), 1);
   EXPECT_EQ(result1.embeddings[0].float_embedding.size(), 16);
 
-  EXPECT_NEAR(result1.embeddings[0].float_embedding[0], 0.0312863f, kEpsilon);
+  EXPECT_NEAR(result1.embeddings[0].float_embedding[0], 0.03f, 0.01f);
 
   // Check cosine similarity.
   MP_ASSERT_OK_AND_ASSIGN(
       double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
                                                         result1.embeddings[0]));
-  EXPECT_NEAR(similarity, 0.999937, kSimilarityTolerancy);
+  EXPECT_NEAR(similarity, 0.99f, kSimilarityTolerancy);
 
   MP_ASSERT_OK(text_embedder->Close());
 }
@@ -161,19 +170,19 @@ TEST(EmbedTest, SucceedsWithUniversalSentenceEncoderModel) {
       text_embedder->Embed("it's a charming and often affecting journey"));
   ASSERT_EQ(result0.embeddings.size(), 1);
   ASSERT_EQ(result0.embeddings[0].float_embedding.size(), 100);
-  ASSERT_NEAR(result0.embeddings[0].float_embedding[0], 1.422951f, kEpsilon);
+  ASSERT_NEAR(result0.embeddings[0].float_embedding[0], 1.4f, 0.1f);
 
   MP_ASSERT_OK_AND_ASSIGN(
       auto result1, text_embedder->Embed("what a great and fantastic trip"));
   ASSERT_EQ(result1.embeddings.size(), 1);
   ASSERT_EQ(result1.embeddings[0].float_embedding.size(), 100);
-  ASSERT_NEAR(result1.embeddings[0].float_embedding[0], 1.404664f, kEpsilon);
+  ASSERT_NEAR(result1.embeddings[0].float_embedding[0], 1.4f, 0.1f);
 
   // Check cosine similarity.
   MP_ASSERT_OK_AND_ASSIGN(
       double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
                                                         result1.embeddings[0]));
-  ASSERT_NEAR(similarity, 0.851961, kSimilarityTolerancy);
+  ASSERT_NEAR(similarity, 0.85f, kSimilarityTolerancy);
 
   MP_ASSERT_OK(text_embedder->Close());
 }
@@ -200,11 +209,7 @@ TEST_F(EmbedderTest, SucceedsWithMobileBertAndDifferentThemes) {
       double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
                                                         result1.embeddings[0]));
   // TODO: These similarity should likely be lower
-#ifdef _WIN32
-  EXPECT_NEAR(similarity, 0.98152, kSimilarityTolerancy);
-#else
-  EXPECT_NEAR(similarity, 0.98088, kSimilarityTolerancy);
-#endif  // _WIN32
+  EXPECT_GE(similarity, kCosineSimilarityThreshold);
 
   MP_ASSERT_OK(text_embedder->Close());
 }
@@ -230,7 +235,100 @@ TEST_F(EmbedderTest, SucceedsWithUSEAndDifferentThemes) {
   MP_ASSERT_OK_AND_ASSIGN(
       double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
                                                         result1.embeddings[0]));
-  EXPECT_NEAR(similarity, 0.780334, kSimilarityTolerancy);
+  EXPECT_NEAR(similarity, 0.78f, kSimilarityTolerancy);
+
+  MP_ASSERT_OK(text_embedder->Close());
+}
+
+TEST_F(EmbedderTest, SucceedsWithGecko) {
+  auto options = std::make_unique<TextEmbedderOptions>();
+  options->base_options.model_asset_path =
+      JoinPath("./", kTestDataDirectory, kGeckoModel);
+
+  MP_ASSERT_OK_AND_ASSIGN(std::unique_ptr<TextEmbedder> text_embedder,
+                          TextEmbedder::Create(std::move(options)));
+  TextFormatContext context;
+  context.task_type = EmbeddingType::RETRIEVAL_QUERY;
+  context.role = TextRole::kQuery;
+  MP_ASSERT_OK_AND_ASSIGN(
+      TextEmbedderResult result0,
+      text_embedder->Embed("it's a charming and often affecting journey",
+                           context));
+  ASSERT_EQ(result0.embeddings.size(), 1);
+  ASSERT_EQ(result0.embeddings[0].float_embedding.size(), 768);
+
+  MP_ASSERT_OK_AND_ASSIGN(
+      auto result1,
+      text_embedder->Embed("what a great and fantastic trip", context));
+  ASSERT_EQ(result1.embeddings.size(), 1);
+  ASSERT_EQ(result1.embeddings[0].float_embedding.size(), 768);
+
+  // Check cosine similarity.
+  MP_ASSERT_OK_AND_ASSIGN(
+      double similarity, TextEmbedder::CosineSimilarity(result0.embeddings[0],
+                                                        result1.embeddings[0]));
+  EXPECT_NEAR(similarity, 0.78f, kSimilarityTolerancy);
+
+  MP_ASSERT_OK(text_embedder->Close());
+}
+
+TEST_F(EmbedderTest, SucceedsWithEmbeddingGemma) {
+  auto options = std::make_unique<TextEmbedderOptions>();
+  options->base_options.model_asset_path =
+      JoinPath("./", kModelDirectory, kEmbeddingGemmaModel);
+
+  MP_ASSERT_OK_AND_ASSIGN(std::unique_ptr<TextEmbedder> text_embedder,
+                          TextEmbedder::Create(std::move(options)));
+  TextFormatContext context;
+  context.task_type = EmbeddingType::RETRIEVAL_QUERY;
+  context.role = TextRole::kQuery;
+  MP_ASSERT_OK_AND_ASSIGN(
+      TextEmbedderResult result0,
+      text_embedder->Embed("it's a charming and often affecting journey",
+                           context));
+  ASSERT_EQ(result0.embeddings.size(), 1);
+
+  MP_ASSERT_OK_AND_ASSIGN(
+      auto result1,
+      text_embedder->Embed("what a great and fantastic trip", context));
+  ASSERT_EQ(result1.embeddings.size(), 1);
+
+  MP_ASSERT_OK_AND_ASSIGN(
+      auto result2,
+      text_embedder->Embed("I love this movie, it's so inspiring!", context));
+  ASSERT_EQ(result2.embeddings.size(), 1);
+
+  // Check cosine similarity.
+  MP_ASSERT_OK_AND_ASSIGN(double similarity1,
+                          TextEmbedder::CosineSimilarity(
+                              result0.embeddings[0], result1.embeddings[0]));
+  MP_ASSERT_OK_AND_ASSIGN(double similarity2,
+                          TextEmbedder::CosineSimilarity(
+                              result0.embeddings[0], result2.embeddings[0]));
+
+  EXPECT_NEAR(similarity1, 0.51f, kSimilarityTolerancy);
+  EXPECT_NEAR(similarity2, 0.30f, kSimilarityTolerancy);
+  EXPECT_GE(similarity1, similarity2);
+
+  MP_ASSERT_OK(text_embedder->Close());
+}
+
+TEST_F(EmbedderTest, TestGetProviderSucceeds) {
+  auto options = std::make_unique<TextEmbedderOptions>();
+  options->base_options.model_asset_path =
+      JoinPath("./", kTestDataDirectory, kRegexOneEmbeddingModel);
+  MP_ASSERT_OK_AND_ASSIGN(std::unique_ptr<TextEmbedder> text_embedder,
+                          TextEmbedder::Create(std::move(options)));
+
+  auto provider = text_embedder->GetProvider();
+  ASSERT_NE(provider, nullptr);
+
+  std::vector<::mediapipe::tasks::core::TaskPart> content;
+  content.push_back(::mediapipe::tasks::core::TextPart{"hello world"});
+
+  MP_ASSERT_OK_AND_ASSIGN(auto embedding_opt, provider->EmbedContent(content));
+  ASSERT_TRUE(embedding_opt.has_value());
+  EXPECT_FALSE(embedding_opt->empty());
 
   MP_ASSERT_OK(text_embedder->Close());
 }

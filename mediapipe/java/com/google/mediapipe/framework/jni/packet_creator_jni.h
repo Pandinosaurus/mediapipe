@@ -24,6 +24,10 @@ extern "C" {
 #define PACKET_CREATOR_METHOD(METHOD_NAME) \
   Java_com_google_mediapipe_framework_PacketCreator_##METHOD_NAME
 
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateEmpty)(JNIEnv* env,
+                                                                 jobject thiz,
+                                                                 jlong context);
+
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateReferencePacket)(
     JNIEnv* env, jobject thiz, jlong context, jlong packet);
 
@@ -97,17 +101,21 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateMatrix)(
     JNIEnv* env, jobject thiz, jlong context, jint rows, jint cols,
     jfloatArray data);
 
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateMatrixDirect)(
+    JNIEnv* env, jobject thiz, jlong context, jint rows, jint cols,
+    jobject data);
+
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateCpuImage)(
     JNIEnv* env, jobject thiz, jlong context, jobject byte_buffer, jint width,
     jint height, jint width_step, jint num_channels);
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateGpuImage)(
     JNIEnv* env, jobject thiz, jlong context, jint name, jint width,
-    jint height, jobject texture_release_callback);
+    jint height, jint format, jobject texture_release_callback);
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateGpuBuffer)(
     JNIEnv* env, jobject thiz, jlong context, jint name, jint width,
-    jint height, jobject texture_release_callback);
+    jint height, jint format, jobject texture_release_callback, jint sync_mode);
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateFloat32Array)(
     JNIEnv* env, jobject thiz, jlong context, jfloatArray data);
@@ -117,6 +125,9 @@ JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateFloat32Vector)(
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateInt32Array)(
     JNIEnv* env, jobject thiz, jlong context, jintArray data);
+
+JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateInt32Pair)(
+    JNIEnv* env, jobject thiz, jlong context, jint first, jint second);
 
 JNIEXPORT jlong JNICALL PACKET_CREATOR_METHOD(nativeCreateStringFromByteArray)(
     JNIEnv* env, jobject thiz, jlong context, jbyteArray data);

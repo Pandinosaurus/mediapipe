@@ -14,7 +14,7 @@
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -91,5 +91,6 @@ mediapipe_proto_library(
         ":text_model_type_proto",
         "//mediapipe/framework:calculator_options_proto",
         "//mediapipe/framework:calculator_proto",
+        "//mediapipe/tasks/cc/core/proto:external_file_proto",
     ],
 )

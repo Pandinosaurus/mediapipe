@@ -40,6 +40,30 @@ public class SurfaceOutput {
   }
 
   /**
+   * Sets whether to update the presentation timestamp of the output surface.
+   *
+   * <p>If true, update the surface presentation timestamp from the MediaPipe packets on Android. It
+   * is set to 1000 times the packet timestamp to convert from microseconds (packet) to nanoseconds
+   * (surface).
+   *
+   * <p>This enables consumers to control the presentation time on a SurfaceView or to recover the
+   * timestamp with ImageReader or SurfaceTexture.
+   *
+   * <p>See https://registry.khronos.org/EGL/extensions/ANDROID/EGL_ANDROID_presentation_time.txt
+   * for details about the meaning of the presentation time.
+   *
+   * <p>See also
+   *
+   * <ul>
+   *   <li>https://developer.android.com/reference/android/media/Image#getTimestamp()
+   *   <li>https://developer.android.com/reference/android/graphics/SurfaceTexture#getTimestamp()
+   * </ul>
+   */
+  public void setUpdatePresentationTime(boolean updateTimestamp) {
+    nativeSetUpdatePresentationTime(surfaceHolderPacket.getNativeHandle(), updateTimestamp);
+  }
+
+  /**
    * Connects an Android {@link Surface} to an output.
    *
    * <p>This creates the requisite {@link EGLSurface} internally. If one has already been created
@@ -49,6 +73,7 @@ public class SurfaceOutput {
    * different output, first call {@code setSurface(null)} on the old output.
    *
    * @param surface The surface to connect. Can be {@code null}.
+   * @throws MediaPipeException if the surface cannot be connected or window creation fails.
    */
   public void setSurface(@Nullable Object surface) {
     nativeSetSurface(
@@ -64,6 +89,7 @@ public class SurfaceOutput {
    * EGL_BAD_MATCH}.
    *
    * @param nativeEglSurface Native handle to the egl surface.
+   * @throws MediaPipeException if the surface cannot be connected.
    */
   public void setEglSurface(long nativeEglSurface) {
     nativeSetEglSurface(
@@ -72,8 +98,10 @@ public class SurfaceOutput {
 
   private native void nativeSetFlipY(long nativePacket, boolean flip);
 
-  private native void nativeSetSurface(
-      long nativeContext, long nativePacket, Object surface);
+  private native void nativeSetUpdatePresentationTime(long nativePacket, boolean updateTimestamp);
+
+  private native void nativeSetSurface(long nativeContext, long nativePacket, Object surface);
+
   private native void nativeSetEglSurface(
       long nativeContext, long nativePacket, long nativeEglSurface);
 }

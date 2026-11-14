@@ -13,19 +13,19 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <queue>
 #include <set>
 #include <string>
 
-#include "absl/strings/str_cat.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/collection_item_id.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/framework/tool/container_util.h"
 #include "mediapipe/framework/tool/switch_container.pb.h"
 
@@ -192,8 +192,8 @@ absl::Status SwitchDemuxCalculator::Open(CalculatorContext* cc) {
 }
 
 absl::Status SwitchDemuxCalculator::Process(CalculatorContext* cc) {
-  MP_RETURN_IF_ERROR(RecordPackets(cc));
-  MP_RETURN_IF_ERROR(SendActivePackets(cc));
+  ABSL_RETURN_IF_ERROR(RecordPackets(cc));
+  ABSL_RETURN_IF_ERROR(SendActivePackets(cc));
   return absl::OkStatus();
 }
 
@@ -223,8 +223,8 @@ absl::Status SwitchDemuxCalculator::RecordPackets(CalculatorContext* cc) {
 
 // Returns the channel index for a Timestamp.
 int SwitchDemuxCalculator::ChannelIndex(Timestamp timestamp) {
-  auto it = std::prev(channel_history_.upper_bound(timestamp));
-  return it->second;
+  auto it = channel_history_.upper_bound(timestamp);
+  return it == channel_history_.begin() ? -1 : std::prev(it)->second;
 }
 
 // Dispatches all queued input packets with known channels.
@@ -237,10 +237,12 @@ absl::Status SwitchDemuxCalculator::SendActivePackets(CalculatorContext* cc) {
       auto& queue = input_queue_[input_id];
       while (!queue.empty() && queue.front().Timestamp() <= channel_settled) {
         int channel_index = ChannelIndex(queue.front().Timestamp());
-        std::string output_tag = tool::ChannelTag(tag, channel_index);
-        auto output_id = cc->Outputs().GetId(output_tag, index);
-        if (output_id.IsValid()) {
-          cc->Outputs().Get(output_id).AddPacket(queue.front());
+        if (channel_index != -1) {
+          std::string output_tag = tool::ChannelTag(tag, channel_index);
+          auto output_id = cc->Outputs().GetId(output_tag, index);
+          if (output_id.IsValid()) {
+            cc->Outputs().Get(output_id).AddPacket(queue.front());
+          }
         }
         queue.pop();
       }

@@ -15,8 +15,9 @@ limitations under the License.
 
 #include "mediapipe/tasks/cc/text/tokenizers/bert_tokenizer.h"
 
-#include "mediapipe/framework/port/integral_types.h"
-#include "tensorflow_text/core/kernels/regex_split.h"
+#include <cstdint>
+
+#include "tensorflow_text/core/kernels/regex_split.h"  // from @org_tensorflow_text
 
 namespace mediapipe {
 namespace tasks {

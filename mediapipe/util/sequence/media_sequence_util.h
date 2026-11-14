@@ -89,42 +89,62 @@
 #define MEDIAPIPE_TENSORFLOW_SEQUENCE_MEDIA_SEQUENCE_UTIL_H_
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 
-#include "mediapipe/framework/port/integral_types.h"
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/strings/str_cat.h"      // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/proto_ns.h"
-#include "tensorflow/core/example/example.pb.h"
-#include "tensorflow/core/example/feature.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
+#include "tensorflow/core/example/feature.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 namespace mediasequence {
 
-// Returns true if the key is in the sequence's context.
-inline const bool HasContext(const tensorflow::SequenceExample& sequence,
-                             const std::string& key) {
+// Returns true if the key is in the sequence's context. To be used by vector
+// elements who already provide a GetMyFeatureSize() function that can be used
+// to check if the feature value is empty.
+inline const bool HasContextKey(const tensorflow::SequenceExample& sequence,
+                                absl::string_view key) {
   return (sequence.context().feature().find(key) !=
           sequence.context().feature().end());
 }
 
-inline const std::string merge_prefix(const std::string& prefix,
-                                      const std::string& key) {
+// Returns true if the key is in the sequence's context and the feature has at
+// least one value.
+inline const bool HasContext(const tensorflow::SequenceExample& sequence,
+                             absl::string_view key) {
+  const auto it = sequence.context().feature().find(key);
+  if (it == sequence.context().feature().end()) {
+    return false;
+  }
+
+  const tensorflow::Feature& feature = it->second;
+  return !feature.bytes_list().value().empty() ||
+         !feature.float_list().value().empty() ||
+         !feature.int64_list().value().empty();
+}
+
+inline const std::string merge_prefix(absl::string_view prefix,
+                                      absl::string_view key) {
   if (prefix.empty()) {
-    return key;
+    return std::string(key);
   } else {
-    return prefix + "/" + key;
+    return absl::StrCat(prefix, "/", key);
   }
 }
 
 // Returns a refrerence to the feature in context with the provided key, which
 // must exist.
 inline const tensorflow::Feature& GetContext(
-    const tensorflow::SequenceExample& sequence, const std::string& key) {
+    const tensorflow::SequenceExample& sequence, absl::string_view key) {
   // proto map's at function also checks whether key is present, but it doesn't
   // print the missing key when it check-fails.
   const auto it = sequence.context().feature().find(key);
-  CHECK(it != sequence.context().feature().end())
+  ABSL_CHECK(it != sequence.context().feature().end())
       << "Could not find context key " << key << ". Sequence: \n"
       << sequence.DebugString();
   return it->second;
@@ -133,31 +153,31 @@ inline const tensorflow::Feature& GetContext(
 // Returns a pointer to the feature in context with the provided key, inserting
 // it if necessary.
 inline tensorflow::Feature* MutableContext(
-    const std::string& key, tensorflow::SequenceExample* sequence) {
+    absl::string_view key, tensorflow::SequenceExample* sequence) {
   return &((*sequence->mutable_context()->mutable_feature())[key]);
 }
 
 // Clears the context key specified then adds a new value.
-inline void SetContextFloat(const std::string& key, float value,
+inline void SetContextFloat(absl::string_view key, float value,
                             tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_float_list()->clear_value();
   MutableContext(key, sequence)->mutable_float_list()->add_value(value);
 }
 
-inline void SetContextInt64(const std::string& key, int64 value,
+inline void SetContextInt64(absl::string_view key, int64_t value,
                             tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_int64_list()->clear_value();
   MutableContext(key, sequence)->mutable_int64_list()->add_value(value);
 }
 
-inline void SetContextBytes(const std::string& key, const std::string& value,
+inline void SetContextBytes(absl::string_view key, absl::string_view value,
                             tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_bytes_list()->clear_value();
   MutableContext(key, sequence)->mutable_bytes_list()->add_value(value);
 }
 
 template <typename TContainer>
-void SetContextFloatList(const std::string& key, const TContainer& values,
+void SetContextFloatList(absl::string_view key, const TContainer& values,
                          tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_float_list()->clear_value();
   for (auto value : values) {
@@ -166,7 +186,7 @@ void SetContextFloatList(const std::string& key, const TContainer& values,
 }
 
 template <typename TContainer>
-void SetContextInt64List(const std::string& key, const TContainer& values,
+void SetContextInt64List(absl::string_view key, const TContainer& values,
                          tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_int64_list()->clear_value();
   for (auto value : values) {
@@ -175,7 +195,7 @@ void SetContextInt64List(const std::string& key, const TContainer& values,
 }
 
 template <typename TContainer>
-void SetContextBytesList(const std::string& key, const TContainer& values,
+void SetContextBytesList(absl::string_view key, const TContainer& values,
                          tensorflow::SequenceExample* sequence) {
   MutableContext(key, sequence)->mutable_bytes_list()->clear_value();
   for (const auto& value : values) {
@@ -185,7 +205,7 @@ void SetContextBytesList(const std::string& key, const TContainer& values,
 
 // Returns true if the key is in the sequence's FeatureLists.
 inline const bool HasFeatureList(const tensorflow::SequenceExample& sequence,
-                                 const std::string& key) {
+                                 absl::string_view key) {
   return (sequence.feature_lists().feature_list().find(key) !=
           sequence.feature_lists().feature_list().end());
 }
@@ -193,20 +213,20 @@ inline const bool HasFeatureList(const tensorflow::SequenceExample& sequence,
 // Returns a refrerence to the feature list with the provided key, which must
 // exist.
 inline const tensorflow::FeatureList& GetFeatureList(
-    const tensorflow::SequenceExample& sequence, const std::string& key) {
+    const tensorflow::SequenceExample& sequence, absl::string_view key) {
   return sequence.feature_lists().feature_list().at(key);
 }
 
 // Returns a pointer to the feature list with the provided key, inserting
 // it if necessary.
 inline tensorflow::FeatureList* MutableFeatureList(
-    const std::string& key, tensorflow::SequenceExample* sequence) {
+    absl::string_view key, tensorflow::SequenceExample* sequence) {
   return &((*sequence->mutable_feature_lists()->mutable_feature_list())[key]);
 }
 
 // Returns the size of the FeatureList or 0 if the feature list is not present.
 inline const int GetFeatureListSize(const tensorflow::SequenceExample& sequence,
-                                    const std::string& key) {
+                                    absl::string_view key) {
   if (HasFeatureList(sequence, key)) {
     return GetFeatureList(sequence, key).feature_size();
   } else {
@@ -217,21 +237,21 @@ inline const int GetFeatureListSize(const tensorflow::SequenceExample& sequence,
 // Returns a refrerence to the float values for the feature list indicated by
 // key at the provided sequence index.
 inline const proto_ns::RepeatedField<float>& GetFloatsAt(
-    const tensorflow::SequenceExample& sequence, const std::string& key,
+    const tensorflow::SequenceExample& sequence, absl::string_view key,
     const int index) {
   const tensorflow::FeatureList& fl = GetFeatureList(sequence, key);
-  CHECK_LT(index, fl.feature_size())
+  ABSL_CHECK_LT(index, fl.feature_size())
       << "Sequence: \n " << sequence.DebugString();
   return fl.feature().Get(index).float_list().value();
 }
 
-// Returns a refrerence to the int64 values for the feature list indicated by
+// Returns a refrerence to the int64_t values for the feature list indicated by
 // key at the provided sequence index.
-inline const proto_ns::RepeatedField<int64>& GetInt64sAt(
-    const tensorflow::SequenceExample& sequence, const std::string& key,
+inline const proto_ns::RepeatedField<int64_t>& GetInt64sAt(
+    const tensorflow::SequenceExample& sequence, absl::string_view key,
     const int index) {
   const tensorflow::FeatureList& fl = GetFeatureList(sequence, key);
-  CHECK_LT(index, fl.feature_size())
+  ABSL_CHECK_LT(index, fl.feature_size())
       << "Sequence: \n " << sequence.DebugString();
   return fl.feature().Get(index).int64_list().value();
 }
@@ -239,17 +259,17 @@ inline const proto_ns::RepeatedField<int64>& GetInt64sAt(
 // Returns a refrerence to the string values for the feature list indicated by
 // key at the provided sequence index.
 inline const proto_ns::RepeatedPtrField<std::string>& GetBytesAt(
-    const tensorflow::SequenceExample& sequence, const std::string& key,
+    const tensorflow::SequenceExample& sequence, absl::string_view key,
     const int index) {
   const tensorflow::FeatureList& fl = GetFeatureList(sequence, key);
-  CHECK_LT(index, fl.feature_size())
+  ABSL_CHECK_LT(index, fl.feature_size())
       << "Sequence: \n " << sequence.DebugString();
   return fl.feature().Get(index).bytes_list().value();
 }
 
 // Adds any iterable (with begin and end) to a FeatureList as a float Feature.
 template <typename TContainer>
-void AddFloatContainer(const std::string& key, const TContainer& float_list,
+void AddFloatContainer(absl::string_view key, const TContainer& float_list,
                        tensorflow::SequenceExample* sequence) {
   auto* feature = MutableFeatureList(key, sequence)->add_feature();
   std::copy(float_list.begin(), float_list.end(),
@@ -257,9 +277,9 @@ void AddFloatContainer(const std::string& key, const TContainer& float_list,
                 feature->mutable_float_list()->mutable_value()));
 }
 
-// Adds any iterable (with begin and end) to a FeatureList as a int64 Feature.
+// Adds any iterable (with begin and end) to a FeatureList as a int64_t Feature.
 template <typename TContainer>
-void AddInt64Container(const std::string& key, const TContainer& int64_list,
+void AddInt64Container(absl::string_view key, const TContainer& int64_list,
                        tensorflow::SequenceExample* sequence) {
   auto* feature = MutableFeatureList(key, sequence)->add_feature();
   std::copy(int64_list.begin(), int64_list.end(),
@@ -269,7 +289,7 @@ void AddInt64Container(const std::string& key, const TContainer& int64_list,
 
 // Adds any iterable (with begin and end) to a FeatureList as a bytes Feature.
 template <typename TContainer>
-void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
+void AddBytesContainer(absl::string_view key, const TContainer& bytes_list,
                        tensorflow::SequenceExample* sequence) {
   auto* feature = MutableFeatureList(key, sequence)->add_feature();
   std::copy(bytes_list.begin(), bytes_list.end(),
@@ -290,87 +310,83 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 
 // This macro creates functions for HasX, GetX, ClearX, and SetX where X is a
 // name and the value stored is a string in the context.
-#define PREFIXED_BYTES_CONTEXT_FEATURE(name, key)                             \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasContext(sequence, merge_prefix(prefix, key));                   \
-  }                                                                           \
-  inline const std::string& CONCAT_STR2(Get, name)(                           \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .bytes_list()                                                         \
-        .value(0);                                                            \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_context()->mutable_feature()->erase(                    \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const std::string& value,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextBytes(merge_prefix(prefix, key), value, sequence);              \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_BYTES_CONTEXT_FEATURE(name, key)                              \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContext(sequence, merge_prefix(prefix, key));                    \
+  }                                                                            \
+  inline const std::string& CONCAT_STR2(Get, name)(                            \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .bytes_list()                                                          \
+        .value(0);                                                             \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_context()->mutable_feature()->erase(                     \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
+    SetContextBytes(merge_prefix(prefix, key), value, sequence);               \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
-#define FIXED_PREFIX_BYTES_CONTEXT_FEATURE(name, key, prefix)                 \
-  PREFIXED_BYTES_CONTEXT_FEATURE(name, key);                                  \
-  inline const bool CONCAT_STR2(                                              \
-      Has, name)(const tensorflow::SequenceExample& sequence) {               \
-    return CONCAT_STR2(Has, name)(prefix, sequence);                          \
-  }                                                                           \
-  inline const std::string& CONCAT_STR2(                                      \
-      Get, name)(const tensorflow::SequenceExample& sequence) {               \
-    return CONCAT_STR2(Get, name)(prefix, sequence);                          \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear,                                              \
-                          name)(tensorflow::SequenceExample * sequence) {     \
-    CONCAT_STR2(Clear, name)(prefix, sequence);                               \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& value,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    CONCAT_STR2(Set, name)(prefix, value, sequence);                          \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name, Key)() {                    \
-    return merge_prefix(prefix, key);                                         \
+#define FIXED_PREFIX_BYTES_CONTEXT_FEATURE(name, key, prefix)                  \
+  PREFIXED_BYTES_CONTEXT_FEATURE(name, key);                                   \
+  inline const bool CONCAT_STR2(                                               \
+      Has, name)(const tensorflow::SequenceExample& sequence) {                \
+    return CONCAT_STR2(Has, name)(prefix, sequence);                           \
+  }                                                                            \
+  inline const std::string& CONCAT_STR2(                                       \
+      Get, name)(const tensorflow::SequenceExample& sequence) {                \
+    return CONCAT_STR2(Get, name)(prefix, sequence);                           \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear,                                               \
+                          name)(tensorflow::SequenceExample * sequence) {      \
+    CONCAT_STR2(Clear, name)(prefix, sequence);                                \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
+    CONCAT_STR2(Set, name)(prefix, value, sequence);                           \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name, Key)() {                     \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define BYTES_CONTEXT_FEATURE(name, key) \
   FIXED_PREFIX_BYTES_CONTEXT_FEATURE(name, key, "")
 
 // This macro creates functions for HasX, GetX, ClearX, and SetX where X is a
-// name and the value stored is a int64 in the context.
-#define PREFIXED_INT64_CONTEXT_FEATURE(name, key)                             \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasContext(sequence, merge_prefix(prefix, key));                   \
-  }                                                                           \
-  inline const int64 CONCAT_STR2(Get, name)(                                  \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .int64_list()                                                         \
-        .value(0);                                                            \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_context()->mutable_feature()->erase(                    \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const int64& value,                      \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextInt64(merge_prefix(prefix, key), value, sequence);              \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+// name and the value stored is a int64_t in the context.
+#define PREFIXED_INT64_CONTEXT_FEATURE(name, key)                              \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContext(sequence, merge_prefix(prefix, key));                    \
+  }                                                                            \
+  inline const int64_t CONCAT_STR2(Get, name)(                                 \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .int64_list()                                                          \
+        .value(0);                                                             \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_context()->mutable_feature()->erase(                     \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const int64_t& value,                     \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextInt64(merge_prefix(prefix, key), value, sequence);               \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_INT64_CONTEXT_FEATURE(name, key, prefix)                 \
@@ -379,7 +395,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
       Has, name)(const tensorflow::SequenceExample& sequence) {               \
     return CONCAT_STR2(Has, name)(prefix, sequence);                          \
   }                                                                           \
-  inline const int64 CONCAT_STR2(                                             \
+  inline const int64_t CONCAT_STR2(                                           \
       Get, name)(const tensorflow::SequenceExample& sequence) {               \
     return CONCAT_STR2(Get, name)(prefix, sequence);                          \
   }                                                                           \
@@ -387,7 +403,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                           name)(tensorflow::SequenceExample * sequence) {     \
     CONCAT_STR2(Clear, name)(prefix, sequence);                               \
   }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const int64& value,                      \
+  inline void CONCAT_STR2(Set, name)(const int64_t& value,                    \
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Set, name)(prefix, value, sequence);                          \
   }                                                                           \
@@ -400,32 +416,30 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 
 // This macro creates functions for HasX, GetX, ClearX, and SetX where X is a
 // name and the value stored is a float in the context.
-#define PREFIXED_FLOAT_CONTEXT_FEATURE(name, key)                             \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasContext(sequence, merge_prefix(prefix, key));                   \
-  }                                                                           \
-  inline const float CONCAT_STR2(Get, name)(                                  \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .float_list()                                                         \
-        .value(0);                                                            \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_context()->mutable_feature()->erase(                    \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const float& value,                      \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextFloat(merge_prefix(prefix, key), value, sequence);              \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_FLOAT_CONTEXT_FEATURE(name, key)                              \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContext(sequence, merge_prefix(prefix, key));                    \
+  }                                                                            \
+  inline const float CONCAT_STR2(Get, name)(                                   \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .float_list()                                                          \
+        .value(0);                                                             \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_context()->mutable_feature()->erase(                     \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const float& value,                       \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextFloat(merge_prefix(prefix, key), value, sequence);               \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_FLOAT_CONTEXT_FEATURE(name, key, prefix)                 \
@@ -458,13 +472,11 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 // the context.
 #define PREFIXED_VECTOR_BYTES_CONTEXT_FEATURE(name, key)                       \
   inline const bool CONCAT_STR2(Has, name)(                                    \
-      const std::string& prefix,                                               \
-      const tensorflow::SequenceExample& sequence) {                           \
-    return HasContext(sequence, merge_prefix(prefix, key));                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContextKey(sequence, merge_prefix(prefix, key));                 \
   }                                                                            \
   inline const int CONCAT_STR3(Get, name, Size)(                               \
-      const std::string& prefix,                                               \
-      const tensorflow::SequenceExample& sequence) {                           \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
     if (CONCAT_STR2(Has, name)(prefix, sequence)) {                            \
       return GetContext(sequence, merge_prefix(prefix, key))                   \
           .bytes_list()                                                        \
@@ -474,44 +486,44 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
     }                                                                          \
   }                                                                            \
   inline const proto_ns::RepeatedPtrField<std::string>& CONCAT_STR2(           \
-      Get, name)(const std::string& prefix,                                    \
+      Get, name)(absl::string_view prefix,                                     \
                  const tensorflow::SequenceExample& sequence) {                \
     return GetContext(sequence, merge_prefix(prefix, key))                     \
         .bytes_list()                                                          \
         .value();                                                              \
   }                                                                            \
   inline const std::string& CONCAT_STR3(Get, name, At)(                        \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence,  \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
       int i) {                                                                 \
     return GetContext(sequence, merge_prefix(prefix, key))                     \
         .bytes_list()                                                          \
         .value(i);                                                             \
   }                                                                            \
   inline void CONCAT_STR2(Clear, name)(                                        \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {      \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
     sequence->mutable_context()->mutable_feature()->erase(                     \
         merge_prefix(prefix, key));                                            \
   }                                                                            \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,                \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
                                      const ::std::vector<std::string>& values, \
                                      tensorflow::SequenceExample* sequence) {  \
     SetContextBytesList(merge_prefix(prefix, key), values, sequence);          \
   }                                                                            \
   template <typename TContainer>                                               \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,                \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
                                      const TContainer& values,                 \
                                      tensorflow::SequenceExample* sequence) {  \
     SetContextBytesList(merge_prefix(prefix, key), values, sequence);          \
   }                                                                            \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,                \
-                                     const std::string& value,                 \
-                                     tensorflow::SequenceExample* sequence) {  \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
     MutableContext(merge_prefix(prefix, key), sequence)                        \
         ->mutable_bytes_list()                                                 \
         ->add_value(value);                                                    \
   }                                                                            \
   inline const std::string CONCAT_STR3(Get, name,                              \
-                                       Key)(const std::string& prefix) {       \
+                                       Key)(absl::string_view prefix) {        \
     return merge_prefix(prefix, key);                                          \
   }
 
@@ -546,8 +558,8 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                                      tensorflow::SequenceExample* sequence) {  \
     CONCAT_STR2(Set, name)(prefix, values, sequence);                          \
   }                                                                            \
-  inline void CONCAT_STR2(Add, name)(const std::string& value,                 \
-                                     tensorflow::SequenceExample* sequence) {  \
+  inline void CONCAT_STR2(Add, name)(absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
     CONCAT_STR2(Add, name)(prefix, value, sequence);                           \
   }                                                                            \
   inline const std::string CONCAT_STR3(Get, name, Key)() {                     \
@@ -560,63 +572,60 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 // This macro creates functions for HasX, GetX, ClearX, SetX, GetXAt, and AddX
 // where X is a name and the value stored is a sequence of int64s  in the
 // context.
-#define PREFIXED_VECTOR_INT64_CONTEXT_FEATURE(name, key)                      \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasContext(sequence, merge_prefix(prefix, key));                   \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    if (CONCAT_STR2(Has, name)(prefix, sequence)) {                           \
-      return GetContext(sequence, merge_prefix(prefix, key))                  \
-          .int64_list()                                                       \
-          .value_size();                                                      \
-    } else {                                                                  \
-      return 0;                                                               \
-    }                                                                         \
-  }                                                                           \
-  inline const proto_ns::RepeatedField<int64>& CONCAT_STR2(Get, name)(        \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .int64_list()                                                         \
-        .value();                                                             \
-  }                                                                           \
-  inline const int64 CONCAT_STR3(Get, name, At)(                              \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int i) {                                                                \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .int64_list()                                                         \
-        .value(i);                                                            \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_context()->mutable_feature()->erase(                    \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const ::std::vector<int64>& values,      \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextInt64List(merge_prefix(prefix, key), values, sequence);         \
-  }                                                                           \
-  template <typename TContainer>                                              \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const TContainer& values,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextInt64List(merge_prefix(prefix, key), values, sequence);         \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const int64& value,                      \
-                                     tensorflow::SequenceExample* sequence) { \
-    MutableContext(merge_prefix(prefix, key), sequence)                       \
-        ->mutable_int64_list()                                                \
-        ->add_value(value);                                                   \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_VECTOR_INT64_CONTEXT_FEATURE(name, key)                       \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContextKey(sequence, merge_prefix(prefix, key));                 \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    if (CONCAT_STR2(Has, name)(prefix, sequence)) {                            \
+      return GetContext(sequence, merge_prefix(prefix, key))                   \
+          .int64_list()                                                        \
+          .value_size();                                                       \
+    } else {                                                                   \
+      return 0;                                                                \
+    }                                                                          \
+  }                                                                            \
+  inline const proto_ns::RepeatedField<int64_t>& CONCAT_STR2(Get, name)(       \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .int64_list()                                                          \
+        .value();                                                              \
+  }                                                                            \
+  inline const int64_t CONCAT_STR3(Get, name, At)(                             \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int i) {                                                                 \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .int64_list()                                                          \
+        .value(i);                                                             \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_context()->mutable_feature()->erase(                     \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const ::std::vector<int64_t>& values,     \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextInt64List(merge_prefix(prefix, key), values, sequence);          \
+  }                                                                            \
+  template <typename TContainer>                                               \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const TContainer& values,                 \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextInt64List(merge_prefix(prefix, key), values, sequence);          \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const int64_t& value,                     \
+                                     tensorflow::SequenceExample* sequence) {  \
+    MutableContext(merge_prefix(prefix, key), sequence)                        \
+        ->mutable_int64_list()                                                 \
+        ->add_value(value);                                                    \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_VECTOR_INT64_CONTEXT_FEATURE(name, key, prefix)          \
@@ -629,11 +638,11 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
       Get, name, Size)(const tensorflow::SequenceExample& sequence) {         \
     return CONCAT_STR3(Get, name, Size)(prefix, sequence);                    \
   }                                                                           \
-  inline const proto_ns::RepeatedField<int64>& CONCAT_STR2(                   \
+  inline const proto_ns::RepeatedField<int64_t>& CONCAT_STR2(                 \
       Get, name)(const tensorflow::SequenceExample& sequence) {               \
     return CONCAT_STR2(Get, name)(prefix, sequence);                          \
   }                                                                           \
-  inline const int64 CONCAT_STR3(Get, name, At)(                              \
+  inline const int64_t CONCAT_STR3(Get, name, At)(                            \
       const tensorflow::SequenceExample& sequence, int i) {                   \
     return CONCAT_STR3(Get, name, At)(prefix, sequence, i);                   \
   }                                                                           \
@@ -641,7 +650,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                           name)(tensorflow::SequenceExample * sequence) {     \
     CONCAT_STR2(Clear, name)(prefix, sequence);                               \
   }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const ::std::vector<int64>& values,      \
+  inline void CONCAT_STR2(Set, name)(const ::std::vector<int64_t>& values,    \
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Set, name)(prefix, values, sequence);                         \
   }                                                                           \
@@ -650,7 +659,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Set, name)(prefix, values, sequence);                         \
   }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const int64& value,                      \
+  inline void CONCAT_STR2(Add, name)(const int64_t& value,                    \
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Add, name)(prefix, value, sequence);                          \
   }                                                                           \
@@ -664,63 +673,60 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 // This macro creates functions for HasX, GetX, ClearX, SetX, GetXAt, and AddX
 // where X is a name and the value stored is a sequence of floats  in the
 // context.
-#define PREFIXED_VECTOR_FLOAT_CONTEXT_FEATURE(name, key)                      \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasContext(sequence, merge_prefix(prefix, key));                   \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    if (CONCAT_STR2(Has, name)(prefix, sequence)) {                           \
-      return GetContext(sequence, merge_prefix(prefix, key))                  \
-          .float_list()                                                       \
-          .value_size();                                                      \
-    } else {                                                                  \
-      return 0;                                                               \
-    }                                                                         \
-  }                                                                           \
-  inline const proto_ns::RepeatedField<float>& CONCAT_STR2(Get, name)(        \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .float_list()                                                         \
-        .value();                                                             \
-  }                                                                           \
-  inline const float CONCAT_STR3(Get, name, At)(                              \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int i) {                                                                \
-    return GetContext(sequence, merge_prefix(prefix, key))                    \
-        .float_list()                                                         \
-        .value(i);                                                            \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_context()->mutable_feature()->erase(                    \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const ::std::vector<float>& values,      \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextFloatList(merge_prefix(prefix, key), values, sequence);         \
-  }                                                                           \
-  template <typename TContainer>                                              \
-  inline void CONCAT_STR2(Set, name)(const std::string& prefix,               \
-                                     const TContainer& values,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    SetContextFloatList(merge_prefix(prefix, key), values, sequence);         \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const float& value,                      \
-                                     tensorflow::SequenceExample* sequence) { \
-    MutableContext(merge_prefix(prefix, key), sequence)                       \
-        ->mutable_float_list()                                                \
-        ->add_value(value);                                                   \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_VECTOR_FLOAT_CONTEXT_FEATURE(name, key)                       \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasContextKey(sequence, merge_prefix(prefix, key));                 \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    if (CONCAT_STR2(Has, name)(prefix, sequence)) {                            \
+      return GetContext(sequence, merge_prefix(prefix, key))                   \
+          .float_list()                                                        \
+          .value_size();                                                       \
+    } else {                                                                   \
+      return 0;                                                                \
+    }                                                                          \
+  }                                                                            \
+  inline const proto_ns::RepeatedField<float>& CONCAT_STR2(Get, name)(         \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .float_list()                                                          \
+        .value();                                                              \
+  }                                                                            \
+  inline const float CONCAT_STR3(Get, name, At)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int i) {                                                                 \
+    return GetContext(sequence, merge_prefix(prefix, key))                     \
+        .float_list()                                                          \
+        .value(i);                                                             \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_context()->mutable_feature()->erase(                     \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const ::std::vector<float>& values,       \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextFloatList(merge_prefix(prefix, key), values, sequence);          \
+  }                                                                            \
+  template <typename TContainer>                                               \
+  inline void CONCAT_STR2(Set, name)(absl::string_view prefix,                 \
+                                     const TContainer& values,                 \
+                                     tensorflow::SequenceExample* sequence) {  \
+    SetContextFloatList(merge_prefix(prefix, key), values, sequence);          \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const float& value,                       \
+                                     tensorflow::SequenceExample* sequence) {  \
+    MutableContext(merge_prefix(prefix, key), sequence)                        \
+        ->mutable_float_list()                                                 \
+        ->add_value(value);                                                    \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_VECTOR_FLOAT_CONTEXT_FEATURE(name, key, prefix)          \
@@ -767,103 +773,99 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 
 // This macro creates functions for HasX, GetXSize, GetXAt, ClearX, and AddX
 // where X is a name and the value stored is a string in a feature_list.
-#define PREFIXED_BYTES_FEATURE_LIST(name, key)                                \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasFeatureList(sequence, merge_prefix(prefix, key));               \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetFeatureListSize(sequence, merge_prefix(prefix, key));           \
-  }                                                                           \
-  inline const std::string& CONCAT_STR3(Get, name, At)(                       \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int index) {                                                            \
-    return GetBytesAt(sequence, merge_prefix(prefix, key), index).Get(0);     \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_feature_lists()->mutable_feature_list()->erase(         \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const std::string& value,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    MutableFeatureList(merge_prefix(prefix, key), sequence)                   \
-        ->add_feature()                                                       \
-        ->mutable_bytes_list()                                                \
-        ->add_value(value);                                                   \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_BYTES_FEATURE_LIST(name, key)                                 \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasFeatureList(sequence, merge_prefix(prefix, key));                \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
+  }                                                                            \
+  inline const std::string& CONCAT_STR3(Get, name, At)(                        \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int index) {                                                             \
+    return GetBytesAt(sequence, merge_prefix(prefix, key), index).Get(0);      \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
+    MutableFeatureList(merge_prefix(prefix, key), sequence)                    \
+        ->add_feature()                                                        \
+        ->mutable_bytes_list()                                                 \
+        ->add_value(value);                                                    \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
-#define FIXED_PREFIX_BYTES_FEATURE_LIST(name, key, prefix)                    \
-  PREFIXED_BYTES_FEATURE_LIST(name, key);                                     \
-  inline const bool CONCAT_STR2(                                              \
-      Has, name)(const tensorflow::SequenceExample& sequence) {               \
-    return CONCAT_STR2(Has, name)(prefix, sequence);                          \
-  }                                                                           \
-  inline const int CONCAT_STR3(                                               \
-      Get, name, Size)(const tensorflow::SequenceExample& sequence) {         \
-    return CONCAT_STR3(Get, name, Size)(prefix, sequence);                    \
-  }                                                                           \
-  inline const std::string& CONCAT_STR3(Get, name, At)(                       \
-      const tensorflow::SequenceExample& sequence, int index) {               \
-    return CONCAT_STR3(Get, name, At)(prefix, sequence, index);               \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear,                                              \
-                          name)(tensorflow::SequenceExample * sequence) {     \
-    CONCAT_STR2(Clear, name)(prefix, sequence);                               \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& value,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    CONCAT_STR2(Add, name)(prefix, value, sequence);                          \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name, Key)() {                    \
-    return merge_prefix(prefix, key);                                         \
+#define FIXED_PREFIX_BYTES_FEATURE_LIST(name, key, prefix)                     \
+  PREFIXED_BYTES_FEATURE_LIST(name, key);                                      \
+  inline const bool CONCAT_STR2(                                               \
+      Has, name)(const tensorflow::SequenceExample& sequence) {                \
+    return CONCAT_STR2(Has, name)(prefix, sequence);                           \
+  }                                                                            \
+  inline const int CONCAT_STR3(                                                \
+      Get, name, Size)(const tensorflow::SequenceExample& sequence) {          \
+    return CONCAT_STR3(Get, name, Size)(prefix, sequence);                     \
+  }                                                                            \
+  inline const std::string& CONCAT_STR3(Get, name, At)(                        \
+      const tensorflow::SequenceExample& sequence, int index) {                \
+    return CONCAT_STR3(Get, name, At)(prefix, sequence, index);                \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear,                                               \
+                          name)(tensorflow::SequenceExample * sequence) {      \
+    CONCAT_STR2(Clear, name)(prefix, sequence);                                \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view value,                  \
+                                     tensorflow::SequenceExample * sequence) { \
+    CONCAT_STR2(Add, name)(prefix, value, sequence);                           \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name, Key)() {                     \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define BYTES_FEATURE_LIST(name, key) \
   FIXED_PREFIX_BYTES_FEATURE_LIST(name, key, "");
 
 // This macro creates functions for HasX, GetXSize, GetXAt, ClearX, and AddX
-// where X is a name and the value stored is a int64 in a feature_list.
-#define PREFIXED_INT64_FEATURE_LIST(name, key)                                \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasFeatureList(sequence, merge_prefix(prefix, key));               \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetFeatureListSize(sequence, merge_prefix(prefix, key));           \
-  }                                                                           \
-  inline const int64 CONCAT_STR3(Get, name, At)(                              \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int index) {                                                            \
-    return GetInt64sAt(sequence, merge_prefix(prefix, key), index).Get(0);    \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_feature_lists()->mutable_feature_list()->erase(         \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const int64 value,                       \
-                                     tensorflow::SequenceExample* sequence) { \
-    MutableFeatureList(merge_prefix(prefix, key), sequence)                   \
-        ->add_feature()                                                       \
-        ->mutable_int64_list()                                                \
-        ->add_value(value);                                                   \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+// where X is a name and the value stored is a int64_t in a feature_list.
+#define PREFIXED_INT64_FEATURE_LIST(name, key)                                 \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasFeatureList(sequence, merge_prefix(prefix, key));                \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
+  }                                                                            \
+  inline const int64_t CONCAT_STR3(Get, name, At)(                             \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int index) {                                                             \
+    return GetInt64sAt(sequence, merge_prefix(prefix, key), index).Get(0);     \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const int64_t value,                      \
+                                     tensorflow::SequenceExample* sequence) {  \
+    MutableFeatureList(merge_prefix(prefix, key), sequence)                    \
+        ->add_feature()                                                        \
+        ->mutable_int64_list()                                                 \
+        ->add_value(value);                                                    \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_INT64_FEATURE_LIST(name, key, prefix)                    \
@@ -876,7 +878,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
       Get, name, Size)(const tensorflow::SequenceExample& sequence) {         \
     return CONCAT_STR3(Get, name, Size)(prefix, sequence);                    \
   }                                                                           \
-  inline const int64 CONCAT_STR3(Get, name, At)(                              \
+  inline const int64_t CONCAT_STR3(Get, name, At)(                            \
       const tensorflow::SequenceExample& sequence, int index) {               \
     return CONCAT_STR3(Get, name, At)(prefix, sequence, index);               \
   }                                                                           \
@@ -884,7 +886,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                           name)(tensorflow::SequenceExample * sequence) {     \
     CONCAT_STR2(Clear, name)(prefix, sequence);                               \
   }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const int64& value,                      \
+  inline void CONCAT_STR2(Add, name)(const int64_t& value,                    \
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Add, name)(prefix, value, sequence);                          \
   }                                                                           \
@@ -897,38 +899,36 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 
 // This macro creates functions for HasX, GetXSize, GetXAt, ClearX, and AddX
 // where X is a name and the value stored is a float in a feature_list.
-#define PREFIXED_FLOAT_FEATURE_LIST(name, key)                                \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasFeatureList(sequence, merge_prefix(prefix, key));               \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetFeatureListSize(sequence, merge_prefix(prefix, key));           \
-  }                                                                           \
-  inline const float CONCAT_STR3(Get, name, At)(                              \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int index) {                                                            \
-    return GetFloatsAt(sequence, merge_prefix(prefix, key), index).Get(0);    \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_feature_lists()->mutable_feature_list()->erase(         \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const float value,                       \
-                                     tensorflow::SequenceExample* sequence) { \
-    MutableFeatureList(merge_prefix(prefix, key), sequence)                   \
-        ->add_feature()                                                       \
-        ->mutable_float_list()                                                \
-        ->add_value(value);                                                   \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_FLOAT_FEATURE_LIST(name, key)                                 \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasFeatureList(sequence, merge_prefix(prefix, key));                \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
+  }                                                                            \
+  inline const float CONCAT_STR3(Get, name, At)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int index) {                                                             \
+    return GetFloatsAt(sequence, merge_prefix(prefix, key), index).Get(0);     \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const float value,                        \
+                                     tensorflow::SequenceExample* sequence) {  \
+    MutableFeatureList(merge_prefix(prefix, key), sequence)                    \
+        ->add_feature()                                                        \
+        ->mutable_float_list()                                                 \
+        ->add_value(value);                                                    \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_FLOAT_FEATURE_LIST(name, key, prefix)                    \
@@ -965,38 +965,36 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 // feature_list.
 #define PREFIXED_VECTOR_BYTES_FEATURE_LIST(name, key)                          \
   inline const bool CONCAT_STR2(Has, name)(                                    \
-      const std::string& prefix,                                               \
-      const tensorflow::SequenceExample& sequence) {                           \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
     return HasFeatureList(sequence, merge_prefix(prefix, key));                \
   }                                                                            \
   inline const int CONCAT_STR3(Get, name, Size)(                               \
-      const std::string& prefix,                                               \
-      const tensorflow::SequenceExample& sequence) {                           \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
     return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
   }                                                                            \
   inline const proto_ns::RepeatedPtrField<std::string>& CONCAT_STR3(           \
-      Get, name, At)(const std::string& prefix,                                \
+      Get, name, At)(absl::string_view prefix,                                 \
                      const tensorflow::SequenceExample& sequence, int index) { \
     return GetBytesAt(sequence, merge_prefix(prefix, key), index);             \
   }                                                                            \
   inline void CONCAT_STR2(Clear, name)(                                        \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {      \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
     sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
         merge_prefix(prefix, key));                                            \
   }                                                                            \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,                \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
                                      const ::std::vector<std::string>& values, \
                                      tensorflow::SequenceExample* sequence) {  \
     AddBytesContainer(merge_prefix(prefix, key), values, sequence);            \
   }                                                                            \
   template <typename TContainer>                                               \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,                \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
                                      const TContainer& values,                 \
                                      tensorflow::SequenceExample* sequence) {  \
     AddBytesContainer(merge_prefix(prefix, key), values, sequence);            \
   }                                                                            \
   inline const std::string CONCAT_STR3(Get, name,                              \
-                                       Key)(const std::string& prefix) {       \
+                                       Key)(absl::string_view prefix) {        \
     return merge_prefix(prefix, key);                                          \
   }
 
@@ -1035,43 +1033,41 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
   FIXED_PREFIX_VECTOR_BYTES_FEATURE_LIST(name, key, "");
 
 // This macro creates functions for HasX, GetXSize, GetXAt, ClearX, and AddX
-// where X is a name and the value stored is a sequence of int64 in a
+// where X is a name and the value stored is a sequence of int64_t in a
 // feature_list.
-#define PREFIXED_VECTOR_INT64_FEATURE_LIST(name, key)                         \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasFeatureList(sequence, merge_prefix(prefix, key));               \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetFeatureListSize(sequence, merge_prefix(prefix, key));           \
-  }                                                                           \
-  inline const proto_ns::RepeatedField<int64>& CONCAT_STR3(Get, name, At)(    \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int index) {                                                            \
-    return GetInt64sAt(sequence, merge_prefix(prefix, key), index);           \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_feature_lists()->mutable_feature_list()->erase(         \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const ::std::vector<int64>& values,      \
-                                     tensorflow::SequenceExample* sequence) { \
-    AddInt64Container(merge_prefix(prefix, key), values, sequence);           \
-  }                                                                           \
-  template <typename TContainer>                                              \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const TContainer& values,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    AddInt64Container(merge_prefix(prefix, key), values, sequence);           \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_VECTOR_INT64_FEATURE_LIST(name, key)                          \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasFeatureList(sequence, merge_prefix(prefix, key));                \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
+  }                                                                            \
+  inline const proto_ns::RepeatedField<int64_t>& CONCAT_STR3(Get, name, At)(   \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int index) {                                                             \
+    return GetInt64sAt(sequence, merge_prefix(prefix, key), index);            \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const ::std::vector<int64_t>& values,     \
+                                     tensorflow::SequenceExample* sequence) {  \
+    AddInt64Container(merge_prefix(prefix, key), values, sequence);            \
+  }                                                                            \
+  template <typename TContainer>                                               \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const TContainer& values,                 \
+                                     tensorflow::SequenceExample* sequence) {  \
+    AddInt64Container(merge_prefix(prefix, key), values, sequence);            \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_VECTOR_INT64_FEATURE_LIST(name, key, prefix)             \
@@ -1084,7 +1080,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
       Get, name, Size)(const tensorflow::SequenceExample& sequence) {         \
     return CONCAT_STR3(Get, name, Size)(prefix, sequence);                    \
   }                                                                           \
-  inline const proto_ns::RepeatedField<int64>& CONCAT_STR3(Get, name, At)(    \
+  inline const proto_ns::RepeatedField<int64_t>& CONCAT_STR3(Get, name, At)(  \
       const tensorflow::SequenceExample& sequence, int index) {               \
     return CONCAT_STR3(Get, name, At)(prefix, sequence, index);               \
   }                                                                           \
@@ -1092,7 +1088,7 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
                           name)(tensorflow::SequenceExample * sequence) {     \
     CONCAT_STR2(Clear, name)(prefix, sequence);                               \
   }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const ::std::vector<int64>& values,      \
+  inline void CONCAT_STR2(Add, name)(const ::std::vector<int64_t>& values,    \
                                      tensorflow::SequenceExample* sequence) { \
     CONCAT_STR2(Add, name)(prefix, values, sequence);                         \
   }                                                                           \
@@ -1111,41 +1107,39 @@ void AddBytesContainer(const std::string& key, const TContainer& bytes_list,
 // This macro creates functions for HasX, GetXSize, GetXAt, ClearX, and AddX
 // where X is a name and the value stored is a sequence of floats in a
 // feature_list.
-#define PREFIXED_VECTOR_FLOAT_FEATURE_LIST(name, key)                         \
-  inline const bool CONCAT_STR2(Has, name)(                                   \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return HasFeatureList(sequence, merge_prefix(prefix, key));               \
-  }                                                                           \
-  inline const int CONCAT_STR3(Get, name, Size)(                              \
-      const std::string& prefix,                                              \
-      const tensorflow::SequenceExample& sequence) {                          \
-    return GetFeatureListSize(sequence, merge_prefix(prefix, key));           \
-  }                                                                           \
-  inline const proto_ns::RepeatedField<float>& CONCAT_STR3(Get, name, At)(    \
-      const std::string& prefix, const tensorflow::SequenceExample& sequence, \
-      int index) {                                                            \
-    return GetFloatsAt(sequence, merge_prefix(prefix, key), index);           \
-  }                                                                           \
-  inline void CONCAT_STR2(Clear, name)(                                       \
-      const std::string& prefix, tensorflow::SequenceExample* sequence) {     \
-    sequence->mutable_feature_lists()->mutable_feature_list()->erase(         \
-        merge_prefix(prefix, key));                                           \
-  }                                                                           \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const ::std::vector<float>& values,      \
-                                     tensorflow::SequenceExample* sequence) { \
-    AddFloatContainer(merge_prefix(prefix, key), values, sequence);           \
-  }                                                                           \
-  template <typename TContainer>                                              \
-  inline void CONCAT_STR2(Add, name)(const std::string& prefix,               \
-                                     const TContainer& values,                \
-                                     tensorflow::SequenceExample* sequence) { \
-    AddFloatContainer(merge_prefix(prefix, key), values, sequence);           \
-  }                                                                           \
-  inline const std::string CONCAT_STR3(Get, name,                             \
-                                       Key)(const std::string& prefix) {      \
-    return merge_prefix(prefix, key);                                         \
+#define PREFIXED_VECTOR_FLOAT_FEATURE_LIST(name, key)                          \
+  inline const bool CONCAT_STR2(Has, name)(                                    \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return HasFeatureList(sequence, merge_prefix(prefix, key));                \
+  }                                                                            \
+  inline const int CONCAT_STR3(Get, name, Size)(                               \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence) { \
+    return GetFeatureListSize(sequence, merge_prefix(prefix, key));            \
+  }                                                                            \
+  inline const proto_ns::RepeatedField<float>& CONCAT_STR3(Get, name, At)(     \
+      absl::string_view prefix, const tensorflow::SequenceExample& sequence,   \
+      int index) {                                                             \
+    return GetFloatsAt(sequence, merge_prefix(prefix, key), index);            \
+  }                                                                            \
+  inline void CONCAT_STR2(Clear, name)(                                        \
+      absl::string_view prefix, tensorflow::SequenceExample * sequence) {      \
+    sequence->mutable_feature_lists()->mutable_feature_list()->erase(          \
+        merge_prefix(prefix, key));                                            \
+  }                                                                            \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const ::std::vector<float>& values,       \
+                                     tensorflow::SequenceExample* sequence) {  \
+    AddFloatContainer(merge_prefix(prefix, key), values, sequence);            \
+  }                                                                            \
+  template <typename TContainer>                                               \
+  inline void CONCAT_STR2(Add, name)(absl::string_view prefix,                 \
+                                     const TContainer& values,                 \
+                                     tensorflow::SequenceExample* sequence) {  \
+    AddFloatContainer(merge_prefix(prefix, key), values, sequence);            \
+  }                                                                            \
+  inline const std::string CONCAT_STR3(Get, name,                              \
+                                       Key)(absl::string_view prefix) {        \
+    return merge_prefix(prefix, key);                                          \
   }
 
 #define FIXED_PREFIX_VECTOR_FLOAT_FEATURE_LIST(name, key, prefix)             \

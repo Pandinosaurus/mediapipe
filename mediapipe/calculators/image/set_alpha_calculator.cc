@@ -14,16 +14,17 @@
 
 #include <memory>
 
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/image/set_alpha_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_options.pb.h"
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/vector.h"
 
 #if !MEDIAPIPE_DISABLE_GPU
@@ -142,7 +143,7 @@ class SetAlphaCalculator : public CalculatorBase {
 REGISTER_CALCULATOR(SetAlphaCalculator);
 
 absl::Status SetAlphaCalculator::GetContract(CalculatorContract* cc) {
-  CHECK_GE(cc->Inputs().NumEntries(), 1);
+  RET_CHECK_GE(cc->Inputs().NumEntries(), 1);
 
   bool use_gpu = false;
 
@@ -190,7 +191,7 @@ absl::Status SetAlphaCalculator::GetContract(CalculatorContract* cc) {
 
   if (use_gpu) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
+    ABSL_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
 #endif  // !MEDIAPIPE_DISABLE_GPU
   }
 
@@ -222,7 +223,7 @@ absl::Status SetAlphaCalculator::Open(CalculatorContext* cc) {
 
   if (use_gpu_) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+    ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
 #endif
   }  //  !MEDIAPIPE_DISABLE_GPU
 
@@ -232,17 +233,18 @@ absl::Status SetAlphaCalculator::Open(CalculatorContext* cc) {
 absl::Status SetAlphaCalculator::Process(CalculatorContext* cc) {
   if (use_gpu_) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, cc]() -> absl::Status {
-      if (!gpu_initialized_) {
-        MP_RETURN_IF_ERROR(GlSetup(cc));
-        gpu_initialized_ = true;
-      }
-      MP_RETURN_IF_ERROR(RenderGpu(cc));
-      return absl::OkStatus();
-    }));
+    ABSL_RETURN_IF_ERROR(
+        gpu_helper_.RunInGlContext([this, cc]() -> absl::Status {
+          if (!gpu_initialized_) {
+            ABSL_RETURN_IF_ERROR(GlSetup(cc));
+            gpu_initialized_ = true;
+          }
+          ABSL_RETURN_IF_ERROR(RenderGpu(cc));
+          return absl::OkStatus();
+        }));
 #endif  // !MEDIAPIPE_DISABLE_GPU
   } else {
-    MP_RETURN_IF_ERROR(RenderCpu(cc));
+    ABSL_RETURN_IF_ERROR(RenderCpu(cc));
   }
 
   return absl::OkStatus();
@@ -268,11 +270,11 @@ absl::Status SetAlphaCalculator::RenderCpu(CalculatorContext* cc) {
   const auto& input_frame = cc->Inputs().Tag(kInputFrameTag).Get<ImageFrame>();
   const cv::Mat input_mat = formats::MatView(&input_frame);
   if (!(input_mat.type() == CV_8UC3 || input_mat.type() == CV_8UC4)) {
-    LOG(ERROR) << "Only 3 or 4 channel 8-bit input image supported";
+    ABSL_LOG(ERROR) << "Only 3 or 4 channel 8-bit input image supported";
   }
 
   // Setup destination image
-  auto output_frame = absl::make_unique<ImageFrame>(
+  auto output_frame = std::make_unique<ImageFrame>(
       ImageFormat::SRGBA, input_mat.cols, input_mat.rows);
   cv::Mat output_mat = formats::MatView(output_frame.get());
 
@@ -296,9 +298,9 @@ absl::Status SetAlphaCalculator::RenderCpu(CalculatorContext* cc) {
     RET_CHECK(alpha_is_float || CV_MAT_DEPTH(alpha_mat.type()) == CV_8U);
 
     if (alpha_is_float) {
-      MP_RETURN_IF_ERROR(CopyAlphaImage<float>(alpha_mat, output_mat));
+      ABSL_RETURN_IF_ERROR(CopyAlphaImage<float>(alpha_mat, output_mat));
     } else {
-      MP_RETURN_IF_ERROR(CopyAlphaImage<uchar>(alpha_mat, output_mat));
+      ABSL_RETURN_IF_ERROR(CopyAlphaImage<uchar>(alpha_mat, output_mat));
     }
   } else {
     const uchar alpha_value = std::min(std::max(0.0f, alpha_value_), 255.0f);
@@ -328,7 +330,7 @@ absl::Status SetAlphaCalculator::RenderGpu(CalculatorContext* cc) {
       cc->Inputs().Tag(kInputFrameTagGpu).Get<mediapipe::GpuBuffer>();
   if (!(input_frame.format() == mediapipe::GpuBufferFormat::kBGRA32 ||
         input_frame.format() == mediapipe::GpuBufferFormat::kRGB24)) {
-    LOG(ERROR) << "Only RGB or RGBA input image supported";
+    ABSL_LOG(ERROR) << "Only RGB or RGBA input image supported";
   }
   auto input_texture = gpu_helper_.CreateSourceTexture(input_frame);
 

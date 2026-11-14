@@ -16,8 +16,6 @@
 import os
 import tempfile
 
-# Dependency imports
-
 from absl import app
 from absl import flags
 from absl import logging
@@ -66,27 +64,29 @@ def run(data_dir,
   quantization_config = None
   if (supported_model ==
       text_classifier.SupportedModels.AVERAGE_WORD_EMBEDDING_CLASSIFIER):
-    hparams = text_classifier.HParams(
-        epochs=10, batch_size=32, learning_rate=0, export_dir=export_dir)
+    hparams = text_classifier.AverageWordEmbeddingHParams(
+        epochs=10, batch_size=32, learning_rate=0, export_dir=export_dir
+    )
   # Warning: This takes extremely long to run on CPU
   elif (
       supported_model == text_classifier.SupportedModels.MOBILEBERT_CLASSIFIER):
     quantization_config = quantization.QuantizationConfig.for_dynamic()
-    hparams = text_classifier.HParams(
-        epochs=3, batch_size=48, learning_rate=3e-5, export_dir=export_dir)
+    hparams = text_classifier.BertHParams(
+        epochs=3, batch_size=48, learning_rate=3e-5, export_dir=export_dir
+    )
 
   # Fine-tunes the model.
   options = text_classifier.TextClassifierOptions(
-      supported_model=supported_model, hparams=hparams)
+      supported_model=supported_model, hparams=hparams)  # pyrefly: ignore[unbound-name]
   model = text_classifier.TextClassifier.create(train_data, validation_data,
                                                 options)
 
   # Gets evaluation results.
-  _, acc = model.evaluate(validation_data)
-  print('Eval accuracy: %f' % acc)
+  metrics = model.evaluate(validation_data)
+  print('Eval accuracy: %f' % metrics[1])
 
   model.export_model(quantization_config=quantization_config)
-  model.export_labels(export_dir=options.hparams.export_dir)
+  model.export_labels(export_dir=options.hparams.export_dir)  # pyrefly: ignore[missing-attribute]
 
 
 def main(_):
@@ -100,7 +100,7 @@ def main(_):
   elif FLAGS.supported_model == 'bert':
     supported_model = text_classifier.SupportedModels.MOBILEBERT_CLASSIFIER
 
-  run(data_dir, export_dir, supported_model)
+  run(data_dir, export_dir, supported_model)  # pyrefly: ignore[unbound-name]
 
 
 if __name__ == '__main__':

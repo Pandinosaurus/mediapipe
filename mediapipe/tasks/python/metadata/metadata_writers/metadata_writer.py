@@ -22,6 +22,7 @@ import tempfile
 from typing import List, Optional, Tuple, Union
 
 import flatbuffers
+
 from mediapipe.tasks.metadata import metadata_schema_py_generated as metadata_fb
 from mediapipe.tasks.python.metadata import metadata
 from mediapipe.tasks.python.metadata.metadata_writers import metadata_info
@@ -608,7 +609,7 @@ class MetadataWriter(object):
     Returns:
       The current Writer instance to allow chained operation.
     """
-    calibration_md = self._create_score_calibration_md(score_calibration)
+    calibration_md = self._create_score_calibration_md(score_calibration)  # pyrefly: ignore[bad-argument-type]
     score_thresholding_md = None
     if score_thresholding:
       score_thresholding_md = metadata_info.ScoreThresholdingMd(
@@ -642,7 +643,7 @@ class MetadataWriter(object):
     Returns:
       The current Writer instance to allow chained operation.
     """
-    calibration_md = self._create_score_calibration_md(score_calibration)
+    calibration_md = self._create_score_calibration_md(score_calibration)  # pyrefly: ignore[bad-argument-type]
     label_files = self._create_label_file_md(labels)
     detection_output_mds = metadata_info.DetectionOutputTensorsMd(
         self._model_buffer,
@@ -656,7 +657,7 @@ class MetadataWriter(object):
     # The first 3 tensors (location, category, score) are grouped.
     group_md = metadata_info.TensorGroupMd(
         name=group_name,
-        tensor_names=[output_md.name for output_md in detection_output_mds[:3]],
+        tensor_names=[output_md.name for output_md in detection_output_mds[:3]],  # pyrefly: ignore[bad-argument-type]
     )
     self._output_group_mds.append(group_md)
     return self
@@ -735,7 +736,7 @@ class MetadataWriter(object):
     content is used to interpret the metadata content.
 
     Returns:
-      A tuple of (model_with_metadata_in_bytes, metdata_json_content)
+      A tuple of (model_with_metadata_in_bytes, metadata_json_content)
     """
     # Populates metadata and associated files into TFLite model buffer.
     populator = metadata.MetadataPopulator.with_model_buffer(self._model_buffer)
@@ -801,7 +802,7 @@ class MetadataWriter(object):
         score_transformation_type=score_calibration.transformation_type,
         default_score=score_calibration.default_score,
         file_path=self._export_calibration_file(
-            _SCORE_CALIBATION_FILENAME, score_calibration.parameters
+            _SCORE_CALIBATION_FILENAME, score_calibration.parameters  # pyrefly: ignore[bad-argument-type]
         ),
     )
 
@@ -839,6 +840,6 @@ class MetadataWriterBase:
     content is used to interpret the metadata content.
 
     Returns:
-      A tuple of (model_with_metadata_in_bytes, metdata_json_content)
+      A tuple of (model_with_metadata_in_bytes, metadata_json_content)
     """
     return self.writer.populate()

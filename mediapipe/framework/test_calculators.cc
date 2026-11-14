@@ -14,22 +14,22 @@
 //
 // Simple calculators that are useful for test cases.
 
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <string>
 #include <utility>
 
-#include "Eigen/Core"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
+#include "Eigen/Core"                  // from @eigen
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/strings/str_cat.h"      // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/mathutil.h"
 #include "mediapipe/framework/formats/matrix.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/framework/test_calculators.pb.h"
 
 namespace mediapipe {
@@ -203,7 +203,7 @@ class RangeCalculator : public CalculatorBase {
 
   // Initializes this object.
   void Initialize(CalculatorContext* cc) {
-    CHECK(!initialized_);
+    ABSL_CHECK(!initialized_);
 
     cc->Options();  // Ensure Options() can be called here.
     std::tie(n_, k_) =
@@ -294,7 +294,7 @@ class MergeCalculator : public CalculatorBase {
   }
 
   absl::Status Open(CalculatorContext* cc) final {
-    auto header = absl::make_unique<std::string>();
+    auto header = std::make_unique<std::string>();
     for (auto& input : cc->Inputs()) {
       if (!input.Header().IsEmpty()) {
         if (!header->empty()) {
@@ -380,10 +380,10 @@ class RandomMatrixCalculator : public CalculatorBase {
 
   absl::Status Open(CalculatorContext* cc) override {
     auto& options = cc->Options<RandomMatrixCalculatorOptions>();
-    CHECK_LT(0, options.timestamp_step());
-    CHECK_LT(0, options.rows());
-    CHECK_LT(0, options.cols());
-    CHECK_LT(options.start_timestamp(), options.limit_timestamp());
+    ABSL_CHECK_LT(0, options.timestamp_step());
+    ABSL_CHECK_LT(0, options.rows());
+    ABSL_CHECK_LT(0, options.cols());
+    ABSL_CHECK_LT(options.start_timestamp(), options.limit_timestamp());
 
     current_timestamp_ = Timestamp(options.start_timestamp());
     cc->Outputs().Index(0).SetNextTimestampBound(current_timestamp_);
@@ -392,7 +392,7 @@ class RandomMatrixCalculator : public CalculatorBase {
     std::seed_seq seq(seed_str.begin(), seed_str.end());
     std::vector<std::uint32_t> seed(1);
     seq.generate(seed.begin(), seed.end());
-    random_ = absl::make_unique<RandomEngine>(seed[0]);
+    random_ = std::make_unique<RandomEngine>(seed[0]);
     return absl::OkStatus();
   }
 
@@ -447,13 +447,13 @@ class MeanAndCovarianceCalculator : public CalculatorBase {
   absl::Status Process(CalculatorContext* cc) override {
     const Eigen::MatrixXd sample =
         cc->Inputs().Index(0).Get<Matrix>().cast<double>();
-    CHECK_EQ(1, sample.cols());
+    ABSL_CHECK_EQ(1, sample.cols());
     if (num_samples_ == 0) {
       rows_ = sample.rows();
       sum_vector_ = Eigen::VectorXd::Zero(rows_);
       outer_product_sum_ = Eigen::MatrixXd::Zero(rows_, rows_);
     } else {
-      CHECK_EQ(sample.rows(), rows_);
+      ABSL_CHECK_EQ(sample.rows(), rows_);
     }
     sum_vector_ += sample;
     outer_product_sum_ += sample * sample.transpose();

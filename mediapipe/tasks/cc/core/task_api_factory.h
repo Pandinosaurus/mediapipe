@@ -17,26 +17,28 @@ limitations under the License.
 #define MEDIAPIPE_TASKS_CC_CORE_TASK_API_FACTORY_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/strings/match.h"         // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/strings/string_view.h"   // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
+#include "mediapipe/framework/executor.h"
 #include "mediapipe/framework/port/requires.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/tasks/cc/common.h"
 #include "mediapipe/tasks/cc/core/base_task_api.h"
-#include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
 #include "mediapipe/tasks/cc/core/proto/inference_subgraph.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
-#include "mediapipe/tasks/cc/core/utils.h"
-#include "tensorflow/lite/core/api/op_resolver.h"
+#include "tflite/core/api/op_resolver.h"  // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -51,16 +53,15 @@ class TaskApiFactory {
  public:
   TaskApiFactory() = delete;
 
+  static constexpr RunningMode kUnknownRunningMode = RunningMode::kUnspecified;
+
   template <typename T, typename Options,
             EnableIfBaseTaskApiSubclass<T> = nullptr>
-  static absl::StatusOr<std::unique_ptr<T>> Create(
-      CalculatorGraphConfig graph_config,
-      std::unique_ptr<tflite::OpResolver> resolver,
-      PacketsCallback packets_callback = nullptr) {
+  static absl::StatusOr<std::unique_ptr<T>> Create(TaskRunnerOptions options) {
     bool found_task_subgraph = false;
     // This for-loop ensures there's only one subgraph besides
     // FlowLimiterCalculator.
-    for (const auto& node : graph_config.node()) {
+    for (const auto& node : options.config.node()) {
       if (node.calculator() == "FlowLimiterCalculator") {
         continue;
       }
@@ -70,18 +71,15 @@ class TaskApiFactory {
             "Task graph config should only contain one task subgraph node.",
             MediaPipeTasksStatus::kInvalidTaskGraphConfigError);
       } else {
-        MP_RETURN_IF_ERROR(CheckHasValidOptions<Options>(node));
+        ABSL_RETURN_IF_ERROR(CheckHasValidOptions<Options>(node));
         found_task_subgraph = true;
       }
     }
-    ASSIGN_OR_RETURN(
-        auto runner,
-        core::TaskRunner::Create(std::move(graph_config), std::move(resolver),
-                                 std::move(packets_callback)));
+    ABSL_ASSIGN_OR_RETURN(auto runner,
+                          core::TaskRunner::Create(std::move(options)));
     return std::make_unique<T>(std::move(runner));
   }
 
- private:
   template <typename Options>
   static absl::Status CheckHasValidOptions(
       const CalculatorGraphConfig::Node& node) {

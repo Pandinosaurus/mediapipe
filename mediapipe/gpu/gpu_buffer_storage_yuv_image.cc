@@ -16,12 +16,16 @@ limitations under the License.
 #include "mediapipe/gpu/gpu_buffer_storage_yuv_image.h"
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
-#include "libyuv/video_common.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"    // from @com_google_absl
+#include "absl/types/span.h"      // from @com_google_absl
+#include "libyuv/video_common.h"  // from @libyuv
 #include "mediapipe/framework/formats/frame_buffer.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/yuv_image.h"
@@ -87,7 +91,7 @@ std::shared_ptr<FrameBuffer> YuvImageToFrameBuffer(
   FrameBuffer::Dimension dimension{/*width=*/yuv_image->width(),
                                    /*height=*/yuv_image->height()};
   std::vector<FrameBuffer::Plane> planes;
-  CHECK(yuv_image->mutable_data(0) != nullptr && yuv_image->stride(0) > 0)
+  ABSL_CHECK(yuv_image->mutable_data(0) != nullptr && yuv_image->stride(0) > 0)
       << "Invalid YuvImage. Expected plane at index 0 to be non-null and have "
          "stride > 0.";
   planes.emplace_back(
@@ -97,7 +101,8 @@ std::shared_ptr<FrameBuffer> YuvImageToFrameBuffer(
   switch (format) {
     case FrameBuffer::Format::kNV12:
     case FrameBuffer::Format::kNV21: {
-      CHECK(yuv_image->mutable_data(1) != nullptr && yuv_image->stride(1) > 0)
+      ABSL_CHECK(yuv_image->mutable_data(1) != nullptr &&
+                 yuv_image->stride(1) > 0)
           << "Invalid YuvImage. Expected plane at index 1 to be non-null and "
              "have stride > 0.";
       planes.emplace_back(
@@ -108,8 +113,9 @@ std::shared_ptr<FrameBuffer> YuvImageToFrameBuffer(
     }
     case FrameBuffer::Format::kYV12:
     case FrameBuffer::Format::kYV21: {
-      CHECK(yuv_image->mutable_data(1) != nullptr && yuv_image->stride(1) > 0 &&
-            yuv_image->mutable_data(2) != nullptr && yuv_image->stride(2) > 0)
+      ABSL_CHECK(
+          yuv_image->mutable_data(1) != nullptr && yuv_image->stride(1) > 0 &&
+          yuv_image->mutable_data(2) != nullptr && yuv_image->stride(2) > 0)
           << "Invalid YuvImage. Expected planes at indices 1 and 2 to be "
              "non-null and have stride > 0.";
       planes.emplace_back(
@@ -123,7 +129,7 @@ std::shared_ptr<FrameBuffer> YuvImageToFrameBuffer(
       break;
     }
     default:
-      LOG(FATAL)
+      ABSL_LOG(FATAL)
           << "Invalid format. Only FOURCC_NV12, FOURCC_NV21, FOURCC_YV12 and "
              "FOURCC_I420 are supported.";
   }
@@ -148,7 +154,7 @@ std::shared_ptr<ImageFrame> YuvImageToImageFrame(
   auto rgb_buffer =
       FrameBuffer(planes, yuv_buffer->dimension(), FrameBuffer::Format::kRGB);
   // Convert.
-  CHECK_OK(frame_buffer::Convert(*yuv_buffer, &rgb_buffer));
+  ABSL_CHECK_OK(frame_buffer::Convert(*yuv_buffer, &rgb_buffer));
   return image_frame;
 }
 
@@ -156,8 +162,8 @@ std::shared_ptr<ImageFrame> YuvImageToImageFrame(
 
 GpuBufferStorageYuvImage::GpuBufferStorageYuvImage(
     std::shared_ptr<YUVImage> yuv_image) {
-  CHECK(GpuBufferFormatForFourCC(yuv_image->fourcc()) !=
-        GpuBufferFormat::kUnknown)
+  ABSL_CHECK(GpuBufferFormatForFourCC(yuv_image->fourcc()) !=
+             GpuBufferFormat::kUnknown)
       << "Invalid format. Only FOURCC_NV12, FOURCC_NV21, FOURCC_YV12 and "
          "FOURCC_I420 are supported.";
   yuv_image_ = yuv_image;
@@ -167,7 +173,9 @@ GpuBufferStorageYuvImage::GpuBufferStorageYuvImage(int width, int height,
                                                    GpuBufferFormat format) {
   libyuv::FourCC fourcc = FourCCForGpuBufferFormat(format);
   int y_stride = std::ceil(1.0f * width / kDefaultDataAligment);
-  auto y_data = std::make_unique<uint8_t[]>(y_stride * height);
+  const size_t y_size = y_stride * height;
+  auto y_data = std::make_unique<uint8_t[]>(y_size);
+  absl::Span<uint8_t> y_span(y_data.get(), y_size);
   switch (fourcc) {
     case libyuv::FOURCC_NV12:
     case libyuv::FOURCC_NV21: {
@@ -175,10 +183,18 @@ GpuBufferStorageYuvImage::GpuBufferStorageYuvImage(int width, int height,
       int uv_width = 2 * std::ceil(0.5f * width);
       int uv_height = std::ceil(0.5f * height);
       int uv_stride = std::ceil(1.0f * uv_width / kDefaultDataAligment);
-      auto uv_data = std::make_unique<uint8_t[]>(uv_stride * uv_height);
-      yuv_image_ = std::make_shared<YUVImage>(
-          fourcc, std::move(y_data), y_stride, std::move(uv_data), uv_stride,
-          nullptr, 0, width, height);
+      const size_t uv_size = uv_stride * uv_height;
+      auto uv_data = std::make_unique<uint8_t[]>(uv_size);
+      absl::Span<uint8_t> uv_span(uv_data.get(), uv_size);
+      yuv_image_ = std::make_shared<YUVImage>();
+      yuv_image_->Initialize(
+          fourcc,
+          [y = std::move(y_data), uv = std::move(uv_data)]() mutable {
+            y.reset();
+            uv.reset();
+          },
+          y_span, y_stride, uv_span, uv_stride,
+          /*data2=*/{}, /*stride2=*/0, width, height);
       break;
     }
     case libyuv::FOURCC_YV12:
@@ -187,15 +203,26 @@ GpuBufferStorageYuvImage::GpuBufferStorageYuvImage(int width, int height,
       int uv_width = std::ceil(0.5f * width);
       int uv_height = std::ceil(0.5f * height);
       int uv_stride = std::ceil(1.0f * uv_width / kDefaultDataAligment);
-      auto u_data = std::make_unique<uint8_t[]>(uv_stride * uv_height);
-      auto v_data = std::make_unique<uint8_t[]>(uv_stride * uv_height);
-      yuv_image_ = std::make_shared<YUVImage>(
-          fourcc, std::move(y_data), y_stride, std::move(u_data), uv_stride,
-          std::move(v_data), uv_stride, width, height);
+      const size_t uv_size = uv_stride * uv_height;
+      auto u_data = std::make_unique<uint8_t[]>(uv_size);
+      auto v_data = std::make_unique<uint8_t[]>(uv_size);
+      absl::Span<uint8_t> u_span(u_data.get(), uv_size);
+      absl::Span<uint8_t> v_span(v_data.get(), uv_size);
+      yuv_image_ = std::make_shared<YUVImage>();
+      yuv_image_->Initialize(
+          fourcc,
+          [y = std::move(y_data), u = std::move(u_data),
+           v = std::move(v_data)]() mutable {
+            y.reset();
+            u.reset();
+            v.reset();
+          },
+          y_span, y_stride, u_span, uv_stride, v_span, uv_stride, width,
+          height);
       break;
     }
     default:
-      LOG(FATAL)
+      ABSL_LOG(FATAL)
           << "Invalid format. Only kNV12, kNV21, kYV12 and kYV21 are supported";
   }
 }
@@ -223,6 +250,6 @@ std::shared_ptr<ImageFrame> GpuBufferStorageYuvImage::GetWriteView(
     internal::types<ImageFrame>) {
   // Not supported on purpose: writes into the resulting ImageFrame cannot
   // easily be ported back to the original YUV image.
-  LOG(FATAL) << "GetWriteView<ImageFrame> is not supported.";
+  ABSL_LOG(FATAL) << "GetWriteView<ImageFrame> is not supported.";
 }
 }  // namespace mediapipe

@@ -19,8 +19,6 @@ from __future__ import print_function
 
 from typing import Any, Callable, List, Optional, Union
 
-# Dependency imports
-
 import tensorflow as tf
 
 from mediapipe.model_maker.python.core.data import dataset as ds
@@ -197,7 +195,7 @@ class QuantizationConfig(object):
       tf_ds = self.representative_data.gen_tf_dataset(
           batch_size=1, is_training=False, **kwargs)
       converter.representative_dataset = tf.lite.RepresentativeDataset(
-          _get_representative_dataset_generator(tf_ds, self.quantization_steps))
+          _get_representative_dataset_generator(tf_ds, self.quantization_steps))  # pyrefly: ignore[bad-argument-type]
 
     if self.inference_input_type:
       converter.inference_input_type = self.inference_input_type

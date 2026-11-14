@@ -13,10 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
+#include <memory>
+
+#include "absl/flags/flag.h"           // from @com_google_absl
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/status/statusor.h"      // from @com_google_absl
+#include "absl/strings/str_format.h"   // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensor/inference_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
@@ -32,6 +35,7 @@ limitations under the License.
 #include "mediapipe/tasks/cc/core/mediapipe_builtin_op_resolver.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/pose_detector/proto/pose_detector_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
@@ -76,6 +80,7 @@ constexpr char kDetectionsTag[] = "DETECTIONS";
 constexpr char kDetectionsName[] = "detections";
 constexpr char kExpandedPoseRectsTag[] = "EXPANDED_POSE_RECTS";
 constexpr char kExpandedPoseRectsName[] = "expanded_pose_rects";
+constexpr char kTaskName[] = "pose_detector_test";
 
 constexpr float kPoseDetectionMaxDiff = 0.01;
 constexpr float kExpandedPoseRectMaxDiff = 0.01;
@@ -109,21 +114,26 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
       graph[Output<std::vector<NormalizedRect>>(kExpandedPoseRectsTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(), std::make_unique<core::MediaPipeBuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = kTaskName,
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver = std::make_unique<core::MediaPipeBuiltinOpResolver>()});
 }
 
 Detection GetExpectedPoseDetectionResult(absl::string_view file_name) {
   Detection detection;
-  CHECK_OK(GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
-                        &detection, Defaults()))
+  ABSL_CHECK_OK(
+      GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
+                   &detection, Defaults()))
       << "Expected pose detection result does not exist.";
   return detection;
 }
 
 NormalizedRect GetExpectedExpandedPoseRect(absl::string_view file_name) {
   NormalizedRect expanded_rect;
-  CHECK_OK(GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
-                        &expanded_rect, Defaults()))
+  ABSL_CHECK_OK(
+      GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
+                   &expanded_rect, Defaults()))
       << "Expected expanded pose rect does not exist.";
   return expanded_rect;
 }

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
 package(default_visibility = [
     "//mediapipe/tasks:internal",
     "//mediapipe/tasks:users",
@@ -24,8 +26,7 @@ objc_library(
     srcs = ["sources/MPPClassifierOptions+Helpers.mm"],
     hdrs = ["sources/MPPClassifierOptions+Helpers.h"],
     deps = [
-        "//mediapipe/tasks/cc/components/processors/proto:classifier_options_cc_proto",
-        "//mediapipe/tasks/ios/common/utils:NSStringHelpers",
+        "//mediapipe/tasks/c/components/processors:classifier_options",
         "//mediapipe/tasks/ios/components/processors:MPPClassifierOptions",
     ],
 )

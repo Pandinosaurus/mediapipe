@@ -1,4 +1,4 @@
-/* Copyright 2023 The MediaPipe Authors.
+/* Copyright 2025 The MediaPipe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/status/statusor.h"      // from @com_google_absl
+#include "absl/strings/match.h"        // from @com_google_absl
+#include "absl/strings/str_format.h"   // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -40,9 +41,11 @@ limitations under the License.
 #include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/face_detector/proto/face_detector_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
+#include "testing/base/public/gunit.h"
 
 namespace mediapipe {
 namespace tasks {
@@ -76,9 +79,15 @@ constexpr char kFullRangeSparseBlazeFaceModel[] =
     "face_detection_full_range_sparse.tflite";
 constexpr char kShortRangeBlazeFaceModel[] =
     "face_detection_short_range.tflite";
+constexpr char kShortRangeBlazeMetadataFaceModel[] =
+    "face_detection_short_range_with_metadata.tflite";
 constexpr char kPortraitImage[] = "portrait.jpg";
 constexpr char kPortraitExpectedDetection[] =
     "portrait_expected_detection.pbtxt";
+constexpr char kPortraitExpectedFullRangeDetection[] =
+    "portrait_expected_full_range_detection.pbtxt";
+constexpr char kPortraitExpectedFullRangeSparseDetection[] =
+    "portrait_expected_full_range_sparse_detection.pbtxt";
 
 constexpr char kImageTag[] = "IMAGE";
 constexpr char kImageName[] = "image";
@@ -91,15 +100,14 @@ constexpr float kFaceDetectionMaxDiff = 0.01;
 
 // Helper function to create a TaskRunner.
 absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
-    absl::string_view model_name) {
+    absl::string_view model_name, std::string graph_name) {
   Graph graph;
 
-  auto& face_detector_graph =
-      graph.AddNode("mediapipe.tasks.vision.face_detector.FaceDetectorGraph");
+  auto& face_detector_graph = graph.AddNode(graph_name);
 
   auto options = std::make_unique<FaceDetectorGraphOptions>();
   options->mutable_base_options()->mutable_model_asset()->set_file_name(
-      JoinPath("./", kTestDataDirectory, model_name));
+      JoinPath(::testing::SrcDir(), kTestDataDirectory, model_name));
   options->set_min_detection_confidence(0.6);
   options->set_min_suppression_threshold(0.3);
   face_detector_graph.GetOptions<FaceDetectorGraphOptions>().Swap(
@@ -114,13 +122,17 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
       graph[Output<std::vector<Detection>>(kDetectionsTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(), std::make_unique<core::MediaPipeBuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = "face_detector_test",
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver = std::make_unique<core::MediaPipeBuiltinOpResolver>()});
 }
 
 Detection GetExpectedFaceDetectionResult(absl::string_view file_name) {
   Detection detection;
-  CHECK_OK(GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
-                        &detection, Defaults()))
+  ABSL_CHECK_OK(GetTextProto(
+      file::JoinPath(::testing::SrcDir(), kTestDataDirectory, file_name),
+      &detection, Defaults()))
       << "Expected face detection result does not exist.";
   return detection;
 }
@@ -134,21 +146,25 @@ struct TestParams {
   std::string test_image_name;
   // Expected face detection results.
   std::vector<Detection> expected_result;
+  // The name of the mediapipe graph to run.
+  std::string graph_name;
 };
 
 class FaceDetectorGraphTest : public testing::TestWithParam<TestParams> {};
 
 TEST_P(FaceDetectorGraphTest, Succeed) {
   MP_ASSERT_OK_AND_ASSIGN(
-      Image image, DecodeImageFromFile(JoinPath("./", kTestDataDirectory,
-                                                GetParam().test_image_name)));
+      Image image,
+      DecodeImageFromFile(JoinPath(::testing::SrcDir(), kTestDataDirectory,
+                                   GetParam().test_image_name)));
   NormalizedRect input_norm_rect;
   input_norm_rect.set_x_center(0.5);
   input_norm_rect.set_y_center(0.5);
   input_norm_rect.set_width(1.0);
   input_norm_rect.set_height(1.0);
-  MP_ASSERT_OK_AND_ASSIGN(
-      auto task_runner, CreateTaskRunner(GetParam().face_detection_model_name));
+  MP_ASSERT_OK_AND_ASSIGN(auto task_runner,
+                          CreateTaskRunner(GetParam().face_detection_model_name,
+                                           GetParam().graph_name));
   auto output_packets = task_runner->Process(
       {{kImageName, MakePacket<Image>(std::move(image))},
        {kNormRectName,
@@ -163,11 +179,39 @@ TEST_P(FaceDetectorGraphTest, Succeed) {
 
 INSTANTIATE_TEST_SUITE_P(
     FaceDetectorGraphTest, FaceDetectorGraphTest,
-    Values(TestParams{.test_name = "ShortRange",
-                      .face_detection_model_name = kShortRangeBlazeFaceModel,
-                      .test_image_name = kPortraitImage,
-                      .expected_result = {GetExpectedFaceDetectionResult(
-                          kPortraitExpectedDetection)}}),
+    Values(
+        TestParams{
+            .test_name = "ShortRange",
+            .face_detection_model_name = kShortRangeBlazeFaceModel,
+            .test_image_name = kPortraitImage,
+            .expected_result = {GetExpectedFaceDetectionResult(
+                kPortraitExpectedDetection)},
+            .graph_name =
+                "mediapipe.tasks.vision.face_detector.FaceDetectorGraph"},
+        TestParams{
+            .test_name = "ShortRangeWithMetadata",
+            .face_detection_model_name = kShortRangeBlazeMetadataFaceModel,
+            .test_image_name = kPortraitImage,
+            .expected_result = {GetExpectedFaceDetectionResult(
+                kPortraitExpectedDetection)},
+            .graph_name =
+                "mediapipe.tasks.vision.face_detector.FaceDetectorGraph"},
+        TestParams{
+            .test_name = "FullRange",
+            .face_detection_model_name = kFullRangeBlazeFaceModel,
+            .test_image_name = kPortraitImage,
+            .expected_result = {GetExpectedFaceDetectionResult(
+                kPortraitExpectedFullRangeDetection)},
+            .graph_name =
+                "mediapipe.tasks.vision.face_detector.FaceDetectorGraph"},
+        TestParams{
+            .test_name = "FullRangeSparse",
+            .face_detection_model_name = kFullRangeSparseBlazeFaceModel,
+            .test_image_name = kPortraitImage,
+            .expected_result = {GetExpectedFaceDetectionResult(
+                kPortraitExpectedFullRangeSparseDetection)},
+            .graph_name =
+                "mediapipe.tasks.vision.face_detector.FaceDetectorGraph"}),
     [](const TestParamInfo<FaceDetectorGraphTest::ParamType>& info) {
       return info.param.test_name;
     });

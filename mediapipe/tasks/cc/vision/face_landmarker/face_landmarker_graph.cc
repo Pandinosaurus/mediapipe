@@ -18,7 +18,10 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/strings/str_format.h"
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
 #include "mediapipe/calculators/core/clip_vector_size_calculator.pb.h"
 #include "mediapipe/calculators/core/concatenate_vector_calculator.h"
 #include "mediapipe/calculators/core/gate_calculator.pb.h"
@@ -26,7 +29,6 @@ limitations under the License.
 #include "mediapipe/calculators/core/get_vector_item_calculator.pb.h"
 #include "mediapipe/calculators/util/association_calculator.pb.h"
 #include "mediapipe/calculators/util/collection_has_min_size_calculator.pb.h"
-#include "mediapipe/calculators/util/landmarks_smoothing_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/formats/classification.pb.h"
@@ -35,7 +37,6 @@ limitations under the License.
 #include "mediapipe/framework/formats/landmark.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
 #include "mediapipe/framework/formats/tensor.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/tasks/cc/common.h"
 #include "mediapipe/tasks/cc/components/utils/gate.h"
 #include "mediapipe/tasks/cc/core/model_asset_bundle_resources.h"
@@ -122,8 +123,8 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
   auto* face_detector_graph_options =
       options->mutable_face_detector_graph_options();
   if (!face_detector_graph_options->base_options().has_model_asset()) {
-    ASSIGN_OR_RETURN(const auto face_detector_file,
-                     resources.GetFile(kFaceDetectorTFLiteName));
+    ABSL_ASSIGN_OR_RETURN(const auto face_detector_file,
+                          resources.GetFile(kFaceDetectorTFLiteName));
     SetExternalFile(face_detector_file,
                     face_detector_graph_options->mutable_base_options()
                         ->mutable_model_asset(),
@@ -134,12 +135,15 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
       ->CopyFrom(options->base_options().acceleration());
   face_detector_graph_options->mutable_base_options()->set_use_stream_mode(
       options->base_options().use_stream_mode());
+  face_detector_graph_options->mutable_base_options()->set_gpu_origin(
+      options->base_options().gpu_origin());
+
   auto* face_landmarks_detector_graph_options =
       options->mutable_face_landmarks_detector_graph_options();
   if (!face_landmarks_detector_graph_options->base_options()
            .has_model_asset()) {
-    ASSIGN_OR_RETURN(const auto face_landmarks_detector_file,
-                     resources.GetFile(kFaceLandmarksDetectorTFLiteName));
+    ABSL_ASSIGN_OR_RETURN(const auto face_landmarks_detector_file,
+                          resources.GetFile(kFaceLandmarksDetectorTFLiteName));
     SetExternalFile(
         face_landmarks_detector_file,
         face_landmarks_detector_graph_options->mutable_base_options()
@@ -151,6 +155,8 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
       ->CopyFrom(options->base_options().acceleration());
   face_landmarks_detector_graph_options->mutable_base_options()
       ->set_use_stream_mode(options->base_options().use_stream_mode());
+  face_landmarks_detector_graph_options->mutable_base_options()->set_gpu_origin(
+      options->base_options().gpu_origin());
 
   absl::StatusOr<absl::string_view> face_blendshape_model =
       resources.GetFile(kFaceBlendshapeTFLiteName);
@@ -166,24 +172,11 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
         ->mutable_base_options()
         ->mutable_acceleration()
         ->mutable_xnnpack();
-    LOG(WARNING) << "Face blendshape model contains CPU only ops. Sets "
-                 << "FaceBlendshapesGraph acceleration to Xnnpack.";
+    ABSL_LOG(WARNING) << "Sets FaceBlendshapesGraph acceleration to xnnpack "
+                      << "by default.";
   }
 
   return absl::OkStatus();
-}
-
-void ConfigureLandmarksSmoothingCalculator(
-    mediapipe::LandmarksSmoothingCalculatorOptions& options) {
-  // Min cutoff 0.05 results into ~0.01 alpha in landmark EMA filter when
-  // landmark is static.
-  options.mutable_one_euro_filter()->set_min_cutoff(0.05f);
-  // Beta 80.0 in combintation with min_cutoff 0.05 results into ~0.94
-  // alpha in landmark EMA filter when landmark is moving fast.
-  options.mutable_one_euro_filter()->set_beta(80.0f);
-  // Derivative cutoff 1.0 results into ~0.17 alpha in landmark velocity
-  // EMA filter.
-  options.mutable_one_euro_filter()->set_derivate_cutoff(1.0f);
 }
 }  // namespace
 
@@ -332,12 +325,12 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
     if (sc->Options<FaceLandmarkerGraphOptions>()
             .base_options()
             .has_model_asset()) {
-      ASSIGN_OR_RETURN(
+      ABSL_ASSIGN_OR_RETURN(
           const auto* model_asset_bundle_resources,
           CreateModelAssetBundleResources<FaceLandmarkerGraphOptions>(sc));
       // Copies the file content instead of passing the pointer of file in
       // memory if the subgraph model resource service is not available.
-      MP_RETURN_IF_ERROR(SetSubTaskBaseOptions(
+      ABSL_RETURN_IF_ERROR(SetSubTaskBaseOptions(
           *model_asset_bundle_resources,
           sc->MutableOptions<FaceLandmarkerGraphOptions>(),
           !sc->Service(::mediapipe::tasks::core::kModelResourcesCacheService)
@@ -345,9 +338,9 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
       if (output_geometry) {
         // Set the face geometry metadata file for
         // FaceGeometryFromLandmarksGraph.
-        ASSIGN_OR_RETURN(auto face_geometry_pipeline_metadata_file,
-                         model_asset_bundle_resources->GetFile(
-                             kFaceGeometryPipelineMetadataName));
+        ABSL_ASSIGN_OR_RETURN(auto face_geometry_pipeline_metadata_file,
+                              model_asset_bundle_resources->GetFile(
+                                  kFaceGeometryPipelineMetadataName));
         SetExternalFile(face_geometry_pipeline_metadata_file,
                         sc->MutableOptions<FaceLandmarkerGraphOptions>()
                             ->mutable_face_geometry_graph_options()
@@ -378,7 +371,7 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
     if (HasInput(sc->OriginalNode(), kNormRectTag)) {
       norm_rect_in = graph.In(kNormRectTag).Cast<NormalizedRect>();
     }
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         auto outs,
         BuildFaceLandmarkerGraph(
             *sc->MutableOptions<FaceLandmarkerGraphOptions>(),
@@ -401,18 +394,8 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
           graph[Output<std::vector<FaceGeometry>>(kFaceGeometryTag)];
     }
 
-    // TODO remove when support is fixed.
-    // As mediapipe GraphBuilder currently doesn't support configuring
-    // InputStreamInfo, modifying the CalculatorGraphConfig proto directly.
     CalculatorGraphConfig config = graph.GetConfig();
-    for (int i = 0; i < config.node_size(); ++i) {
-      if (config.node(i).calculator() == "PreviousLoopbackCalculator") {
-        auto* info = config.mutable_node(i)->add_input_stream_info();
-        info->set_tag_index(kLoopTag);
-        info->set_back_edge(true);
-        break;
-      }
-    }
+    core::FixGraphBackEdges(config);
     return config;
   }
 
@@ -464,32 +447,17 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
     auto image_size = image_properties.Out(kSizeTag);
 
     // Apply smoothing filter only on the single face landmarks, because
-    // landmakrs smoothing calculator doesn't support multiple landmarks yet.
+    // landmarks smoothing calculator doesn't support multiple landmarks yet.
     if (face_detector_options.num_faces() == 1) {
-      // Get the single face landmarks
-      auto& get_vector_item =
-          graph.AddNode("GetNormalizedLandmarkListVectorItemCalculator");
-      get_vector_item.GetOptions<mediapipe::GetVectorItemCalculatorOptions>()
-          .set_item_index(0);
-      face_landmarks >> get_vector_item.In(kVectorTag);
-      auto single_face_landmarks = get_vector_item.Out(kItemTag);
-
-      // Apply smoothing filter on face landmarks.
-      auto& landmarks_smoothing = graph.AddNode("LandmarksSmoothingCalculator");
-      ConfigureLandmarksSmoothingCalculator(
-          landmarks_smoothing
-              .GetOptions<mediapipe::LandmarksSmoothingCalculatorOptions>());
-      single_face_landmarks >> landmarks_smoothing.In(kNormLandmarksTag);
-      image_size >> landmarks_smoothing.In(kImageSizeTag);
-      auto smoothed_single_face_landmarks =
-          landmarks_smoothing.Out(kNormFilteredLandmarksTag);
-
-      // Wrap the single face landmarks into a vector of landmarks.
-      auto& concatenate_vector =
-          graph.AddNode("ConcatenateNormalizedLandmarkListVectorCalculator");
-      smoothed_single_face_landmarks >> concatenate_vector.In("");
-      face_landmarks = concatenate_vector.Out("")
-                           .Cast<std::vector<NormalizedLandmarkList>>();
+      face_landmarks_detector_graph
+          .GetOptions<FaceLandmarksDetectorGraphOptions>()
+          .set_smooth_landmarks(tasks_options.base_options().use_stream_mode());
+    } else if (face_detector_options.num_faces() > 1 &&
+               face_landmarks_detector_graph
+                   .GetOptions<FaceLandmarksDetectorGraphOptions>()
+                   .smooth_landmarks()) {
+      return absl::InvalidArgumentError(
+          "Currently face landmarks smoothing only support a single face.");
     }
 
     if (tasks_options.base_options().use_stream_mode()) {
@@ -533,9 +501,10 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
       // Back edge.
       face_rects_for_next_frame >> previous_loopback.In(kLoopTag);
     } else {
-      // While not in stream mode, the input images are not guaranteed to be in
-      // series, and we don't want to enable the tracking and rect associations
-      // between input images. Always use the face detector graph.
+      // While not in stream mode, the input images are not guaranteed to be
+      // in series, and we don't want to enable the tracking and rect
+      // associations between input images. Always use the face detector
+      // graph.
       image_in >> face_detector.In(kImageTag);
       if (norm_rect_in) {
         *norm_rect_in >> face_detector.In(kNormRectTag);
@@ -571,7 +540,8 @@ class FaceLandmarkerGraph : public core::ModelTaskGraph {
     }
 
     // TODO: Replace PassThroughCalculator with a calculator that
-    // converts the pixel data to be stored on the target storage (CPU vs GPU).
+    // converts the pixel data to be stored on the target storage (CPU vs
+    // GPU).
     auto& pass_through = graph.AddNode("PassThroughCalculator");
     image_in >> pass_through.In("");
 

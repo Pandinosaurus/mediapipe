@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow/lite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite")
+load("@litert//tflite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite")
 
 package(default_visibility = ["//mediapipe/tasks:internal"])
 
@@ -25,16 +25,47 @@ cc_library_with_tflite(
     ],
     hdrs = [
         "model_resources_cache_jni.h",
-    ],
+    ] + select({
+        "//conditions:default": [
+            ":jni.h",
+            ":jni_md.h",
+        ],
+        # The Android toolchain makes "jni.h" available in the include path.
+        # For non-Android toolchains, generate jni.h and jni_md.h.
+        "//mediapipe:android": [],
+    }),
     tflite_deps = [
+        "//mediapipe/tasks/cc/core:mediapipe_builtin_op_resolver",
         "//mediapipe/tasks/cc/core:model_resources_cache",
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
+        "@litert//tflite/kernels:builtin_ops",
     ],
     deps = [
         "//mediapipe/java/com/google/mediapipe/framework/jni:mediapipe_framework_jni",
-        "//mediapipe/tasks/cc/core:mediapipe_builtin_op_resolver",
     ] + select({
-        "//conditions:default": ["//third_party/java/jdk:jni"],
+        "//conditions:default": [
+        ],
+        "//mediapipe:android": [],
+    }),
+    alwayslink = 1,
+)
+
+cc_library_with_tflite(
+    name = "base_options_utils_jni",
+    srcs = [
+        "base_options_utils_jni.cc",
+    ],
+    hdrs = [
+        "base_options_utils_jni.h",
+    ] + select({
+        "//conditions:default": [
+            ":jni.h",
+            ":jni_md.h",
+        ],
+        "//mediapipe:android": [],
+    }),
+    deps = select({
+        "//conditions:default": [
+        ],
         "//mediapipe:android": [],
     }),
     alwayslink = 1,

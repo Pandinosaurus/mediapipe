@@ -20,7 +20,6 @@ from __future__ import print_function
 import functools
 from typing import Any, Callable, Optional, Tuple, TypeVar
 
-# Dependency imports
 import tensorflow as tf
 
 _DatasetT = TypeVar('_DatasetT', bound='Dataset')
@@ -56,15 +55,14 @@ class Dataset(object):
   def size(self) -> Optional[int]:
     """Returns the size of the dataset.
 
-    Note that this function may return None becuase the exact size of the
-    dataset isn't a necessary parameter to create an instance of this class,
-    and tf.data.Dataset donesn't support a function to get the length directly
-    since it's lazy-loaded and may be infinite.
-    In most cases, however, when an instance of this class is created by helper
-    functions like 'from_folder', the size of the dataset will be preprocessed,
-    and this function can return an int representing the size of the dataset.
+    Same functionality as calling __len__. See the __len__ method definition for
+    more information.
+
+    Raises:
+      TypeError if self._size is not set and the cardinality of self._dataset
+        is INFINITE_CARDINALITY or UNKNOWN_CARDINALITY.
     """
-    return self._size
+    return self.__len__()
 
   def gen_tf_dataset(
       self,
@@ -73,6 +71,7 @@ class Dataset(object):
       shuffle: bool = False,
       preprocess: Optional[Callable[..., Any]] = None,
       drop_remainder: bool = False,
+      num_parallel_preprocess_calls: int = tf.data.experimental.AUTOTUNE,
   ) -> tf.data.Dataset:
     """Generates a batched tf.data.Dataset for training/evaluation.
 
@@ -85,6 +84,8 @@ class Dataset(object):
       preprocess: A function taking three arguments in order, feature, label and
         boolean is_training.
       drop_remainder: boolean, whether the finally batch drops remainder.
+      num_parallel_preprocess_calls: The number of parallel calls for dataset
+        map of preprocess function.
 
     Returns:
       A TF dataset ready to be consumed by Keras model.
@@ -93,7 +94,11 @@ class Dataset(object):
 
     if preprocess:
       preprocess = functools.partial(preprocess, is_training=is_training)
-      dataset = dataset.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+      dataset = dataset.map(
+          preprocess,
+          num_parallel_calls=num_parallel_preprocess_calls,
+          deterministic=False,
+      )
 
     if is_training:
       if shuffle:
@@ -116,12 +121,26 @@ class Dataset(object):
     # here.
     return dataset
 
-  def __len__(self):
-    """Returns the number of element of the dataset."""
+  def __len__(self) -> int:
+    """Returns the number of element of the dataset.
+
+    If size is not set, this method will fallback to using the __len__ method
+    of the tf.data.Dataset in self._dataset. Calling __len__ on a
+    tf.data.Dataset instance may throw a TypeError because the dataset may
+    be lazy-loaded with an unknown size or have infinite size.
+
+    In most cases, however, when an instance of this class is created by helper
+    functions like 'from_folder', the size of the dataset will be preprocessed,
+    and the _size instance variable will be already set.
+
+    Raises:
+      TypeError if self._size is not set and the cardinality of self._dataset
+        is INFINITE_CARDINALITY or UNKNOWN_CARDINALITY.
+    """
     if self._size is not None:
       return self._size
     else:
-      return len(self._dataset)
+      return len(self._dataset)  # pyrefly: ignore[bad-argument-type]
 
   def split(self: _DatasetT, fraction: float) -> Tuple[_DatasetT, _DatasetT]:
     """Splits dataset into two sub-datasets with the given fraction.
@@ -137,8 +156,9 @@ class Dataset(object):
     """
     return self._split(fraction)
 
-  def _split(self: _DatasetT, fraction: float,
-             *args) -> Tuple[_DatasetT, _DatasetT]:
+  def _split(
+      self: _DatasetT, fraction: float, *args
+  ) -> Tuple[_DatasetT, _DatasetT]:
     """Implementation for `split` method and returns sub-class instances.
 
     Child DataLoader classes, if requires additional constructor arguments,
@@ -152,15 +172,25 @@ class Dataset(object):
 
     Returns:
       The splitted two sub datasets.
+
+    Raises:
+      ValueError: if the provided fraction is not between 0 and 1.
+      ValueError: if this dataset does not have a set size.
     """
-    assert (fraction > 0 and fraction < 1)
+    if not (fraction > 0 and fraction < 1):
+      raise ValueError(f'Fraction must be between 0 and 1. Got:{fraction}')
+    if not self._size:
+      raise ValueError(
+          'Dataset size unknown. Cannot split the dataset when '
+          'the size is unknown.'
+      )
 
     dataset = self._dataset
 
     train_size = int(self._size * fraction)
-    trainset = self.__class__(dataset.take(train_size), train_size, *args)
+    trainset = self.__class__(dataset.take(train_size), *args, size=train_size)
 
     test_size = self._size - train_size
-    testset = self.__class__(dataset.skip(train_size), test_size, *args)
+    testset = self.__class__(dataset.skip(train_size), *args, size=test_size)
 
     return trainset, testset

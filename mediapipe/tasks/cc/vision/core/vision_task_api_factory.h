@@ -16,18 +16,20 @@ limitations under the License.
 #ifndef MEDIAPIPE_TASKS_CC_VISION_CORE_BASE_VISION_TASK_API_FACTORY_H_
 #define MEDIAPIPE_TASKS_CC_VISION_CORE_BASE_VISION_TASK_API_FACTORY_H_
 
-#include <functional>
 #include <memory>
-#include <string>
 #include <type_traits>
 #include <utility>
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
+#include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/tasks/cc/common.h"
+#include "mediapipe/tasks/cc/core/task_api_factory.h"
+#include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/core/base_vision_task_api.h"
-#include "tensorflow/lite/core/api/op_resolver.h"
+#include "mediapipe/tasks/cc/vision/core/running_mode.h"
 
 namespace mediapipe {
 namespace tasks {
@@ -46,11 +48,9 @@ class VisionTaskApiFactory {
   template <typename T, typename Options,
             EnableIfBaseVisionTaskApiSubclass<T> = nullptr>
   static absl::StatusOr<std::unique_ptr<T>> Create(
-      CalculatorGraphConfig graph_config,
-      std::unique_ptr<tflite::OpResolver> resolver, RunningMode running_mode,
-      tasks::core::PacketsCallback packets_callback = nullptr) {
+      tasks::core::TaskRunnerOptions options) {
     bool found_task_subgraph = false;
-    for (const auto& node : graph_config.node()) {
+    for (const auto& node : options.config.node()) {
       if (node.calculator() == "FlowLimiterCalculator") {
         continue;
       }
@@ -60,35 +60,30 @@ class VisionTaskApiFactory {
             "Task graph config should only contain one task subgraph node.",
             MediaPipeTasksStatus::kInvalidTaskGraphConfigError);
       } else {
-        if (!node.options().HasExtension(Options::ext)) {
-          return CreateStatusWithPayload(
-              absl::StatusCode::kInvalidArgument,
-              absl::StrCat(node.calculator(),
-                           " is missing the required task options field."),
-              MediaPipeTasksStatus::kInvalidTaskGraphConfigError);
-        }
+        ABSL_RETURN_IF_ERROR(
+            tasks::core::TaskApiFactory::CheckHasValidOptions<Options>(node));
         found_task_subgraph = true;
       }
     }
+    ABSL_ASSIGN_OR_RETURN(RunningMode running_mode,
+                          GetVisionRunningMode(options.task_running_mode));
     if (running_mode == RunningMode::LIVE_STREAM) {
-      if (packets_callback == nullptr) {
+      if (options.packets_callback == nullptr) {
         return CreateStatusWithPayload(
             absl::StatusCode::kInvalidArgument,
             "The vision task is in live stream mode, a user-defined result "
             "callback must be provided.",
             MediaPipeTasksStatus::kInvalidTaskGraphConfigError);
       }
-    } else if (packets_callback) {
+    } else if (options.packets_callback) {
       return CreateStatusWithPayload(
           absl::StatusCode::kInvalidArgument,
           "The vision task is in image or video mode, a user-defined result "
           "callback shouldn't be provided.",
           MediaPipeTasksStatus::kInvalidTaskGraphConfigError);
     }
-    ASSIGN_OR_RETURN(auto runner,
-                     tasks::core::TaskRunner::Create(
-                         std::move(graph_config), std::move(resolver),
-                         std::move(packets_callback)));
+    ABSL_ASSIGN_OR_RETURN(auto runner,
+                          tasks::core::TaskRunner::Create(std::move(options)));
     return std::make_unique<T>(std::move(runner), running_mode);
   }
 };

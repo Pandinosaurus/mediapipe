@@ -18,16 +18,24 @@
 #include <pthread.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <set>
+#include <type_traits>
+#include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/synchronization/mutex.h"
-#include "mediapipe/framework/executor.h"
+#include "absl/base/attributes.h"          // from @com_google_absl
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"           // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/status/statusor.h"          // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
+#include "absl/types/span.h"               // from @com_google_absl
 #include "mediapipe/framework/mediapipe_profiling.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/statusor.h"
-#include "mediapipe/framework/port/threadpool.h"
 #include "mediapipe/framework/timestamp.h"
 #include "mediapipe/gpu/attachments.h"
 #include "mediapipe/gpu/gl_base.h"
@@ -70,6 +78,8 @@ typedef std::function<void()> GlVoidFunction;
 typedef std::function<absl::Status()> GlStatusFunction;
 
 class GlContext;
+// TODO: remove after glWaitSync crashes are resolved.
+class GlSyncWrapper;
 
 // Generic interface for synchronizing access to a shared resource from a
 // different context. This is an abstract class to keep users from
@@ -167,6 +177,16 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
                                   bool create_thread);
 #endif  // HAS_EAGL
 
+  // Size in bytes of a GPU device UUID, matching Vulkan's VK_UUID_SIZE.
+  static constexpr int kDeviceUuidSize = 16;
+
+  // Creates a GlContext on the GPU identified by `device_uuid` (interpreted as
+  // a Vulkan VkPhysicalDeviceIDProperties::deviceUUID). `device_uuid` must be
+  // exactly kDeviceUuidSize bytes. Returns absl::UnimplementedError on
+  // platforms that cannot select a GPU by UUID.
+  static StatusOrGlContext CreateForDeviceUuid(
+      absl::Span<const uint8_t> device_uuid, bool create_thread);
+
   // Returns the GlContext that is current on this thread. May return nullptr.
   static std::shared_ptr<GlContext> GetCurrent();
 
@@ -189,8 +209,7 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   // Like Run, but does not wait.
   void RunWithoutWaiting(GlVoidFunction gl_func);
 
-  // Returns a synchronization token.
-  // This should not be called outside of the GlContext thread.
+  // Returns a synchronization token for this GlContext.
   std::shared_ptr<GlSyncPoint> CreateSyncToken();
 
   // If another part of the framework calls glFinish, it should call this
@@ -276,8 +295,8 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   //
   // Therefore, instead of using std::function<void(void)>, we use a template
   // that only accepts arguments with a void result type.
-  template <typename T, typename = typename std::enable_if<std::is_void<
-                            typename std::result_of<T()>::type>::value>::type>
+  template <typename T, typename = typename std::enable_if<
+                            std::is_void<std::invoke_result_t<T>>::value>::type>
   void Run(T f) {
     Run([f] {
       f();
@@ -295,7 +314,7 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   // TOOD: const result?
   template <class T>
   T& GetCachedAttachment(const Attachment<T>& attachment) {
-    DCHECK(IsCurrent());
+    ABSL_DCHECK(IsCurrent());
     internal::AttachmentPtr<void>& entry = attachments_[&attachment];
     if (entry == nullptr) {
       entry = attachment.factory()(*this);
@@ -329,6 +348,9 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
       SyncTokenTypeForTest type);
 
  private:
+  // TODO: remove after glWaitSync crashes are resolved.
+  friend GlSyncWrapper;
+
   GlContext();
 
   bool ShouldUseFenceSync() const;
@@ -342,6 +364,9 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   EmscriptenWebGLContextAttributes attrs_;
 #elif HAS_EGL
   absl::Status CreateContext(EGLContext share_context);
+  absl::Status CreateContext(EGLDisplay display, EGLContext share_context);
+  absl::Status CreateContextForDeviceUuid(absl::Span<const uint8_t> device_uuid,
+                                          EGLContext share_context);
   absl::Status CreateContextInternal(EGLContext share_context, int gl_version);
 
   EGLDisplay display_ = EGL_NO_DISPLAY;
@@ -469,7 +494,26 @@ class GlContext : public std::enable_shared_from_this<GlContext> {
   absl::Mutex mutex_;
   absl::CondVar wait_for_gl_finish_cv_ ABSL_GUARDED_BY(mutex_);
 
-  std::unique_ptr<mediapipe::GlProfilingHelper> profiling_helper_ = nullptr;
+  // Wrapper around GlProfilingHelper to avoid data races setting and accessing
+  // the profiling_helper concurrently from different threads.
+  class ProfilingHelperOwner {
+   public:
+    // Creates a profiling helper from the given context if it hasn't been set
+    // yet. No-op otherwise.
+    void CreateIfUnset(
+        std::shared_ptr<mediapipe::ProfilingContext> profiling_context);
+
+    // Returns the profiling helper or nullptr if it hasn't been set yet.
+    mediapipe::GlProfilingHelper* Get() const;
+
+   private:
+    // Mutex to protect setting the profiling helper only.
+    absl::Mutex mutex_;
+    std::atomic<bool> is_set_ = false;
+    std::unique_ptr<mediapipe::GlProfilingHelper> profiling_helper_ = nullptr;
+  };
+
+  ProfilingHelperOwner profiling_helper_owner_;
 
   bool destructing_ = false;
 };
@@ -486,6 +530,18 @@ ABSL_DEPRECATED(
     "GlContext::GetGlVersion)")
 const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
                                                      int plane);
+
+namespace internal_gl_context {
+
+struct OpenGlVersion {
+  int major;
+  int minor;
+};
+
+bool IsOpenGlVersionSameOrAbove(const OpenGlVersion& version,
+                                const OpenGlVersion& expected_version);
+
+}  // namespace internal_gl_context
 
 }  // namespace mediapipe
 

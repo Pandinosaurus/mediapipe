@@ -158,17 +158,19 @@
 #ifndef MEDIAPIPE_TENSORFLOW_SEQUENCE_MEDIA_SEQUENCE_H_
 #define MEDIAPIPE_TENSORFLOW_SEQUENCE_MEDIA_SEQUENCE_H_
 
+#include <memory>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/location.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/port/proto_ns.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/sequence/media_sequence_util.h"
-#include "tensorflow/core/example/example.pb.h"
-#include "tensorflow/core/example/feature.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
+#include "tensorflow/core/example/feature.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 namespace mediasequence {
@@ -634,6 +636,10 @@ PREFIXED_IMAGE(InstanceSegmentation, kInstanceSegmentationPrefix);
 const char kTextLanguageKey[] = "text/language";
 // A large block of text that applies to the media.
 const char kTextContextContentKey[] = "text/context/content";
+// A large block of text that applies to the media as token ids.
+const char kTextContextTokenIdKey[] = "text/context/token_id";
+// A large block of text that applies to the media as embeddings.
+const char kTextContextEmbeddingKey[] = "text/context/embedding";
 
 // Feature list keys:
 // The text contents for a given time.
@@ -651,6 +657,8 @@ const char kTextTokenIdKey[] = "text/token/id";
 
 BYTES_CONTEXT_FEATURE(TextLanguage, kTextLanguageKey);
 BYTES_CONTEXT_FEATURE(TextContextContent, kTextContextContentKey);
+VECTOR_INT64_CONTEXT_FEATURE(TextContextTokenId, kTextContextTokenIdKey);
+VECTOR_FLOAT_CONTEXT_FEATURE(TextContextEmbedding, kTextContextEmbeddingKey);
 BYTES_FEATURE_LIST(TextContent, kTextContentKey);
 INT64_FEATURE_LIST(TextTimestamp, kTextTimestampKey);
 INT64_FEATURE_LIST(TextDuration, kTextDurationKey);

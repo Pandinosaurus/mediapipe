@@ -32,12 +32,16 @@
 #define MEDIAPIPE_TFLITE_METAL_INFERENCE 0
 #endif  // MEDIAPIPE_IOS
 
+#if TARGET_OS_OSX && !MEDIAPIPE_DISABLE_GPU
+#define MEDIAPIPE_TFLITE_METAL_INFERENCE 1
+#endif  // TARGET_OS_OSX && !MEDIAPIPE_DISABLE_GPU
+
 #define MEDIAPIPE_TFLITE_GPU_SUPPORTED \
   ((MEDIAPIPE_TFLITE_GL_INFERENCE) || (MEDIAPIPE_TFLITE_METAL_INFERENCE))
 
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
-#include "tensorflow/lite/delegates/gpu/gl/gl_buffer.h"
-#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
+#include "tflite/delegates/gpu/gl/gl_buffer.h"  // from @litert
+#endif                                          // MEDIAPIPE_TFLITE_GL_INFERENCE
 
 #if MEDIAPIPE_TFLITE_METAL_INFERENCE
 #import <Metal/Metal.h>

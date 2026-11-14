@@ -13,18 +13,19 @@
 # limitations under the License.
 #
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 licenses(["notice"])
 
-package(
-    default_visibility = ["//mediapipe/framework:__subpackages__"],
-)
+package(default_visibility = ["//mediapipe/framework:__subpackages__"])
 
 cc_library(
     name = "simple_calculator",
     srcs = ["simple_calculator.cc"],
     deps = [
         "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )

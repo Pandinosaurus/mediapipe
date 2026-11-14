@@ -15,12 +15,16 @@
 #ifndef MEDIAPIPE_PYTHON_PYBIND_UTIL_H_
 #define MEDIAPIPE_PYTHON_PYBIND_UTIL_H_
 
+#include <cstdint>
+#include <string>
+
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/timestamp.h"
-#include "pybind11/gil.h"
-#include "pybind11/pybind11.h"
+#include "pybind11/gil.h"       // from @pybind11
+#include "pybind11/pybind11.h"  // from @pybind11
 
 namespace mediapipe {
 namespace python {
@@ -60,7 +64,7 @@ inline void RaisePyErrorIfNotOk(const absl::Status& status,
   }
 }
 
-inline void RaisePyErrorIfOverflow(int64 value, int64 min, int64 max) {
+inline void RaisePyErrorIfOverflow(int64_t value, int64_t min, int64_t max) {
   if (value > max) {
     throw RaisePyError(PyExc_OverflowError,
                        absl::StrCat(value, " execeeds the maximum value (", max,

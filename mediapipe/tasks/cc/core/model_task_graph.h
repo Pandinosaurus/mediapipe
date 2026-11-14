@@ -21,8 +21,8 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
+#include "absl/status/statusor.h"     // from @com_google_absl
+#include "absl/strings/str_format.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensor/inference_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/calculator.pb.h"
@@ -53,6 +53,36 @@ class ModelTaskGraph : public Subgraph {
       SubgraphContext* sc) override;
 
  protected:
+  // Helper to get an ExternalFile from our options proto. We want to copy all
+  // non-model-data fields, so they can be reused for caching. But any model
+  // data bytes (file_content) should be moved.
+  template <typename Options>
+  std::unique_ptr<proto::ExternalFile> GetExternalFileFromOptions(
+      SubgraphContext* sc) {
+    auto asset = sc->MutableOptions<Options>()
+                     ->mutable_base_options()
+                     ->mutable_model_asset();
+    auto external_file = std::make_unique<proto::ExternalFile>();
+
+    // Swap out the file content, if any exists
+    auto temp_file = std::make_unique<proto::ExternalFile>();
+    bool file_content_exists = asset->has_file_content();
+    if (file_content_exists) {
+      std::swap(*temp_file->mutable_file_content(),
+                *asset->mutable_file_content());
+    }
+
+    // Now deep-copy the rest of the proto (without file content)
+    *external_file = *asset;
+
+    // And finally swap back in the file content, if any
+    if (file_content_exists) {
+      std::swap(*external_file->mutable_file_content(),
+                *temp_file->mutable_file_content());
+    }
+    return external_file;
+  }
+
   // If the model resources graph service is available, creates a model
   // resources object from the subgraph context, and caches the created model
   // resources into the model resources graph service on success. Otherwise,
@@ -64,10 +94,7 @@ class ModelTaskGraph : public Subgraph {
   template <typename Options>
   absl::StatusOr<const ModelResources*> CreateModelResources(
       SubgraphContext* sc, std::string tag_suffix = "") {
-    auto external_file = std::make_unique<proto::ExternalFile>();
-    external_file->Swap(sc->MutableOptions<Options>()
-                            ->mutable_base_options()
-                            ->mutable_model_asset());
+    auto external_file = GetExternalFileFromOptions<Options>(sc);
     return CreateModelResources(sc, std::move(external_file), tag_suffix);
   }
 
@@ -87,6 +114,17 @@ class ModelTaskGraph : public Subgraph {
       SubgraphContext* sc, std::unique_ptr<proto::ExternalFile> external_file,
       std::string tag_suffix = "");
 
+  template <typename Options>
+  absl::StatusOr<const ModelResources*> GetOrCreateModelResources(
+      SubgraphContext* sc, std::string tag_suffix = "") {
+    auto external_file = GetExternalFileFromOptions<Options>(sc);
+    return GetOrCreateModelResources(sc, std::move(external_file), tag_suffix);
+  }
+
+  absl::StatusOr<const ModelResources*> GetOrCreateModelResources(
+      SubgraphContext* sc, std::unique_ptr<proto::ExternalFile> external_file,
+      std::string tag_suffix = "");
+
   // If the model resources graph service is available, creates a model asset
   // bundle resources object from the subgraph context, and caches the created
   // model asset bundle resources into the model resources graph service on
@@ -97,10 +135,7 @@ class ModelTaskGraph : public Subgraph {
   template <typename Options>
   absl::StatusOr<const ModelAssetBundleResources*>
   CreateModelAssetBundleResources(SubgraphContext* sc) {
-    auto external_file = std::make_unique<proto::ExternalFile>();
-    external_file->Swap(sc->MutableOptions<Options>()
-                            ->mutable_base_options()
-                            ->mutable_model_asset());
+    auto external_file = GetExternalFileFromOptions<Options>(sc);
     return CreateModelAssetBundleResources(sc, std::move(external_file));
   }
 

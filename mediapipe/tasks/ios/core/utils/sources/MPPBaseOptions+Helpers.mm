@@ -12,41 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mediapipe/tasks/cc/core/proto/acceleration.pb.h"
-#include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
 #import "mediapipe/tasks/ios/core/utils/sources/MPPBaseOptions+Helpers.h"
 
-namespace {
-using BaseOptionsProto = ::mediapipe::tasks::core::proto::BaseOptions;
-}
+#import "mediapipe/tasks/ios/common/utils/sources/MPPCommonUtils.h"
+
+#include <cstring>
+
+#include "mediapipe/tasks/c/core/base_options.h"
 
 @implementation MPPBaseOptions (Helpers)
 
-- (void)copyToProto:(BaseOptionsProto *)baseOptionsProto withUseStreamMode:(BOOL)useStreamMode {
-  [self copyToProto:baseOptionsProto];
-  baseOptionsProto->set_use_stream_mode(useStreamMode);
+- (void)copyToCOptions:(MpBaseOptions *)cBaseOptions {
+  // modelAssetBuffer and fileDescriptor are not exposed on iOS MPPBaseOptions.
+  cBaseOptions->model_asset_buffer = nullptr;
+  cBaseOptions->model_asset_buffer_count = 0;
+  cBaseOptions->model_asset_path =
+      self.modelAssetPath.length > 0 ? strdup(self.modelAssetPath.UTF8String) : nullptr;
+  cBaseOptions->file_descriptor = -1;
+  switch (self.delegate) {
+    case MPPDelegateGPU:
+      cBaseOptions->delegate = MP_DELEGATE_GPU;
+      break;
+    case MPPDelegateCPU:
+      cBaseOptions->delegate = MP_DELEGATE_CPU;
+      break;
+    case MPPDelegateDefault:
+    default:
+      cBaseOptions->delegate = MP_DELEGATE_DEFAULT;
+      break;
+  }
+
+  NSString *appID = [MPPCommonUtils appID];
+  NSString *appVersion = [MPPCommonUtils appVersion];
+  NSString *osVersion = [MPPCommonUtils osVersion];
+
+  cBaseOptions->host_environment = MP_HOST_ENVIRONMENT_IOS;
+  cBaseOptions->host_system = MP_HOST_SYSTEM_IOS;
+  cBaseOptions->host_version = osVersion ? strdup(osVersion.UTF8String) : nullptr;
+  // caBundlePath is not exposed on iOS MPPBaseOptions.
+  cBaseOptions->ca_bundle_path = nullptr;
+  cBaseOptions->app_id = appID ? strdup(appID.UTF8String) : nullptr;
+  cBaseOptions->app_version = appVersion ? strdup(appVersion.UTF8String) : nullptr;
+  // NPU is not exposed on iOS MPPBaseOptions.
+  cBaseOptions->npu_dispatch_library_dir = nullptr;
 }
 
-- (void)copyToProto:(BaseOptionsProto *)baseOptionsProto {
-  baseOptionsProto->Clear();
-
-  if (self.modelAssetPath) {
-    baseOptionsProto->mutable_model_asset()->set_file_name(self.modelAssetPath.UTF8String);
-  }
-
-  switch (self.delegate) {
-    case MPPDelegateCPU: {
-      baseOptionsProto->mutable_acceleration()->mutable_tflite();
-      break;
-    }
-    case MPPDelegateGPU: {
-      // TODO: Provide an implementation for GPU Delegate.
-      [NSException raise:@"Invalid value for delegate" format:@"GPU Delegate is not implemented."];
-      break;
-    }
-    default:
-      break;
-  }
++ (void)freeCOptions:(nullable MpBaseOptions *)cBaseOptions {
+  MpBaseOptionsFree(cBaseOptions);
 }
 
 @end

@@ -20,12 +20,13 @@
 #include <map>
 #include <memory>
 
-#include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"           // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_state.h"
 #include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/timestamp.h"
 #include "mediapipe/framework/tool/tag_map.h"
 
@@ -97,18 +98,18 @@ class CalculatorContextManager {
 
   void PushInputTimestampToContext(CalculatorContext* calculator_context,
                                    Timestamp input_timestamp) {
-    CHECK(calculator_context);
+    ABSL_CHECK(calculator_context);
     calculator_context->PushInputTimestamp(input_timestamp);
   }
 
   void PopInputTimestampFromContext(CalculatorContext* calculator_context) {
-    CHECK(calculator_context);
+    ABSL_CHECK(calculator_context);
     calculator_context->PopInputTimestamp();
   }
 
   void SetGraphStatusInContext(CalculatorContext* calculator_context,
                                const absl::Status& status) {
-    CHECK(calculator_context);
+    ABSL_CHECK(calculator_context);
     calculator_context->SetGraphStatus(status);
   }
 

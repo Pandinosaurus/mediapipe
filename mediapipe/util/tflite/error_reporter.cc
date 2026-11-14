@@ -19,7 +19,7 @@
 #include <cstring>
 #include <string>
 
-#include "tensorflow/lite/minimal_logging.h"
+#include "tflite/minimal_logging.h"  // from @litert
 
 namespace mediapipe {
 namespace util {
@@ -39,6 +39,8 @@ int ErrorReporter::Report(const char* format, va_list args) {
                                                  "%s", message_);
   return num_characters;
 }
+
+bool ErrorReporter::HasError() const { return message_[0] != '\0'; }
 
 std::string ErrorReporter::message() { return message_; }
 

@@ -14,21 +14,20 @@
 
 # Placeholder for internal Python strict library and test compatibility macro.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
-
 licenses(["notice"])
 
 py_library(
     name = "test_utils",
-    testonly = 1,
+    testonly = True,
     srcs = ["test_utils.py"],
-    srcs_version = "PY3",
     visibility = [
         "//mediapipe/model_maker/python:__subpackages__",
         "//mediapipe/tasks:internal",
     ],
     deps = [
         "//mediapipe/python:_framework_bindings",
-        "@com_google_protobuf//:protobuf_python",
+        "//third_party/py/google/protobuf",
+        "@mediapipe_pip_deps_absl_py//:pkg",
+        "@mediapipe_pip_deps_six//:pkg",
     ],
 )

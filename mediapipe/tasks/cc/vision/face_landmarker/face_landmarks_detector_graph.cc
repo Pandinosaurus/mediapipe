@@ -19,10 +19,15 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "mediapipe/calculators/core/get_vector_item_calculator.h"
+#include "mediapipe/calculators/core/get_vector_item_calculator.pb.h"
 #include "mediapipe/calculators/core/split_vector_calculator.pb.h"
 #include "mediapipe/calculators/tensor/tensors_to_floats_calculator.pb.h"
 #include "mediapipe/calculators/tensor/tensors_to_landmarks_calculator.pb.h"
 #include "mediapipe/calculators/util/detections_to_rects_calculator.pb.h"
+#include "mediapipe/calculators/util/landmarks_smoothing_calculator.pb.h"
 #include "mediapipe/calculators/util/rect_transformation_calculator.pb.h"
 #include "mediapipe/calculators/util/thresholding_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
@@ -79,6 +84,9 @@ constexpr char kBatchEndTag[] = "BATCH_END";
 constexpr char kItemTag[] = "ITEM";
 constexpr char kDetectionTag[] = "DETECTION";
 constexpr char kBlendshapesTag[] = "BLENDSHAPES";
+constexpr char kNormFilteredLandmarksTag[] = "NORM_FILTERED_LANDMARKS";
+constexpr char kSizeTag[] = "SIZE";
+constexpr char kVectorTag[] = "VECTOR";
 
 // a landmarks tensor and a scores tensor
 constexpr int kFaceLandmarksOutputTensorsNum = 2;
@@ -88,7 +96,6 @@ struct SingleFaceLandmarksOutputs {
   Stream<NormalizedRect> rect_next_frame;
   Stream<bool> presence;
   Stream<float> presence_score;
-  std::optional<Stream<ClassificationList>> face_blendshapes;
 };
 
 struct MultiFaceLandmarksOutputs {
@@ -148,6 +155,19 @@ void ConfigureFaceRectTransformationCalculator(
   options->set_square_long(true);
 }
 
+void ConfigureLandmarksSmoothingCalculator(
+    mediapipe::LandmarksSmoothingCalculatorOptions& options) {
+  // Min cutoff 0.05 results into ~0.01 alpha in landmark EMA filter when
+  // landmark is static.
+  options.mutable_one_euro_filter()->set_min_cutoff(0.05f);
+  // Beta 80.0 in combination with min_cutoff 0.05 results into ~0.94
+  // alpha in landmark EMA filter when landmark is moving fast.
+  options.mutable_one_euro_filter()->set_beta(80.0f);
+  // Derivative cutoff 1.0 results into ~0.17 alpha in landmark velocity
+  // EMA filter.
+  options.mutable_one_euro_filter()->set_derivate_cutoff(1.0f);
+}
+
 }  // namespace
 
 // A "mediapipe.tasks.vision.face_landmarker.SingleFaceLandmarksDetectorGraph"
@@ -171,9 +191,228 @@ void ConfigureFaceRectTransformationCalculator(
 //     Boolean value indicates whether the face is present.
 //   PRESENCE_SCORE - float
 //     Float value indicates the probability that the face is present.
-//   BLENDSHAPES - ClassificationList @optional
-//     Blendshape classification, available when face_blendshapes_graph_options
-//     is set.
+//
+// Example:
+// node {
+//   calculator:
+//   "mediapipe.tasks.vision.face_landmarker.SingleFaceLandmarksDetectorGraph"
+//   input_stream: "IMAGE:input_image"
+//   input_stream: "FACE_RECT:face_rect"
+//   output_stream: "LANDMARKS:face_landmarks"
+//   output_stream: "FACE_RECT_NEXT_FRAME:face_rect_next_frame"
+//   output_stream: "PRESENCE:presence"
+//   output_stream: "PRESENCE_SCORE:presence_score"
+//   options {
+//     [mediapipe.tasks.vision.face_landmarker.proto.FaceLandmarksDetectorGraphOptions.ext]
+//     {
+//       base_options {
+//          model_asset {
+//            file_name: "face_landmark_lite.tflite"
+//          }
+//       }
+//       min_detection_confidence: 0.5
+//       face_blendshapes_graph_options {
+//          base_options {
+//            model_asset {
+//              file_name: "face_blendshape.tflite"
+//            }
+//          }
+//       }
+//     }
+//   }
+// }
+class SingleFaceLandmarksDetectorGraph : public core::ModelTaskGraph {
+ public:
+  absl::StatusOr<CalculatorGraphConfig> GetConfig(
+      SubgraphContext* sc) override {
+    ABSL_ASSIGN_OR_RETURN(
+        const auto* model_resources,
+        CreateModelResources<proto::FaceLandmarksDetectorGraphOptions>(sc));
+    Graph graph;
+    ABSL_ASSIGN_OR_RETURN(
+        auto outs,
+        BuildSingleFaceLandmarksDetectorGraph(
+            *sc->MutableOptions<proto::FaceLandmarksDetectorGraphOptions>(),
+            *model_resources, graph[Input<Image>(kImageTag)],
+            graph[Input<NormalizedRect>::Optional(kNormRectTag)], graph));
+    outs.landmarks >>
+        graph.Out(kNormLandmarksTag).Cast<NormalizedLandmarkList>();
+    outs.rect_next_frame >>
+        graph.Out(kFaceRectNextFrameTag).Cast<NormalizedRect>();
+    outs.presence >> graph.Out(kPresenceTag).Cast<bool>();
+    outs.presence_score >> graph.Out(kPresenceScoreTag).Cast<float>();
+    return graph.GetConfig();
+  }
+
+ private:
+  // Adds a mediapipe face landmark detection graph into the provided
+  // builder::Graph instance.
+  //
+  // subgraph_options: the mediapipe tasks module
+  //   FaceLandmarksDetectorGraphOptions.
+  // model_resources: the ModelSources object initialized from a face landmark
+  //   detection model file with model metadata.
+  // image_in: (mediapipe::Image) stream to run face landmark detection on.
+  // face_rect: (NormalizedRect) stream to run on the RoI of image.
+  // graph: the mediapipe graph instance to be updated.
+  absl::StatusOr<SingleFaceLandmarksOutputs>
+  BuildSingleFaceLandmarksDetectorGraph(
+      proto::FaceLandmarksDetectorGraphOptions& subgraph_options,
+      const core::ModelResources& model_resources, Stream<Image> image_in,
+      Stream<NormalizedRect> face_rect, Graph& graph) {
+    ABSL_RETURN_IF_ERROR(SanityCheckOptions(subgraph_options));
+
+    auto& preprocessing = graph.AddNode(
+        "mediapipe.tasks.components.processors.ImagePreprocessingGraph");
+    bool use_gpu =
+        components::processors::DetermineImagePreprocessingGpuBackend(
+            subgraph_options.base_options().acceleration());
+    ABSL_RETURN_IF_ERROR(
+        components::processors::ConfigureImagePreprocessingGraph(
+            model_resources, use_gpu,
+            subgraph_options.base_options().gpu_origin(),
+            &preprocessing.GetOptions<tasks::components::processors::proto::
+                                          ImagePreprocessingGraphOptions>()));
+    image_in >> preprocessing.In(kImageTag);
+    face_rect >> preprocessing.In(kNormRectTag);
+    auto image_size = preprocessing.Out(kImageSizeTag);
+    auto letterbox_padding = preprocessing.Out(kLetterboxPaddingTag);
+    auto input_tensors = preprocessing.Out(kTensorsTag);
+
+    auto& inference = AddInference(
+        model_resources, subgraph_options.base_options().acceleration(), graph);
+    input_tensors >> inference.In(kTensorsTag);
+    auto output_tensors = inference.Out(kTensorsTag);
+
+    // Split model output tensors to multiple streams.
+    auto& split_tensors_vector = graph.AddNode("SplitTensorVectorCalculator");
+    ConfigureSplitTensorVectorCalculator(
+        &split_tensors_vector
+             .GetOptions<mediapipe::SplitVectorCalculatorOptions>());
+    output_tensors >> split_tensors_vector.In("");
+    auto landmark_tensors = split_tensors_vector.Out(0);
+    auto presence_flag_tensors = split_tensors_vector.Out(1);
+
+    // Decodes the landmark tensors into a list of landmarks, where the landmark
+    // coordinates are normalized by the size of the input image to the model.
+    ABSL_ASSIGN_OR_RETURN(auto image_tensor_specs,
+                          vision::BuildInputImageTensorSpecs(model_resources));
+    auto& tensors_to_face_landmarks = graph.AddNode(
+        "mediapipe.tasks.vision.face_landmarker.TensorsToFaceLandmarksGraph");
+    ConfigureTensorsToFaceLandmarksGraph(
+        image_tensor_specs,
+        &tensors_to_face_landmarks
+             .GetOptions<proto::TensorsToFaceLandmarksGraphOptions>());
+    landmark_tensors >> tensors_to_face_landmarks.In(kTensorsTag);
+    auto landmarks = tensors_to_face_landmarks.Out(kNormLandmarksTag);
+
+    // Converts the presence flag tensor into a float that represents the
+    // confidence score of face presence.
+    auto& tensors_to_presence = graph.AddNode("TensorsToFloatsCalculator");
+    tensors_to_presence
+        .GetOptions<mediapipe::TensorsToFloatsCalculatorOptions>()
+        .set_activation(mediapipe::TensorsToFloatsCalculatorOptions::SIGMOID);
+    presence_flag_tensors >> tensors_to_presence.In(kTensorsTag);
+    auto presence_score = tensors_to_presence.Out(kFloatTag).Cast<float>();
+
+    // Applies a threshold to the confidence score to determine whether a
+    // face is present.
+    auto& presence_thresholding = graph.AddNode("ThresholdingCalculator");
+    presence_thresholding.GetOptions<mediapipe::ThresholdingCalculatorOptions>()
+        .set_threshold(subgraph_options.min_detection_confidence());
+    presence_score >> presence_thresholding.In(kFloatTag);
+    auto presence = presence_thresholding.Out(kFlagTag).Cast<bool>();
+
+    // Adjusts landmarks (already normalized to [0.f, 1.f]) on the letterboxed
+    // face image (after image transformation with the FIT scale mode) to the
+    // corresponding locations on the same image with the letterbox removed
+    // (face image before image transformation).
+    auto& landmark_letterbox_removal =
+        graph.AddNode("LandmarkLetterboxRemovalCalculator");
+    letterbox_padding >> landmark_letterbox_removal.In(kLetterboxPaddingTag);
+    landmarks >> landmark_letterbox_removal.In(kLandmarksTag);
+    auto landmarks_letterbox_removed =
+        landmark_letterbox_removal.Out(kLandmarksTag);
+
+    // Projects the landmarks from the cropped face image to the corresponding
+    // locations on the full image before cropping (input to the graph).
+    auto& landmark_projection = graph.AddNode("LandmarkProjectionCalculator");
+    landmarks_letterbox_removed >> landmark_projection.In(kNormLandmarksTag);
+    face_rect >> landmark_projection.In(kNormRectTag);
+    image_size >> landmark_projection.In("IMAGE_DIMENSIONS");
+    Stream<NormalizedLandmarkList> projected_landmarks = AllowIf(
+        landmark_projection[Output<NormalizedLandmarkList>(kNormLandmarksTag)],
+        presence, graph);
+
+    // Converts the face landmarks into a rectangle (normalized by image size)
+    // that encloses the face.
+    auto& landmarks_to_detection =
+        graph.AddNode("LandmarksToDetectionCalculator");
+    projected_landmarks >> landmarks_to_detection.In(kNormLandmarksTag);
+    auto face_landmarks_detection = landmarks_to_detection.Out(kDetectionTag);
+    auto& detection_to_rect = graph.AddNode("DetectionsToRectsCalculator");
+    ConfigureFaceDetectionsToRectsCalculator(
+        &detection_to_rect
+             .GetOptions<mediapipe::DetectionsToRectsCalculatorOptions>());
+    face_landmarks_detection >> detection_to_rect.In(kDetectionTag);
+    image_size >> detection_to_rect.In(kImageSizeTag);
+    auto face_landmarks_rect = detection_to_rect.Out(kNormRectTag);
+
+    // Expands the face rectangle so that in the next video frame it's likely to
+    // still contain the face even with some motion.
+    auto& face_rect_transformation =
+        graph.AddNode("RectTransformationCalculator");
+    ConfigureFaceRectTransformationCalculator(
+        &face_rect_transformation
+             .GetOptions<mediapipe::RectTransformationCalculatorOptions>());
+    image_size >> face_rect_transformation.In(kImageSizeTag);
+    face_landmarks_rect >> face_rect_transformation.In(kNormRectTag);
+    auto face_rect_next_frame =
+        AllowIf(face_rect_transformation.Out("").Cast<NormalizedRect>(),
+                presence, graph);
+
+    return {{
+        /* landmarks= */ projected_landmarks,
+        /* rect_next_frame= */ face_rect_next_frame,
+        /* presence= */ presence,
+        /* presence_score= */ presence_score,
+    }};
+  }
+};
+
+// clang-format off
+REGISTER_MEDIAPIPE_GRAPH(
+  ::mediapipe::tasks::vision::face_landmarker::SingleFaceLandmarksDetectorGraph); // NOLINT
+// clang-format on
+
+// A "mediapipe.tasks.vision.face_landmarker.MultiFaceLandmarksDetectorGraph"
+// performs multi face landmark detection.
+// - Accepts an input image and a vector of face rect RoIs to detect the
+//   multiple face landmarks enclosed by the RoIs. Output vectors of
+//   face landmarks related results, where each element in the vectors
+//   corresponds to the result of the same face.
+//
+// Inputs:
+//   IMAGE - Image
+//     Image to perform detection on.
+//   NORM_RECT - std::vector<NormalizedRect>
+//     A vector of multiple norm rects enclosing the face RoI to perform
+//     landmarks detection on.
+//
+//
+// Outputs:
+//   LANDMARKS: - std::vector<NormalizedLandmarkList>
+//     Vector of detected face landmarks.
+//   FACE_RECTS_NEXT_FRAME - std::vector<NormalizedRect>
+//     Vector of the predicted rects enclosing the same face RoI for landmark
+//     detection on the next frame.
+//   PRESENCE - std::vector<bool>
+//     Vector of boolean value indicates whether the face is present.
+//   PRESENCE_SCORE - std::vector<float>
+//     Vector of float value indicates the probability that the face is present.
+//   BLENDSHAPES - std::vector<ClassificationList> @optional
+//     Vector of face blendshape classification, available when
+//     face_blendshapes_graph_options is set.
 //     All 52 blendshape coefficients:
 //       0  - _neutral  (ignore it)
 //       1  - browDownLeft
@@ -231,244 +470,6 @@ void ConfigureFaceRectTransformationCalculator(
 // Example:
 // node {
 //   calculator:
-//   "mediapipe.tasks.vision.face_landmarker.SingleFaceLandmarksDetectorGraph"
-//   input_stream: "IMAGE:input_image"
-//   input_stream: "FACE_RECT:face_rect"
-//   output_stream: "LANDMARKS:face_landmarks"
-//   output_stream: "FACE_RECT_NEXT_FRAME:face_rect_next_frame"
-//   output_stream: "PRESENCE:presence"
-//   output_stream: "PRESENCE_SCORE:presence_score"
-//   output_stream: "BLENDSHAPES:blendshapes"
-//   options {
-//     [mediapipe.tasks.vision.face_landmarker.proto.FaceLandmarksDetectorGraphOptions.ext]
-//     {
-//       base_options {
-//          model_asset {
-//            file_name: "face_landmark_lite.tflite"
-//          }
-//       }
-//       min_detection_confidence: 0.5
-//       face_blendshapes_graph_options {
-//          base_options {
-//            model_asset {
-//              file_name: "face_blendshape.tflite"
-//            }
-//          }
-//       }
-//     }
-//   }
-// }
-class SingleFaceLandmarksDetectorGraph : public core::ModelTaskGraph {
- public:
-  absl::StatusOr<CalculatorGraphConfig> GetConfig(
-      SubgraphContext* sc) override {
-    ASSIGN_OR_RETURN(
-        const auto* model_resources,
-        CreateModelResources<proto::FaceLandmarksDetectorGraphOptions>(sc));
-    Graph graph;
-    ASSIGN_OR_RETURN(
-        auto outs,
-        BuildSingleFaceLandmarksDetectorGraph(
-            *sc->MutableOptions<proto::FaceLandmarksDetectorGraphOptions>(),
-            *model_resources, graph[Input<Image>(kImageTag)],
-            graph[Input<NormalizedRect>::Optional(kNormRectTag)], graph));
-    outs.landmarks >>
-        graph.Out(kNormLandmarksTag).Cast<NormalizedLandmarkList>();
-    outs.rect_next_frame >>
-        graph.Out(kFaceRectNextFrameTag).Cast<NormalizedRect>();
-    outs.presence >> graph.Out(kPresenceTag).Cast<bool>();
-    outs.presence_score >> graph.Out(kPresenceScoreTag).Cast<float>();
-    if (outs.face_blendshapes) {
-      outs.face_blendshapes.value() >>
-          graph.Out(kBlendshapesTag).Cast<ClassificationList>();
-    }
-    return graph.GetConfig();
-  }
-
- private:
-  // Adds a mediapipe face landmark detection graph into the provided
-  // builder::Graph instance.
-  //
-  // subgraph_options: the mediapipe tasks module
-  //   FaceLandmarksDetectorGraphOptions.
-  // model_resources: the ModelSources object initialized from a face landmark
-  //   detection model file with model metadata.
-  // image_in: (mediapipe::Image) stream to run face landmark detection on.
-  // face_rect: (NormalizedRect) stream to run on the RoI of image.
-  // graph: the mediapipe graph instance to be updated.
-  absl::StatusOr<SingleFaceLandmarksOutputs>
-  BuildSingleFaceLandmarksDetectorGraph(
-      proto::FaceLandmarksDetectorGraphOptions& subgraph_options,
-      const core::ModelResources& model_resources, Stream<Image> image_in,
-      Stream<NormalizedRect> face_rect, Graph& graph) {
-    MP_RETURN_IF_ERROR(SanityCheckOptions(subgraph_options));
-
-    auto& preprocessing = graph.AddNode(
-        "mediapipe.tasks.components.processors.ImagePreprocessingGraph");
-    bool use_gpu =
-        components::processors::DetermineImagePreprocessingGpuBackend(
-            subgraph_options.base_options().acceleration());
-    MP_RETURN_IF_ERROR(components::processors::ConfigureImagePreprocessingGraph(
-        model_resources, use_gpu,
-        &preprocessing.GetOptions<tasks::components::processors::proto::
-                                      ImagePreprocessingGraphOptions>()));
-    image_in >> preprocessing.In(kImageTag);
-    face_rect >> preprocessing.In(kNormRectTag);
-    auto image_size = preprocessing.Out(kImageSizeTag);
-    auto letterbox_padding = preprocessing.Out(kLetterboxPaddingTag);
-    auto input_tensors = preprocessing.Out(kTensorsTag);
-
-    auto& inference = AddInference(
-        model_resources, subgraph_options.base_options().acceleration(), graph);
-    input_tensors >> inference.In(kTensorsTag);
-    auto output_tensors = inference.Out(kTensorsTag);
-
-    // Split model output tensors to multiple streams.
-    auto& split_tensors_vector = graph.AddNode("SplitTensorVectorCalculator");
-    ConfigureSplitTensorVectorCalculator(
-        &split_tensors_vector
-             .GetOptions<mediapipe::SplitVectorCalculatorOptions>());
-    output_tensors >> split_tensors_vector.In("");
-    auto landmark_tensors = split_tensors_vector.Out(0);
-    auto presence_flag_tensors = split_tensors_vector.Out(1);
-
-    // Decodes the landmark tensors into a list of landmarks, where the landmark
-    // coordinates are normalized by the size of the input image to the model.
-    ASSIGN_OR_RETURN(auto image_tensor_specs,
-                     vision::BuildInputImageTensorSpecs(model_resources));
-    auto& tensors_to_face_landmarks = graph.AddNode(
-        "mediapipe.tasks.vision.face_landmarker.TensorsToFaceLandmarksGraph");
-    ConfigureTensorsToFaceLandmarksGraph(
-        image_tensor_specs,
-        &tensors_to_face_landmarks
-             .GetOptions<proto::TensorsToFaceLandmarksGraphOptions>());
-    landmark_tensors >> tensors_to_face_landmarks.In(kTensorsTag);
-    auto landmarks = tensors_to_face_landmarks.Out(kNormLandmarksTag);
-
-    // Converts the presence flag tensor into a float that represents the
-    // confidence score of face presence.
-    auto& tensors_to_presence = graph.AddNode("TensorsToFloatsCalculator");
-    tensors_to_presence
-        .GetOptions<mediapipe::TensorsToFloatsCalculatorOptions>()
-        .set_activation(mediapipe::TensorsToFloatsCalculatorOptions::SIGMOID);
-    presence_flag_tensors >> tensors_to_presence.In(kTensorsTag);
-    auto presence_score = tensors_to_presence.Out(kFloatTag).Cast<float>();
-
-    // Applies a threshold to the confidence score to determine whether a
-    // face is present.
-    auto& presence_thresholding = graph.AddNode("ThresholdingCalculator");
-    presence_thresholding.GetOptions<mediapipe::ThresholdingCalculatorOptions>()
-        .set_threshold(subgraph_options.min_detection_confidence());
-    presence_score >> presence_thresholding.In(kFloatTag);
-    auto presence = presence_thresholding.Out(kFlagTag).Cast<bool>();
-
-    // Adjusts landmarks (already normalized to [0.f, 1.f]) on the letterboxed
-    // face image (after image transformation with the FIT scale mode) to the
-    // corresponding locations on the same image with the letterbox removed
-    // (face image before image transformation).
-    auto& landmark_letterbox_removal =
-        graph.AddNode("LandmarkLetterboxRemovalCalculator");
-    letterbox_padding >> landmark_letterbox_removal.In(kLetterboxPaddingTag);
-    landmarks >> landmark_letterbox_removal.In(kLandmarksTag);
-    auto landmarks_letterbox_removed =
-        landmark_letterbox_removal.Out(kLandmarksTag);
-
-    // Projects the landmarks from the cropped face image to the corresponding
-    // locations on the full image before cropping (input to the graph).
-    auto& landmark_projection = graph.AddNode("LandmarkProjectionCalculator");
-    landmarks_letterbox_removed >> landmark_projection.In(kNormLandmarksTag);
-    face_rect >> landmark_projection.In(kNormRectTag);
-    auto projected_landmarks = AllowIf(
-        landmark_projection[Output<NormalizedLandmarkList>(kNormLandmarksTag)],
-        presence, graph);
-
-    // Converts the face landmarks into a rectangle (normalized by image size)
-    // that encloses the face.
-    auto& landmarks_to_detection =
-        graph.AddNode("LandmarksToDetectionCalculator");
-    projected_landmarks >> landmarks_to_detection.In(kNormLandmarksTag);
-    auto face_landmarks_detection = landmarks_to_detection.Out(kDetectionTag);
-    auto& detection_to_rect = graph.AddNode("DetectionsToRectsCalculator");
-    ConfigureFaceDetectionsToRectsCalculator(
-        &detection_to_rect
-             .GetOptions<mediapipe::DetectionsToRectsCalculatorOptions>());
-    face_landmarks_detection >> detection_to_rect.In(kDetectionTag);
-    image_size >> detection_to_rect.In(kImageSizeTag);
-    auto face_landmarks_rect = detection_to_rect.Out(kNormRectTag);
-
-    // Expands the face rectangle so that in the next video frame it's likely to
-    // still contain the face even with some motion.
-    auto& face_rect_transformation =
-        graph.AddNode("RectTransformationCalculator");
-    ConfigureFaceRectTransformationCalculator(
-        &face_rect_transformation
-             .GetOptions<mediapipe::RectTransformationCalculatorOptions>());
-    image_size >> face_rect_transformation.In(kImageSizeTag);
-    face_landmarks_rect >> face_rect_transformation.In(kNormRectTag);
-    auto face_rect_next_frame =
-        AllowIf(face_rect_transformation.Out("").Cast<NormalizedRect>(),
-                presence, graph);
-
-    std::optional<Stream<ClassificationList>> face_blendshapes;
-    if (subgraph_options.has_face_blendshapes_graph_options()) {
-      auto& face_blendshapes_graph = graph.AddNode(
-          "mediapipe.tasks.vision.face_landmarker.FaceBlendshapesGraph");
-      face_blendshapes_graph.GetOptions<proto::FaceBlendshapesGraphOptions>()
-          .Swap(subgraph_options.mutable_face_blendshapes_graph_options());
-      projected_landmarks >> face_blendshapes_graph.In(kLandmarksTag);
-      image_size >> face_blendshapes_graph.In(kImageSizeTag);
-      face_blendshapes =
-          std::make_optional(face_blendshapes_graph.Out(kBlendshapesTag)
-                                 .Cast<ClassificationList>());
-    }
-
-    return {{
-        /* landmarks= */ projected_landmarks,
-        /* rect_next_frame= */ face_rect_next_frame,
-        /* presence= */ presence,
-        /* presence_score= */ presence_score,
-        /* face_blendshapes= */ face_blendshapes,
-    }};
-  }
-};
-
-// clang-format off
-REGISTER_MEDIAPIPE_GRAPH(
-  ::mediapipe::tasks::vision::face_landmarker::SingleFaceLandmarksDetectorGraph); // NOLINT
-// clang-format on
-
-// A "mediapipe.tasks.vision.face_landmarker.MultiFaceLandmarksDetectorGraph"
-// performs multi face landmark detection.
-// - Accepts an input image and a vector of face rect RoIs to detect the
-//   multiple face landmarks enclosed by the RoIs. Output vectors of
-//   face landmarks related results, where each element in the vectors
-//   corresponds to the result of the same face.
-//
-// Inputs:
-//   IMAGE - Image
-//     Image to perform detection on.
-//   NORM_RECT - std::vector<NormalizedRect>
-//     A vector of multiple norm rects enclosing the face RoI to perform
-//     landmarks detection on.
-//
-//
-// Outputs:
-//   LANDMARKS: - std::vector<NormalizedLandmarkList>
-//     Vector of detected face landmarks.
-//   FACE_RECTS_NEXT_FRAME - std::vector<NormalizedRect>
-//     Vector of the predicted rects enclosing the same face RoI for landmark
-//     detection on the next frame.
-//   PRESENCE - std::vector<bool>
-//     Vector of boolean value indicates whether the face is present.
-//   PRESENCE_SCORE - std::vector<float>
-//     Vector of float value indicates the probability that the face is present.
-//   BLENDSHAPES - std::vector<ClassificationList> @optional
-//     Vector of face blendshape classification, available when
-//     face_blendshapes_graph_options is set.
-//
-// Example:
-// node {
-//   calculator:
 //   "mediapipe.tasks.vision.face_landmarker.MultiFaceLandmarksDetectorGraph"
 //   input_stream: "IMAGE:input_image"
 //   input_stream: "NORM_RECT:norm_rect"
@@ -501,7 +502,7 @@ class MultiFaceLandmarksDetectorGraph : public core::ModelTaskGraph {
   absl::StatusOr<CalculatorGraphConfig> GetConfig(
       SubgraphContext* sc) override {
     Graph graph;
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         auto outs,
         BuildFaceLandmarksDetectorGraph(
             *sc->MutableOptions<proto::FaceLandmarksDetectorGraphOptions>(),
@@ -566,8 +567,9 @@ class MultiFaceLandmarksDetectorGraph : public core::ModelTaskGraph {
         graph.AddNode("EndLoopNormalizedLandmarkListVectorCalculator");
     batch_end >> end_loop_landmarks.In(kBatchEndTag);
     landmarks >> end_loop_landmarks.In(kItemTag);
-    auto landmark_lists = end_loop_landmarks.Out(kIterableTag)
-                              .Cast<std::vector<NormalizedLandmarkList>>();
+    Stream<std::vector<NormalizedLandmarkList>> landmark_lists =
+        end_loop_landmarks.Out(kIterableTag)
+            .Cast<std::vector<NormalizedLandmarkList>>();
 
     auto& end_loop_rects_next_frame =
         graph.AddNode("EndLoopNormalizedRectCalculator");
@@ -576,16 +578,78 @@ class MultiFaceLandmarksDetectorGraph : public core::ModelTaskGraph {
     auto face_rects_next_frame = end_loop_rects_next_frame.Out(kIterableTag)
                                      .Cast<std::vector<NormalizedRect>>();
 
+    // Apply smoothing filter only on the single face landmarks, because
+    // landmarks smoothing calculator doesn't support multiple landmarks yet.
+    // Notice the landmarks smoothing calculator cannot be put inside the for
+    // loop calculator, because the smoothing calculator utilize the timestamp
+    // to smoote landmarks across frames but the for loop calculator makes fake
+    // timestamps for the streams.
+    if (face_landmark_subgraph
+            .GetOptions<proto::FaceLandmarksDetectorGraphOptions>()
+            .smooth_landmarks()) {
+      // Get the single face landmarks
+      auto& get_vector_item =
+          graph.AddNode("GetNormalizedLandmarkListVectorItemCalculator");
+      get_vector_item.GetOptions<mediapipe::GetVectorItemCalculatorOptions>()
+          .set_item_index(0);
+      landmark_lists >> get_vector_item.In(kVectorTag);
+      Stream<NormalizedLandmarkList> single_landmarks =
+          get_vector_item.Out(kItemTag).Cast<NormalizedLandmarkList>();
+
+      auto& image_properties = graph.AddNode("ImagePropertiesCalculator");
+      image_in >> image_properties.In(kImageTag);
+      auto image_size = image_properties.Out(kSizeTag);
+
+      // Apply smoothing filter on face landmarks.
+      auto& landmarks_smoothing = graph.AddNode("LandmarksSmoothingCalculator");
+      ConfigureLandmarksSmoothingCalculator(
+          landmarks_smoothing
+              .GetOptions<mediapipe::LandmarksSmoothingCalculatorOptions>());
+      single_landmarks >> landmarks_smoothing.In(kNormLandmarksTag);
+      image_size >> landmarks_smoothing.In(kImageSizeTag);
+      single_landmarks = landmarks_smoothing.Out(kNormFilteredLandmarksTag)
+                             .Cast<NormalizedLandmarkList>();
+
+      // Wrap the single face landmarks into a vector of landmarks.
+      auto& concatenate_vector =
+          graph.AddNode("ConcatenateNormalizedLandmarkListVectorCalculator");
+      single_landmarks >> concatenate_vector.In("");
+      landmark_lists = concatenate_vector.Out("")
+                           .Cast<std::vector<NormalizedLandmarkList>>();
+    }
+
     std::optional<Stream<std::vector<ClassificationList>>>
         face_blendshapes_vector;
     if (face_landmark_subgraph
             .GetOptions<proto::FaceLandmarksDetectorGraphOptions>()
             .has_face_blendshapes_graph_options()) {
-      auto blendshapes = face_landmark_subgraph.Out(kBlendshapesTag);
+      auto& begin_loop_multi_face_landmarks =
+          graph.AddNode("BeginLoopNormalizedLandmarkListVectorCalculator");
+      landmark_lists >> begin_loop_multi_face_landmarks.In(kIterableTag);
+      image_in >> begin_loop_multi_face_landmarks.In(kCloneTag);
+      auto image = begin_loop_multi_face_landmarks.Out(kCloneTag);
+      auto batch_end = begin_loop_multi_face_landmarks.Out(kBatchEndTag);
+      auto landmarks = begin_loop_multi_face_landmarks.Out(kItemTag);
+
+      auto& image_properties = graph.AddNode("ImagePropertiesCalculator");
+      image >> image_properties.In(kImageTag);
+      auto image_size = image_properties.Out(kSizeTag);
+
+      auto& face_blendshapes_graph = graph.AddNode(
+          "mediapipe.tasks.vision.face_landmarker.FaceBlendshapesGraph");
+      face_blendshapes_graph.GetOptions<proto::FaceBlendshapesGraphOptions>()
+          .Swap(face_landmark_subgraph
+                    .GetOptions<proto::FaceLandmarksDetectorGraphOptions>()
+                    .mutable_face_blendshapes_graph_options());
+      landmarks >> face_blendshapes_graph.In(kLandmarksTag);
+      image_size >> face_blendshapes_graph.In(kImageSizeTag);
+      auto face_blendshapes = face_blendshapes_graph.Out(kBlendshapesTag)
+                                  .Cast<ClassificationList>();
+
       auto& end_loop_blendshapes =
           graph.AddNode("EndLoopClassificationListCalculator");
       batch_end >> end_loop_blendshapes.In(kBatchEndTag);
-      blendshapes >> end_loop_blendshapes.In(kItemTag);
+      face_blendshapes >> end_loop_blendshapes.In(kItemTag);
       face_blendshapes_vector =
           std::make_optional(end_loop_blendshapes.Out(kIterableTag)
                                  .Cast<std::vector<ClassificationList>>());

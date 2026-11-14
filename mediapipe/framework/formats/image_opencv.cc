@@ -14,6 +14,7 @@
 
 #include "mediapipe/framework/formats/image_opencv.h"
 
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/port/logging.h"
 
@@ -63,6 +64,15 @@ int GetMatType(const mediapipe::ImageFormat::Format format) {
     case mediapipe::ImageFormat::VEC32F4:
       type = CV_32FC4;
       break;
+    case mediapipe::ImageFormat::VEC16F1:
+      type = CV_16F;
+      break;
+    case mediapipe::ImageFormat::VEC16F2:
+      type = CV_16FC2;
+      break;
+    case mediapipe::ImageFormat::VEC16F4:
+      type = CV_16FC4;
+      break;
     case mediapipe::ImageFormat::LAB8:
       type = CV_8U;
       break;
@@ -100,7 +110,7 @@ std::shared_ptr<cv::Mat> MatView(const mediapipe::Image* image) {
   auto owner =
       std::make_shared<MatWithPixelLock>(const_cast<mediapipe::Image*>(image));
   uint8_t* data_ptr = owner->lock.Pixels();
-  CHECK(data_ptr != nullptr);
+  ABSL_CHECK(data_ptr != nullptr);
   // Use Image to initialize in-place. Image still owns memory.
   if (steps[0] == sizes[1] * image->channels() *
                       ImageFrame::ByteDepthForFormat(image->image_format())) {

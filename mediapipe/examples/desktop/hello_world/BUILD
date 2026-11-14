@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
 licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
@@ -21,9 +23,12 @@ cc_binary(
     srcs = ["hello_world.cc"],
     deps = [
         "//mediapipe/calculators/core:pass_through_calculator",
-        "//mediapipe/framework:calculator_graph",
-        "//mediapipe/framework/port:logging",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:output_stream_poller",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
 )

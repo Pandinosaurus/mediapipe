@@ -16,19 +16,20 @@
 #define MEDIAPIPE_FRAMEWORK_SCHEDULER_H_
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <queue>
 #include <set>
-#include <utility>
+#include <string>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
+#include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_node.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/scheduler_queue.h"
 #include "mediapipe/framework/scheduler_shared.h"
 
@@ -76,6 +77,16 @@ class Scheduler {
   // be scheduled and nothing is running in the worker threads.  This function
   // can be called only after Start().
   // Runs application thread tasks while waiting.
+  //
+  // Idleness requires:
+  // 1. either the graph has no source nodes or all source nodes are closed, and
+  // 2. no packets are added to graph input streams.
+  //
+  // For simplicity, we only fully support WaitUntilIdle() to be called on a
+  // graph with no source nodes.
+  //
+  // The application must ensure no other threads are adding packets to graph
+  // input streams while a WaitUntilIdle() call is in progress.
   absl::Status WaitUntilIdle() ABSL_LOCKS_EXCLUDED(state_mutex_);
 
   // Wait until any graph input stream has been unthrottled.
@@ -167,7 +178,7 @@ class Scheduler {
   internal::SchedulerTimes GetSchedulerTimes();
 
  private:
-  // State of the scheduler. The figure shows the allowed state transitons.
+  // State of the scheduler. The figure shows the allowed state transitions.
   //
   //   NOT_STARTED
   //        |

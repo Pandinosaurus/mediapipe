@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensor/tensors_to_landmarks_calculator.pb.h"
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -111,7 +113,7 @@ class TensorsToLandmarksCalculator : public Node {
 MEDIAPIPE_REGISTER_NODE(TensorsToLandmarksCalculator);
 
 absl::Status TensorsToLandmarksCalculator::Open(CalculatorContext* cc) {
-  MP_RETURN_IF_ERROR(LoadOptions(cc));
+  ABSL_RETURN_IF_ERROR(LoadOptions(cc));
 
   if (kOutNormalizedLandmarkList(cc).IsConnected()) {
     RET_CHECK(options_.has_input_image_height() &&
@@ -124,7 +126,7 @@ absl::Status TensorsToLandmarksCalculator::Open(CalculatorContext* cc) {
        kFlipVertically(cc).IsConnected())) {
     RET_CHECK(options_.has_input_image_height() &&
               options_.has_input_image_width())
-        << "Must provide input width/height for using flipping when outputing "
+        << "Must provide input width/height for using flipping when outputting "
            "landmarks in absolute coordinates.";
   }
   return absl::OkStatus();
@@ -142,7 +144,7 @@ absl::Status TensorsToLandmarksCalculator::Process(CalculatorContext* cc) {
   RET_CHECK(input_tensors[0].element_type() == Tensor::ElementType::kFloat32);
   int num_values = input_tensors[0].shape().num_elements();
   const int num_dimensions = num_values / num_landmarks_;
-  CHECK_GT(num_dimensions, 0);
+  ABSL_CHECK_GT(num_dimensions, 0);
 
   auto view = input_tensors[0].GetCpuReadView();
   auto raw_landmarks = view.buffer<float>();

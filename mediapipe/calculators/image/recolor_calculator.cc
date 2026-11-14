@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
 #include <vector>
 
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/image/recolor_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
@@ -21,7 +24,6 @@
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/color.pb.h"
 
 #if !MEDIAPIPE_DISABLE_GPU
@@ -113,7 +115,7 @@ class RecolorCalculator : public CalculatorBase {
   void GlRender();
 
   bool initialized_ = false;
-  std::vector<uint8> color_;
+  std::vector<uint8_t> color_;
   mediapipe::RecolorCalculatorOptions::MaskChannel mask_channel_;
 
   bool use_gpu_ = false;
@@ -172,7 +174,7 @@ absl::Status RecolorCalculator::GetContract(CalculatorContract* cc) {
 
   if (use_gpu) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
+    ABSL_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
 #endif  // !MEDIAPIPE_DISABLE_GPU
   }
 
@@ -185,11 +187,11 @@ absl::Status RecolorCalculator::Open(CalculatorContext* cc) {
   if (cc->Inputs().HasTag(kGpuBufferTag)) {
     use_gpu_ = true;
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+    ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
 #endif  // !MEDIAPIPE_DISABLE_GPU
   }
 
-  MP_RETURN_IF_ERROR(LoadOptions(cc));
+  ABSL_RETURN_IF_ERROR(LoadOptions(cc));
 
   return absl::OkStatus();
 }
@@ -197,18 +199,18 @@ absl::Status RecolorCalculator::Open(CalculatorContext* cc) {
 absl::Status RecolorCalculator::Process(CalculatorContext* cc) {
   if (use_gpu_) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         gpu_helper_.RunInGlContext([this, &cc]() -> absl::Status {
           if (!initialized_) {
-            MP_RETURN_IF_ERROR(InitGpu(cc));
+            ABSL_RETURN_IF_ERROR(InitGpu(cc));
             initialized_ = true;
           }
-          MP_RETURN_IF_ERROR(RenderGpu(cc));
+          ABSL_RETURN_IF_ERROR(RenderGpu(cc));
           return absl::OkStatus();
         }));
 #endif  // !MEDIAPIPE_DISABLE_GPU
   } else {
-    MP_RETURN_IF_ERROR(RenderCpu(cc));
+    ABSL_RETURN_IF_ERROR(RenderCpu(cc));
   }
   return absl::OkStatus();
 }
@@ -252,7 +254,7 @@ absl::Status RecolorCalculator::RenderCpu(CalculatorContext* cc) {
   cv::resize(mask_mat, mask_full, input_mat.size());
   const cv::Vec3b recolor = {color_[0], color_[1], color_[2]};
 
-  auto output_img = absl::make_unique<ImageFrame>(
+  auto output_img = std::make_unique<ImageFrame>(
       input_img.Format(), input_mat.cols, input_mat.rows);
   cv::Mat output_mat = mediapipe::formats::MatView(output_img.get());
 

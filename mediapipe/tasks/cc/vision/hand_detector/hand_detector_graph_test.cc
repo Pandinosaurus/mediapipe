@@ -20,10 +20,11 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
+#include "absl/flags/flag.h"           // from @com_google_absl
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/status/statusor.h"      // from @com_google_absl
+#include "absl/strings/str_format.h"   // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -40,6 +41,7 @@ limitations under the License.
 #include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/hand_detector/proto/hand_detector_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/hand_detector/proto/hand_detector_result.pb.h"
@@ -76,8 +78,8 @@ using ::testing::proto::Partially;
 
 constexpr char kTestDataDirectory[] = "/mediapipe/tasks/testdata/vision/";
 constexpr char kPalmDetectionModel[] = "palm_detection_full.tflite";
-constexpr char kTestRightHandsImage[] = "right_hands.jpg";
-constexpr char kTestRightHandsRotatedImage[] = "right_hands_rotated.jpg";
+constexpr char kTestLeftHandsImage[] = "left_hands.jpg";
+constexpr char kTestLeftHandsRotatedImage[] = "left_hands_rotated.jpg";
 constexpr char kTestModelResourcesTag[] = "test_model_resources";
 
 constexpr char kOneHandResultFile[] = "hand_detector_result_one_hand.pbtxt";
@@ -133,13 +135,16 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
       graph[Output<std::vector<NormalizedRect>>(kHandRectsTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(), std::make_unique<core::MediaPipeBuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = "hand_detector_test",
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver = std::make_unique<core::MediaPipeBuiltinOpResolver>()});
 }
 
 HandDetectorResult GetExpectedHandDetectorResult(absl::string_view file_name) {
   HandDetectorResult result;
-  CHECK_OK(GetTextProto(file::JoinPath("./", kTestDataDirectory, file_name),
-                        &result, Defaults()))
+  ABSL_CHECK_OK(GetTextProto(
+      file::JoinPath("./", kTestDataDirectory, file_name), &result, Defaults()))
       << "Expected hand detector result does not exist.";
   return result;
 }
@@ -207,21 +212,21 @@ INSTANTIATE_TEST_SUITE_P(
     HandDetectionTest, HandDetectionTest,
     Values(TestParams{.test_name = "DetectOneHand",
                       .hand_detection_model_name = kPalmDetectionModel,
-                      .test_image_name = kTestRightHandsImage,
+                      .test_image_name = kTestLeftHandsImage,
                       .rotation = 0,
                       .num_hands = 1,
                       .expected_result =
                           GetExpectedHandDetectorResult(kOneHandResultFile)},
            TestParams{.test_name = "DetectTwoHands",
                       .hand_detection_model_name = kPalmDetectionModel,
-                      .test_image_name = kTestRightHandsImage,
+                      .test_image_name = kTestLeftHandsImage,
                       .rotation = 0,
                       .num_hands = 2,
                       .expected_result =
                           GetExpectedHandDetectorResult(kTwoHandsResultFile)},
            TestParams{.test_name = "DetectOneHandWithRotation",
                       .hand_detection_model_name = kPalmDetectionModel,
-                      .test_image_name = kTestRightHandsRotatedImage,
+                      .test_image_name = kTestLeftHandsRotatedImage,
                       .rotation = M_PI / 2.0f,
                       .num_hands = 1,
                       .expected_result = GetExpectedHandDetectorResult(

@@ -16,6 +16,8 @@
 # Description:
 #   Working with dense optical flow in mediapipe.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
 licenses(["notice"])
@@ -39,11 +41,13 @@ cc_library(
         "//mediapipe/framework/formats:location_opencv",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:integral_types",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:point",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:framework",
     ],
@@ -60,9 +64,10 @@ cc_test(
         "//mediapipe/framework/formats:location_opencv",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:integral_types",
-        "//mediapipe/framework/port:logging",
+        "//third_party:opencv",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@org_tensorflow//tensorflow/core:framework",
     ],
 )

@@ -14,10 +14,23 @@
 
 #include "mediapipe/util/sequence/media_sequence.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <limits>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
-#include "absl/strings/str_split.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/status/status.h"   // from @com_google_absl
+#include "absl/strings/match.h"   // from @com_google_absl
+#include "mediapipe/framework/formats/location.h"
+#include "mediapipe/framework/formats/matrix.h"
+#include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/sequence/media_sequence_util.h"
@@ -143,6 +156,22 @@ absl::Status ReconcileMetadataImages(const std::string& prefix,
     float rate = TimestampsToRate(GetImageTimestampAt(prefix, *sequence, 0),
                                   GetImageTimestampAt(prefix, *sequence, 1));
     SetImageFrameRate(prefix, rate, sequence);
+  }
+  return absl::OkStatus();
+}
+
+// Reconciles metadata for all images.
+absl::Status ReconcileMetadataImages(tensorflow::SequenceExample* sequence) {
+  RET_CHECK_OK(ReconcileMetadataImages("", sequence));
+  for (const auto& key_value : sequence->feature_lists().feature_list()) {
+    const auto& key = key_value.first;
+    if (::absl::StrContains(key, kImageTimestampKey)) {
+      std::string prefix = "";
+      if (key != kImageTimestampKey) {
+        prefix = key.substr(0, key.size() - sizeof(kImageTimestampKey));
+      }
+      RET_CHECK_OK(ReconcileMetadataImages(prefix, sequence));
+    }
   }
   return absl::OkStatus();
 }
@@ -279,14 +308,13 @@ absl::Status ReconcileMetadataBoxAnnotations(
       // leave unannotated boxes at -1.
       if (!box_is_annotated[box_index]) {
         box_index += 1;
-        // annotated boxes should updated their closest index.
       } else if (image_index >= num_frames - 1 ||
                  llabs(image_timestamps[image_index] -
                        box_timestamps[box_index]) <
                      llabs(image_timestamps[image_index + 1] -
                            box_timestamps[box_index])) {
-        // Only overwrite with a new value if no value is present or this is
-        // closer in time.
+        // Annotated boxes update their closest index. Only overwrite with a new
+        // value if no value is present or this is closer in time.
         if (bbox_index_if_annotated[image_index] == -1 ||
             llabs(image_timestamps[image_index] -
                   box_timestamps[bbox_index_if_annotated[image_index]]) >
@@ -514,15 +542,15 @@ std::unique_ptr<mediapipe::Matrix> GetAudioFromFeatureAt(
     const std::string& prefix, const tensorflow::SequenceExample& sequence,
     int index) {
   const auto& flat_data = GetFeatureFloatsAt(prefix, sequence, index);
-  CHECK(HasFeatureNumChannels(prefix, sequence))
+  ABSL_CHECK(HasFeatureNumChannels(prefix, sequence))
       << "GetAudioAt requires num_channels context to be specified as key: "
       << merge_prefix(prefix, kFeatureNumChannelsKey);
   int num_channels = GetFeatureNumChannels(prefix, sequence);
-  CHECK_EQ(flat_data.size() % num_channels, 0)
+  ABSL_CHECK_EQ(flat_data.size() % num_channels, 0)
       << "The data size is not a multiple of the number of channels: "
       << flat_data.size() << " % " << num_channels << " = "
       << flat_data.size() % num_channels << " for sequence index " << index;
-  auto output = absl::make_unique<mediapipe::Matrix>(
+  auto output = std::make_unique<mediapipe::Matrix>(
       num_channels, flat_data.size() / num_channels);
   std::copy(flat_data.begin(), flat_data.end(), output->data());
   return output;
@@ -545,10 +573,7 @@ absl::Status ReconcileMetadata(bool reconcile_bbox_annotations,
                                bool reconcile_region_annotations,
                                tensorflow::SequenceExample* sequence) {
   RET_CHECK_OK(ReconcileAnnotationIndicesByImageTimestamps(sequence));
-  RET_CHECK_OK(ReconcileMetadataImages("", sequence));
-  RET_CHECK_OK(ReconcileMetadataImages(kForwardFlowPrefix, sequence));
-  RET_CHECK_OK(ReconcileMetadataImages(kClassSegmentationPrefix, sequence));
-  RET_CHECK_OK(ReconcileMetadataImages(kInstanceSegmentationPrefix, sequence));
+  RET_CHECK_OK(ReconcileMetadataImages(sequence));
   RET_CHECK_OK(ReconcileMetadataFeatureFloats(sequence));
   if (reconcile_bbox_annotations) {
     RET_CHECK_OK(ReconcileMetadataBoxAnnotations("", sequence));

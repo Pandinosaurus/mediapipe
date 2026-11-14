@@ -16,18 +16,20 @@
 
 #include <fstream>
 #include <list>
+#include <memory>
 
-#include "absl/strings/substitute.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/time.h"
+#include "absl/log/absl_check.h"         // from @com_google_absl
+#include "absl/log/absl_log.h"           // from @com_google_absl
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/status/status_macros.h"   // from @com_google_absl
+#include "absl/strings/substitute.h"     // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/time/time.h"              // from @com_google_absl
 #include "mediapipe/framework/port/advanced_proto_lite_inc.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/proto_ns.h"
 #include "mediapipe/framework/port/re2.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/profiler/profiler_resource_util.h"
 #include "mediapipe/framework/tool/name_util.h"
 #include "mediapipe/framework/tool/tag_map.h"
@@ -88,7 +90,7 @@ bool IsTraceIntervalEnabled(const ProfilerConfig& profiler_config,
 }
 
 using PacketInfoMap =
-    ShardedMap<std::string, std::list<std::pair<int64, PacketInfo>>>;
+    ShardedMap<std::string, std::list<std::pair<int64_t, PacketInfo>>>;
 
 // Inserts a PacketInfo into a PacketInfoMap.
 void InsertPacketInfo(PacketInfoMap* map, const PacketId& packet_id,
@@ -152,21 +154,21 @@ GraphProfiler::GraphProfiler()
       mediapipe::MonotonicClock::CreateSynchronizedMonotonicClock());
 }
 
-GraphProfiler::~GraphProfiler() {}
+GraphProfiler::~GraphProfiler() = default;
 
 void GraphProfiler::Initialize(
     const ValidatedGraphConfig& validated_graph_config) {
-  absl::WriterMutexLock lock(&profiler_mutex_);
+  absl::WriterMutexLock lock(profiler_mutex_);
   validated_graph_ = &validated_graph_config;
-  CHECK(!is_initialized_)
+  ABSL_CHECK(!is_initialized_)
       << "Cannot initialize the profiler for the same graph multiple times.";
   profiler_config_ = validated_graph_config.Config().profiler_config();
-  int64 interval_size_usec = profiler_config_.histogram_interval_size_usec();
+  int64_t interval_size_usec = profiler_config_.histogram_interval_size_usec();
   interval_size_usec = interval_size_usec ? interval_size_usec : 1000000;
-  int64 num_intervals = profiler_config_.num_histogram_intervals();
+  int64_t num_intervals = profiler_config_.num_histogram_intervals();
   num_intervals = num_intervals ? num_intervals : 1;
   if (IsTracerEnabled(profiler_config_)) {
-    packet_tracer_ = absl::make_unique<GraphTracer>(profiler_config_);
+    packet_tracer_ = std::make_unique<GraphTracer>(profiler_config_);
   }
   for (int node_id = 0;
        node_id < validated_graph_config.CalculatorInfos().size(); ++node_id) {
@@ -190,7 +192,7 @@ void GraphProfiler::Initialize(
     }
 
     auto iter = calculator_profiles_.insert({node_name, profile});
-    CHECK(iter.second) << absl::Substitute(
+    ABSL_CHECK(iter.second) << absl::Substitute(
         "Calculator \"$0\" has already been added.", node_name);
   }
   profile_builder_ = std::make_unique<GraphProfileBuilder>(this);
@@ -200,8 +202,8 @@ void GraphProfiler::Initialize(
 }
 
 void GraphProfiler::SetClock(const std::shared_ptr<mediapipe::Clock>& clock) {
-  absl::WriterMutexLock lock(&profiler_mutex_);
-  CHECK(clock) << "GraphProfiler::SetClock() is called with a nullptr.";
+  absl::WriterMutexLock lock(profiler_mutex_);
+  ABSL_CHECK(clock) << "GraphProfiler::SetClock() is called with a nullptr.";
   clock_ = clock;
 }
 
@@ -224,7 +226,7 @@ void GraphProfiler::Resume() {
 }
 
 void GraphProfiler::Reset() {
-  absl::WriterMutexLock lock(&profiler_mutex_);
+  absl::WriterMutexLock lock(profiler_mutex_);
   for (auto iter = calculator_profiles_.begin();
        iter != calculator_profiles_.end(); ++iter) {
     CalculatorProfile* calculator_profile = &iter->second;
@@ -245,26 +247,34 @@ absl::Status GraphProfiler::Start(mediapipe::Executor* executor) {
   if (is_tracing_ && IsTraceIntervalEnabled(profiler_config_, tracer()) &&
       executor != nullptr) {
     // Inform the user via logging the path to the trace logs.
-    ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
+    ABSL_ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
     // Check that we can actually write to it.
     auto status =
         file::SetContents(absl::StrCat(trace_log_path, "trace_writing_check"),
                           "can write trace logs to this location");
     if (status.ok()) {
-      LOG(INFO) << "trace_log_path: " << trace_log_path;
+      ABSL_LOG(INFO) << "trace_log_path: " << trace_log_path;
     } else {
-      LOG(ERROR) << "cannot write to trace_log_path: " << trace_log_path << ": "
-                 << status;
+      ABSL_LOG(ERROR) << "cannot write to trace_log_path: " << trace_log_path
+                      << ": " << status;
     }
 
     is_running_ = true;
-    executor->Schedule([this] {
-      absl::Time deadline = clock_->TimeNow() + tracer()->GetTraceLogInterval();
-      while (is_running_) {
-        clock_->SleepUntil(deadline);
-        deadline = clock_->TimeNow() + tracer()->GetTraceLogInterval();
-        if (is_running_) {
-          WriteProfile().IgnoreError();
+
+    std::weak_ptr<GraphProfiler> weak = weak_from_this();
+    executor->Schedule([weak] {
+      std::shared_ptr<GraphProfiler> self = weak.lock();
+      if (!self) {
+        return;
+      }
+      absl::Time deadline =
+          self->clock_->TimeNow() + self->tracer()->GetTraceLogInterval();
+      while (self->is_running_) {
+        self->clock_->SleepUntil(deadline);
+        deadline =
+            self->clock_->TimeNow() + self->tracer()->GetTraceLogInterval();
+        if (self->is_running_) {
+          self->WriteProfile().IgnoreError();
         }
       }
     });
@@ -278,7 +288,7 @@ absl::Status GraphProfiler::Stop() {
   Pause();
   // If specified, write a final profile.
   if (IsTraceLogEnabled(profiler_config_)) {
-    MP_RETURN_IF_ERROR(WriteProfile());
+    ABSL_RETURN_IF_ERROR(WriteProfile());
   }
   return absl::OkStatus();
 }
@@ -303,7 +313,7 @@ void GraphProfiler::LogEvent(const TraceEvent& event) {
 }
 
 void GraphProfiler::AddPacketInfo(const TraceEvent& packet_info) {
-  absl::ReaderMutexLock lock(&profiler_mutex_);
+  absl::ReaderMutexLock lock(profiler_mutex_);
   if (!is_profiling_) {
     return;
   }
@@ -315,14 +325,14 @@ void GraphProfiler::AddPacketInfo(const TraceEvent& packet_info) {
     return;
   }
   if (!packet_timestamp.IsRangeValue()) {
-    LOG(WARNING) << absl::Substitute(
+    ABSL_LOG(WARNING) << absl::Substitute(
         "Skipped adding packet info because the timestamp $0 for stream "
         "\"$1\" is not valid.",
         packet_timestamp.Value(), stream_name);
     return;
   }
 
-  int64 production_time_usec =
+  int64_t production_time_usec =
       profiler_config_.use_packet_timestamp_for_added_packet()
           ? packet_timestamp.Value()
           : TimeNowUsec();
@@ -332,7 +342,7 @@ void GraphProfiler::AddPacketInfo(const TraceEvent& packet_info) {
 
 absl::Status GraphProfiler::GetCalculatorProfiles(
     std::vector<CalculatorProfile>* profiles) const {
-  absl::ReaderMutexLock lock(&profiler_mutex_);
+  absl::ReaderMutexLock lock(profiler_mutex_);
   RET_CHECK(is_initialized_)
       << "GetCalculatorProfiles can only be called after Initialize()";
   for (auto& entry : calculator_profiles_) {
@@ -341,8 +351,8 @@ absl::Status GraphProfiler::GetCalculatorProfiles(
   return absl::OkStatus();
 }
 
-void GraphProfiler::InitializeTimeHistogram(int64 interval_size_usec,
-                                            int64 num_intervals,
+void GraphProfiler::InitializeTimeHistogram(int64_t interval_size_usec,
+                                            int64_t num_intervals,
                                             TimeHistogram* histogram) {
   histogram->set_interval_size_usec(interval_size_usec);
   histogram->set_num_intervals(num_intervals);
@@ -354,8 +364,8 @@ void GraphProfiler::InitializeOutputStreams(
     const CalculatorGraphConfig::Node& node_config) {}
 
 void GraphProfiler::InitializeInputStreams(
-    const CalculatorGraphConfig::Node& node_config, int64 interval_size_usec,
-    int64 num_intervals, CalculatorProfile* calculator_profile) {
+    const CalculatorGraphConfig::Node& node_config, int64_t interval_size_usec,
+    int64_t num_intervals, CalculatorProfile* calculator_profile) {
   std::shared_ptr<tool::TagMap> input_tag_map =
       TagMap::Create(node_config.input_stream()).value();
   std::set<int> back_edge_ids = GetBackEdgeIds(node_config, *input_tag_map);
@@ -382,11 +392,11 @@ std::set<int> GraphProfiler::GetBackEdgeIds(
     }
     std::string tag;
     int index;
-    MEDIAPIPE_CHECK_OK(
+    ABSL_CHECK_OK(
         tool::ParseTagIndex(input_stream_info.tag_index(), &tag, &index))
         << absl::Substitute("Cannot parse TAG or index for the backedge \"$0\"",
                             input_stream_info.tag_index());
-    CHECK(0 <= index && index < input_tag_map.NumEntries(tag))
+    ABSL_CHECK(0 <= index && index < input_tag_map.NumEntries(tag))
         << absl::Substitute(
                "The input_stream_info for tag \"$0\" (index "
                "$1) does not match any input_stream.",
@@ -404,15 +414,15 @@ void GraphProfiler::ResetTimeHistogram(TimeHistogram* histogram) {
 }
 
 void GraphProfiler::AddPacketInfoInternal(const PacketId& packet_id,
-                                          int64 production_time_usec,
-                                          int64 source_process_start_usec) {
+                                          int64_t production_time_usec,
+                                          int64_t source_process_start_usec) {
   PacketInfo packet_info = {0, production_time_usec, source_process_start_usec};
   InsertPacketInfo(&packets_info_, packet_id, packet_info);
 }
 
 void GraphProfiler::AddPacketInfoForOutputPackets(
     const OutputStreamShardSet& output_stream_shard_set,
-    int64 production_time_usec, int64 source_process_start_usec) {
+    int64_t production_time_usec, int64_t source_process_start_usec) {
   for (const OutputStreamShard& output_stream_shard : output_stream_shard_set) {
     for (const Packet& output_packet : *output_stream_shard.OutputQueue()) {
       AddPacketInfoInternal(PacketId({output_stream_shard.Name(),
@@ -422,11 +432,11 @@ void GraphProfiler::AddPacketInfoForOutputPackets(
   }
 }
 
-int64 GraphProfiler::AddStreamLatencies(
-    const CalculatorContext& calculator_context, int64 start_time_usec,
-    int64 end_time_usec, CalculatorProfile* calculator_profile) {
+int64_t GraphProfiler::AddStreamLatencies(
+    const CalculatorContext& calculator_context, int64_t start_time_usec,
+    int64_t end_time_usec, CalculatorProfile* calculator_profile) {
   // Update input streams profiles.
-  int64 min_source_process_start_usec = AddInputStreamTimeSamples(
+  int64_t min_source_process_start_usec = AddInputStreamTimeSamples(
       calculator_context, start_time_usec, calculator_profile);
 
   // Update output production times.
@@ -436,16 +446,17 @@ int64 GraphProfiler::AddStreamLatencies(
 }
 
 void GraphProfiler::SetOpenRuntime(const CalculatorContext& calculator_context,
-                                   int64 start_time_usec, int64 end_time_usec) {
-  absl::ReaderMutexLock lock(&profiler_mutex_);
+                                   int64_t start_time_usec,
+                                   int64_t end_time_usec) {
+  absl::ReaderMutexLock lock(profiler_mutex_);
   if (!is_profiling_) {
     return;
   }
 
   const std::string& node_name = calculator_context.NodeName();
-  int64 time_usec = end_time_usec - start_time_usec;
+  int64_t time_usec = end_time_usec - start_time_usec;
   auto profile_iter = calculator_profiles_.find(node_name);
-  CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
+  ABSL_CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
       "Calculator \"$0\" has not been added during initialization.",
       calculator_context.NodeName());
   CalculatorProfile* calculator_profile = &profile_iter->second;
@@ -458,16 +469,16 @@ void GraphProfiler::SetOpenRuntime(const CalculatorContext& calculator_context,
 }
 
 void GraphProfiler::SetCloseRuntime(const CalculatorContext& calculator_context,
-                                    int64 start_time_usec,
-                                    int64 end_time_usec) {
-  absl::ReaderMutexLock lock(&profiler_mutex_);
+                                    int64_t start_time_usec,
+                                    int64_t end_time_usec) {
+  absl::ReaderMutexLock lock(profiler_mutex_);
   if (!is_profiling_) {
     return;
   }
   const std::string& node_name = calculator_context.NodeName();
-  int64 time_usec = end_time_usec - start_time_usec;
+  int64_t time_usec = end_time_usec - start_time_usec;
   auto profile_iter = calculator_profiles_.find(node_name);
-  CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
+  ABSL_CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
       "Calculator \"$0\" has not been added during initialization.",
       calculator_context.NodeName());
   CalculatorProfile* calculator_profile = &profile_iter->second;
@@ -479,30 +490,42 @@ void GraphProfiler::SetCloseRuntime(const CalculatorContext& calculator_context,
   }
 }
 
-void GraphProfiler::AddTimeSample(int64 start_time_usec, int64 end_time_usec,
+void GraphProfiler::AddTimeSample(int64_t start_time_usec,
+                                  int64_t end_time_usec,
                                   TimeHistogram* histogram) {
   if (end_time_usec < start_time_usec) {
-    LOG(ERROR) << absl::Substitute(
+    ABSL_LOG(ERROR) << absl::Substitute(
         "end_time_usec ($0) is < start_time_usec ($1)", end_time_usec,
         start_time_usec);
     return;
   }
 
-  int64 time_usec = end_time_usec - start_time_usec;
-  histogram->set_total(histogram->total() + time_usec);
-  int64 interval_index = time_usec / histogram->interval_size_usec();
+  // Compute time and interval index.
+  int64_t time_usec = end_time_usec - start_time_usec;
+  int64_t interval_index = time_usec / histogram->interval_size_usec();
   if (interval_index > histogram->num_intervals() - 1) {
     interval_index = histogram->num_intervals() - 1;
   }
+
+  // Check if interval_index is valid.
+  if (interval_index < 0 || interval_index >= histogram->count_size()) {
+    ABSL_LOG(ERROR) << absl::Substitute(
+        "interval_index ($0) is out of count's range [0, $1)", interval_index,
+        histogram->count_size());
+    return;
+  }
+
+  // Everything looks good, update the histogram.
+  histogram->set_total(histogram->total() + time_usec);
   histogram->set_count(interval_index, histogram->count(interval_index) + 1);
 }
 
-int64 GraphProfiler::AddInputStreamTimeSamples(
-    const CalculatorContext& calculator_context, int64 start_time_usec,
+int64_t GraphProfiler::AddInputStreamTimeSamples(
+    const CalculatorContext& calculator_context, int64_t start_time_usec,
     CalculatorProfile* calculator_profile) {
-  int64 input_timestamp_usec = calculator_context.InputTimestamp().Value();
-  int64 min_source_process_start_usec = start_time_usec;
-  int64 input_stream_counter = -1;
+  int64_t input_timestamp_usec = calculator_context.InputTimestamp().Value();
+  int64_t min_source_process_start_usec = start_time_usec;
+  int64_t input_stream_counter = -1;
   for (CollectionItemId id = calculator_context.Inputs().BeginId();
        id < calculator_context.Inputs().EndId(); ++id) {
     ++input_stream_counter;
@@ -519,8 +542,8 @@ int64 GraphProfiler::AddInputStreamTimeSamples(
       // This is a condition rather than a failure CHECK because
       // under certain conditions the consumer calculator's Process()
       // can start before the producer calculator's Process() is finished.
-      LOG_FIRST_N(WARNING, 10) << "Expected packet info is missing for: "
-                               << PacketIdToString(packet_id);
+      ABSL_LOG_FIRST_N(WARNING, 10) << "Expected packet info is missing for: "
+                                    << PacketIdToString(packet_id);
       continue;
     }
     AddTimeSample(
@@ -536,16 +559,16 @@ int64 GraphProfiler::AddInputStreamTimeSamples(
 }
 
 void GraphProfiler::AddProcessSample(
-    const CalculatorContext& calculator_context, int64 start_time_usec,
-    int64 end_time_usec) {
-  absl::ReaderMutexLock lock(&profiler_mutex_);
+    const CalculatorContext& calculator_context, int64_t start_time_usec,
+    int64_t end_time_usec) {
+  absl::ReaderMutexLock lock(profiler_mutex_);
   if (!is_profiling_) {
     return;
   }
 
   const std::string& node_name = calculator_context.NodeName();
   auto profile_iter = calculator_profiles_.find(node_name);
-  CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
+  ABSL_CHECK(profile_iter != calculator_profiles_.end()) << absl::Substitute(
       "Calculator \"$0\" has not been added during initialization.",
       calculator_context.NodeName());
   CalculatorProfile* calculator_profile = &profile_iter->second;
@@ -555,7 +578,7 @@ void GraphProfiler::AddProcessSample(
                 calculator_profile->mutable_process_runtime());
 
   if (profiler_config_.enable_stream_latency()) {
-    int64 min_source_process_start_usec = AddStreamLatencies(
+    int64_t min_source_process_start_usec = AddStreamLatencies(
         calculator_context, start_time_usec, end_time_usec, calculator_profile);
     // Update input and output trace latencies.
     AddTimeSample(min_source_process_start_usec, start_time_usec,
@@ -569,7 +592,7 @@ std::unique_ptr<GlProfilingHelper> GraphProfiler::CreateGlProfilingHelper() {
   if (!IsTracerEnabled(profiler_config_)) {
     return nullptr;
   }
-  return absl::make_unique<mediapipe::GlProfilingHelper>(shared_from_this());
+  return std::make_unique<mediapipe::GlProfilingHelper>(shared_from_this());
 }
 
 // A simple ZeroCopyOutputStream that writes to a std::ostream.
@@ -654,7 +677,8 @@ absl::StatusOr<std::string> GraphProfiler::GetTraceLogPath() {
         "Trace log writing is disabled, unable to get trace_log_path.");
   }
   if (profiler_config_.trace_log_path().empty()) {
-    ASSIGN_OR_RETURN(std::string directory_path, GetDefaultTraceLogDirectory());
+    ABSL_ASSIGN_OR_RETURN(std::string directory_path,
+                          GetDefaultTraceLogDirectory());
     std::string trace_log_path =
         absl::StrCat(directory_path, "/", kDefaultLogFilePrefix);
     return trace_log_path;
@@ -682,7 +706,7 @@ absl::Status GraphProfiler::CaptureProfile(
   previous_log_end_time_ = end_time;
 
   // Record the latest CalculatorProfiles.
-  Status status;
+  absl::Status status;
   std::vector<CalculatorProfile> profiles;
   status.Update(GetCalculatorProfiles(&profiles));
   for (CalculatorProfile& p : profiles) {
@@ -704,11 +728,11 @@ absl::Status GraphProfiler::WriteProfile() {
     // Logging is disabled, so we can exit writing without error.
     return absl::OkStatus();
   }
-  ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
+  ABSL_ASSIGN_OR_RETURN(std::string trace_log_path, GetTraceLogPath());
   int log_interval_count = GetLogIntervalCount(profiler_config_);
   int log_file_count = GetLogFileCount(profiler_config_);
   GraphProfile profile;
-  MP_RETURN_IF_ERROR(CaptureProfile(&profile, PopulateGraphConfig::kNo));
+  ABSL_RETURN_IF_ERROR(CaptureProfile(&profile, PopulateGraphConfig::kNo));
 
   // If there are no trace events, skip log writing.
   const GraphTrace& trace = *profile.graph_trace().rbegin();
@@ -717,25 +741,30 @@ absl::Status GraphProfiler::WriteProfile() {
   }
 
   // Record the CalculatorGraphConfig, once per log file.
-  ++previous_log_index_;
-  bool is_new_file = (previous_log_index_ % log_interval_count == 0);
+  // Effective index should not change during the call, and thus should be
+  // stored in a local variable after the increment. Otherwise `is_new_file` and
+  // `log_index` may evaluate to incoherent values depending on spurious
+  // `previous_log_index_` increments by other threads.
+  int previous_log_index = ++previous_log_index_;
+  bool is_new_file = (previous_log_index % log_interval_count == 0);
   if (is_new_file) {
     *profile.mutable_config() = validated_graph_->Config();
     AssignNodeNames(&profile);
   }
 
   // Write the GraphProfile to the trace_log_path.
-  int log_index = previous_log_index_ / log_interval_count % log_file_count;
+  int log_index = previous_log_index / log_interval_count % log_file_count;
   std::string log_path = absl::StrCat(trace_log_path, log_index, ".binarypb");
-  std::ofstream ofs;
+  std::string profile_bytes;
+  RET_CHECK(profile.SerializeToString(&profile_bytes))
+      << "Could not serialize GraphProfile";
   if (is_new_file) {
-    ofs.open(log_path, std::ofstream::out | std::ofstream::trunc);
+    RET_CHECK(mediapipe::file::SetContents(log_path, profile_bytes).ok())
+        << "Could not write binary GraphProfile to: " << log_path;
   } else {
-    ofs.open(log_path, std::ofstream::out | std::ofstream::app);
+    RET_CHECK(mediapipe::file::AppendStringToFile(log_path, profile_bytes).ok())
+        << "Could not write binary GraphProfile to: " << log_path;
   }
-  OstreamStream out(&ofs);
-  RET_CHECK(profile.SerializeToZeroCopyStream(&out))
-      << "Could not write binary GraphProfile to: " << log_path;
   return absl::OkStatus();
 }
 

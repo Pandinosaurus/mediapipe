@@ -12,29 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#import "mediapipe/tasks/ios/common/utils/sources/NSString+Helpers.h"
 #import "mediapipe/tasks/ios/components/containers/utils/sources/MPPCategory+Helpers.h"
 
-namespace {
-using ClassificationProto = ::mediapipe::Classification;
-}
+#include "mediapipe/tasks/c/components/containers/category.h"
 
 @implementation MPPCategory (Helpers)
 
-+ (MPPCategory *)categoryWithProto:(const ClassificationProto &)classificationProto {
-  NSString *categoryName;
-  NSString *displayName;
++ (MPPCategory *)categoryWithCCategory:(const struct MpCategory &)cCategory {
+  NSString *categoryName =
+      cCategory.category_name ? [NSString stringWithUTF8String:cCategory.category_name] : nil;
+  NSString *displayName =
+      cCategory.display_name ? [NSString stringWithUTF8String:cCategory.display_name] : nil;
 
-  if (classificationProto.has_label()) {
-    categoryName = [NSString stringWithCppString:classificationProto.label()];
-  }
-
-  if (classificationProto.has_display_name()) {
-    displayName = [NSString stringWithCppString:classificationProto.display_name()];
-  }
-
-  return [[MPPCategory alloc] initWithIndex:classificationProto.index()
-                                      score:classificationProto.score()
+  return [[MPPCategory alloc] initWithIndex:cCategory.index
+                                      score:cCategory.score
                                categoryName:categoryName
                                 displayName:displayName];
 }

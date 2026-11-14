@@ -11,14 +11,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 
-load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+# Placeholder: load proto_library
 
 licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
+
+# For direct MediaPipe internal proto usage. Please only add your package
+# here if necessary and using
+# "//mediapipe/framework:calculator_framework" is not sufficient
+# (e.g. auto generated code for serialization etc.)
+package_group(
+    name = "mediapipe_internal_proto_users",
+    packages = [
+        "//mediapipe/...",
+    ],
+)
 
 # The MediaPipe internal package group. No mediapipe users should be added to this group.
 package_group(
@@ -33,7 +46,9 @@ bzl_library(
     srcs = [
         "transitive_protos.bzl",
     ],
-    visibility = ["//mediapipe/framework:__subpackages__"],
+    visibility = [
+        "//mediapipe/framework:__subpackages__",
+    ],
 )
 
 bzl_library(
@@ -42,6 +57,9 @@ bzl_library(
         "encode_binary_proto.bzl",
     ],
     visibility = ["//visibility:public"],
+    deps = [
+        "@bazel_skylib//lib:paths",
+    ],
 )
 
 alias(
@@ -74,7 +92,7 @@ mediapipe_proto_library(
 
 mediapipe_proto_library(
     name = "calculator_contract_test_proto",
-    testonly = 1,
+    testonly = True,
     srcs = ["calculator_contract_test.proto"],
     visibility = ["//mediapipe/framework:__subpackages__"],
     deps = [
@@ -97,7 +115,7 @@ mediapipe_proto_library(
     name = "mediapipe_options_proto",
     srcs = ["mediapipe_options.proto"],
     visibility = [
-        ":mediapipe_internal",
+        "//visibility:public",
     ],
 )
 
@@ -115,10 +133,10 @@ mediapipe_proto_library(
 
 mediapipe_proto_library(
     name = "packet_test_proto",
-    testonly = 1,
+    testonly = True,
     srcs = ["packet_test.proto"],
     visibility = [
-        ":mediapipe_internal",
+        ":mediapipe_internal_proto_users",
         "//mediapipe/framework:__subpackages__",
     ],
 )
@@ -126,22 +144,22 @@ mediapipe_proto_library(
 mediapipe_proto_library(
     name = "status_handler_proto",
     srcs = ["status_handler.proto"],
-    visibility = [":mediapipe_internal"],
+    visibility = [":mediapipe_internal_proto_users"],
     deps = [":mediapipe_options_proto"],
 )
 
 mediapipe_proto_library(
     name = "stream_handler_proto",
     srcs = ["stream_handler.proto"],
-    visibility = [":mediapipe_internal"],
+    visibility = [":mediapipe_internal_proto_users"],
     deps = [":mediapipe_options_proto"],
 )
 
 mediapipe_proto_library(
     name = "test_calculators_proto",
-    testonly = 1,
+    testonly = True,
     srcs = ["test_calculators.proto"],
-    visibility = [":mediapipe_internal"],
+    visibility = [":mediapipe_internal_proto_users"],
     deps = [
         ":calculator_options_proto",
         ":calculator_proto",
@@ -151,7 +169,7 @@ mediapipe_proto_library(
 mediapipe_proto_library(
     name = "thread_pool_executor_proto",
     srcs = ["thread_pool_executor.proto"],
-    visibility = [":mediapipe_internal"],
+    visibility = ["//visibility:public"],
     deps = [":mediapipe_options_proto"],
 )
 
@@ -177,8 +195,8 @@ cc_library(
         ":timestamp",
         "//mediapipe/framework/deps:registration",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -186,19 +204,25 @@ cc_library(
     name = "calculator_context",
     srcs = ["calculator_context.cc"],
     hdrs = ["calculator_context.h"],
-    visibility = [":mediapipe_internal"],
+    visibility = [
+        ":mediapipe_internal",
+    ],
     deps = [
         ":calculator_state",
+        ":collection_item_id",
         ":counter",
+        ":counter_factory",
         ":graph_service",
+        ":graph_service_manager",
         ":input_stream_shard",
         ":output_stream_shard",
-        ":packet",
         ":packet_set",
         ":port",
+        ":resources",
         ":timestamp",
         "//mediapipe/framework/port:any_proto",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -212,10 +236,11 @@ cc_library(
         ":calculator_state",
         ":timestamp",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -242,6 +267,8 @@ cc_library(
         "//mediapipe/framework/tool:tag_map",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -267,6 +294,8 @@ cc_library(
     ],
     deps = [
         ":calculator_base",
+        ":calculator_context",
+        ":calculator_contract",
         ":calculator_graph",
         ":calculator_registry",
         ":counter_factory",
@@ -306,58 +335,66 @@ cc_library(
     deps = [
         ":calculator_base",
         ":calculator_cc_proto",
+        ":calculator_context",
         ":calculator_node",
         ":counter_factory",
         ":delegating_executor",
         ":executor",
         ":graph_output_stream",
+        ":graph_runtime_info_cc_proto",
         ":graph_service",
         ":graph_service_manager",
         ":input_stream_manager",
         ":mediapipe_profiling",
         ":output_side_packet_impl",
-        ":output_stream",
         ":output_stream_manager",
         ":output_stream_poller",
         ":output_stream_shard",
         ":packet",
-        ":packet_generator",
-        ":packet_generator_cc_proto",
         ":packet_generator_graph",
         ":packet_set",
         ":packet_type",
-        ":port",
+        ":resources_service",
         ":scheduler_queue",
         ":status_handler",
         ":status_handler_cc_proto",
+        ":subgraph",
         ":thread_pool_executor",
         ":thread_pool_executor_cc_proto",
         ":timestamp",
         ":validated_graph_config",
-        "//mediapipe/framework/port:core_proto",
-        "//mediapipe/framework/port:integral_types",
+        ":vlog_overrides",
+        "//mediapipe/framework/deps:clock",
         "//mediapipe/framework/port:logging",
+        "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:fill_packet_set",
+        "//mediapipe/framework/tool:graph_runtime_info_logger",
+        "//mediapipe/framework/tool:graph_runtime_info_utils",
         "//mediapipe/framework/tool:packet_generator_wrapper_calculator",
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/tool:tag_map",
-        "//mediapipe/framework/tool:validate",
-        "//mediapipe/framework/tool:validate_name",
         "//mediapipe/gpu:gpu_service",
+        "//mediapipe/gpu:gpu_shared_data_internal",
         "//mediapipe/gpu:graph_support",
         "//mediapipe/util:cpu_util",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
     ],
 )
 
@@ -369,6 +406,8 @@ cc_library(
     deps = [
         ":graph_service",
         ":packet",
+        "//mediapipe/framework/port:ret_check",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
     ],
 )
@@ -395,6 +434,8 @@ cc_library(
         ":calculator_context_manager",
         ":calculator_state",
         ":counter_factory",
+        ":graph_runtime_info_cc_proto",
+        ":graph_service_manager",
         ":input_side_packet_handler",
         ":input_stream_handler",
         ":input_stream_manager",
@@ -410,12 +451,12 @@ cc_library(
         ":stream_handler_cc_proto",
         ":timestamp",
         ":validated_graph_config",
+        "//mediapipe/framework/deps:clock",
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:source_location",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/stream_handler:default_input_stream_handler",
         "//mediapipe/framework/stream_handler:in_order_output_stream_handler",
         "//mediapipe/framework/tool:name_util",
@@ -423,10 +464,16 @@ cc_library(
         "//mediapipe/framework/tool:tag_map",
         "//mediapipe/framework/tool:validate_name",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
     ],
 )
 
@@ -443,18 +490,20 @@ cc_library(
 
 cc_library(
     name = "calculator_runner",
-    testonly = 1,
+    testonly = True,
     srcs = ["calculator_runner.cc"],
     hdrs = ["calculator_runner.h"],
     visibility = ["//visibility:public"],
     deps = [
         ":calculator_framework",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:sink",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -470,15 +519,17 @@ cc_library(
         ":counter_factory",
         ":graph_service",
         ":graph_service_manager",
-        ":input_stream",
-        ":output_stream",
         ":packet",
         ":packet_set",
         ":port",
+        ":resources",
+        ":resources_service",
         "//mediapipe/framework/port:any_proto",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/tool:options_map",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -496,11 +547,12 @@ cc_library(
     deps = [
         ":collection_item_id",
         ":type_map",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/tool:tag_map",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/framework/tool:validate_name",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
     ],
@@ -534,6 +586,9 @@ cc_library(
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:map_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -553,12 +608,6 @@ cc_library(
 cc_library(
     name = "demangle",
     hdrs = ["demangle.h"],
-    defines = select({
-        "//mediapipe/framework/profiler:android_release": [
-            "MEDIAPIPE_HAS_CXA_DEMANGLE=0",
-        ],
-        "//conditions:default": [],
-    }),
     visibility = ["//visibility:public"],
 )
 
@@ -573,7 +622,9 @@ cc_library(
     ],
     deps = [
         "//mediapipe/framework/profiler:graph_profiler",
-    ],
+    ] + select({
+        "//conditions:default": [],
+    }),
 )
 
 cc_library(
@@ -584,8 +635,8 @@ cc_library(
     deps = [
         ":mediapipe_options_cc_proto",
         "//mediapipe/framework/deps:registration",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -597,6 +648,7 @@ cc_library(
         ":mediapipe_internal",
     ],
     deps = [
+        ":collection_item_id",
         ":input_stream_handler",
         ":input_stream_manager",
         ":output_stream_manager",
@@ -604,24 +656,115 @@ cc_library(
         ":packet_set",
         ":packet_type",
         ":timestamp",
-        "//mediapipe/framework/port:logging",
+        "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "//mediapipe/framework/tool:tag_map",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_protobuf//:protobuf",
     ],
+)
+
+mediapipe_proto_library(
+    name = "graph_runtime_info_proto",
+    srcs = ["graph_runtime_info.proto"],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "graph_service",
     hdrs = ["graph_service.h"],
-    visibility = [":mediapipe_internal"],
+    visibility = ["//visibility:public"],
     deps = [
         ":packet",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "resources",
+    srcs = ["resources.cc"],
+    hdrs = ["resources.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework/deps:mlock_helpers",
+        "//mediapipe/framework/deps:mmapped_file",
+        "//mediapipe/framework/port:file_helpers",
+        "//mediapipe/framework/port:logging",
+        "//mediapipe/framework/tool:status_util",
+        "//mediapipe/util:resource_util",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "resources_test",
+    srcs = ["resources_test.cc"],
+    data = [
+        "//mediapipe/framework/testdata:resource_calculator.data",
+    ],
+    deps = [
+        ":resources",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:status_matchers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
+    name = "resources_service",
+    hdrs = ["resources_service.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":graph_service",
+        ":resources",
+    ],
+)
+
+cc_test(
+    name = "calculator_graph_resources_test",
+    srcs = ["calculator_graph_resources_test.cc"],
+    data = [
+        "//mediapipe/framework/testdata:resource_calculator.data",
+        "//mediapipe/framework/testdata:resource_subgraph.data",
+    ],
+    deps = [
+        ":calculator_cc_proto",
+        ":calculator_framework",
+        ":resources",
+        ":resources_service",
+        "//mediapipe/calculators/core:constant_side_packet_calculator",
+        "//mediapipe/calculators/core:constant_side_packet_calculator_cc_proto",
+        "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:packet",
+        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:status_matchers",
+        "//mediapipe/framework/testdata:resource_path_cc_proto",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -640,6 +783,10 @@ cc_library(
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:fill_packet_set",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
+        "@com_google_absl//absl/status:status_macros",
     ],
 )
 
@@ -660,7 +807,6 @@ cc_library(
     hdrs = ["input_stream_handler.h"],
     visibility = [
         ":mediapipe_internal",
-        "//research/interaction/mediapipe/calculators:__pkg__",
     ],
     deps = [
         ":calculator_context",
@@ -676,8 +822,11 @@ cc_library(
         ":packet_type",
         "//mediapipe/framework/deps:registration",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -692,13 +841,16 @@ cc_library(
         ":packet_type",
         ":port",
         ":timestamp",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:status_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -715,20 +867,47 @@ cc_library(
         ":port",
         ":timestamp",
         "//mediapipe/framework/port:source_location",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:status_util",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/strings",
     ],
 )
 
 cc_library(
     name = "lifetime_tracker",
-    testonly = 1,
+    testonly = True,
     hdrs = ["lifetime_tracker.h"],
     visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_test(
+    name = "nested_calculator_graph_test",
+    srcs = ["nested_calculator_graph_test.cc"],
+    data = [
+        "//mediapipe/calculators/tensor:testdata/1x3_square_int32.tflite",
+    ],
+    deps = [
+        ":calculator_framework",
+        ":calculator_state",
+        ":graph_service",
+        "//mediapipe/calculators/tensor:inference_calculator_xnnpack",
+        "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/formats:tensor",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/tool:sink",
+        "//mediapipe/gpu:gpu_service",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -756,6 +935,9 @@ cc_library(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
     ],
 )
 
@@ -787,13 +969,14 @@ cc_library(
         ":output_stream_manager",
         ":output_stream_shard",
         ":packet_set",
-        ":packet_type",
         ":timestamp",
         "//mediapipe/framework/deps:registration",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -810,8 +993,11 @@ cc_library(
         ":packet_type",
         ":port",
         ":timestamp",
-        "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -822,6 +1008,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":graph_output_stream",
+        "@com_google_absl//absl/log:absl_check",
     ],
 )
 
@@ -838,6 +1025,9 @@ cc_library(
         ":timestamp",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -852,19 +1042,23 @@ cc_library(
         ":port",
         ":timestamp",
         ":type_map",
-        "//mediapipe/framework/deps:no_destructor",
         "//mediapipe/framework/deps:registration",
         "//mediapipe/framework/port:core_proto",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/framework/tool:type_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
@@ -873,16 +1067,13 @@ cc_library(
     hdrs = ["packet_generator.h"],
     visibility = ["//visibility:public"],
     deps = [
-        ":packet",
         ":packet_generator_cc_proto",
         ":packet_set",
         ":packet_type",
         ":port",
         "//mediapipe/framework/deps:registration",
-        "//mediapipe/framework/port:core_proto",
-        "//mediapipe/framework/port:status",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -905,9 +1096,10 @@ cc_library(
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:status_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ],
@@ -933,7 +1125,6 @@ cc_library(
         ":packet",
         ":packet_set",
         ":type_map",
-        "//mediapipe/framework/deps:no_destructor",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:source_location",
@@ -942,7 +1133,11 @@ cc_library(
         "//mediapipe/framework/tool:type_util",
         "//mediapipe/framework/tool:validate_name",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_google_absl//absl/types:variant",
@@ -962,14 +1157,15 @@ cc_library(
     name = "port",
     hdrs = ["port.h"],
     defines = select({
-        "//conditions:default": [],
-    }) + select({
-        "//conditions:default": [],
-        "//mediapipe/gpu:disable_gpu": ["MEDIAPIPE_DISABLE_GPU=1"],
-    }) + select({
-        "//conditions:default": [],
-        "//mediapipe/framework/port:disable_opencv": ["MEDIAPIPE_DISABLE_OPENCV=1"],
-    }) + select({
+                  "//conditions:default": [],
+              }) + select({
+                  "//conditions:default": [],
+                  "//mediapipe/gpu:disable_gpu": ["MEDIAPIPE_DISABLE_GPU=1"],
+              }) +
+              select({
+                  "//conditions:default": [],
+                  "//mediapipe/framework/port:disable_opencv": ["MEDIAPIPE_DISABLE_OPENCV=1"],
+              }) + select({
         "//conditions:default": [],
         # TODO: Improve this. This only sets MEDIAPIPE_DISABLE_OPENCV as a "defines" Make
         # value, not as a bazel "--define" variable, which has effects in C++ code but not in
@@ -983,13 +1179,20 @@ cc_library(
         "//mediapipe/framework:disable_rtti_and_exceptions": [
             "MEDIAPIPE_HAS_RTTI=0",
         ],
+        # Excludes AHardwareBuffer features from vendor processes
+        "//mediapipe/framework:android_no_jni": ["MEDIAPIPE_NO_JNI"],
+        # unless they're linked against nativewindow.
+        "//mediapipe/framework/formats:android_link_native_window": [
+            "MEDIAPIPE_ANDROID_LINK_NATIVE_WINDOW",
+            "MEDIAPIPE_NO_JNI",
+        ],
     }),
     visibility = [
-        "//fitbit/research/sensing/mobisense:__subpackages__",
         "//mediapipe/calculators:__subpackages__",
         "//mediapipe/framework:__subpackages__",
         "//mediapipe/framework/port:__pkg__",
         "//mediapipe/gpu:__pkg__",
+        "//mediapipe/tasks:__subpackages__",
         "//mediapipe/util:__subpackages__",
     ],
 )
@@ -1013,11 +1216,12 @@ cc_library(
         ":calculator_node",
         ":executor",
         "//mediapipe/framework/deps:clock",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -1032,8 +1236,7 @@ cc_library(
         ":packet_type",
         ":port",
         "//mediapipe/framework/deps:registration",
-        "//mediapipe/framework/port:status",
-        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1046,25 +1249,23 @@ cc_library(
         ":calculator_cc_proto",
         ":graph_service",
         ":graph_service_manager",
-        ":port",
+        ":resources",
+        ":resources_service",
         "//mediapipe/framework/deps:registration",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/framework/tool:calculator_graph_template_cc_proto",
         "//mediapipe/framework/tool:options_util",
         "//mediapipe/framework/tool:template_expander",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
 cc_library(
     name = "test_calculators",
-    testonly = 1,
+    testonly = True,
     srcs = ["test_calculators.cc"],
     visibility = ["//visibility:public"],
     deps = [
@@ -1075,17 +1276,18 @@ cc_library(
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "@eigen_archive//:eigen3",
+        "@eigen//:eigen3",
     ],
     alwayslink = 1,
 )
 
 cc_library(
     name = "test_service",
-    testonly = 1,
+    testonly = True,
     srcs = ["test_service.cc"],
     hdrs = ["test_service.h"],
     visibility = ["//visibility:public"],
@@ -1095,8 +1297,8 @@ cc_library(
         ":graph_service",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
     ],
+    alwayslink = True,  # Defines TestServiceCalculator
 )
 
 cc_library(
@@ -1110,9 +1312,10 @@ cc_library(
         "//mediapipe/framework/deps:thread_options",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/framework/port:threadpool",
         "//mediapipe/util:cpu_util",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -1126,6 +1329,8 @@ cc_library(
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1142,10 +1347,12 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":demangle",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/tool:type_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
     ],
     alwayslink = 1,
@@ -1175,10 +1382,8 @@ cc_library(
         ":calculator_contract",
         ":graph_service_manager",
         ":legacy_calculator_support",
-        ":packet",
         ":packet_generator",
         ":packet_generator_cc_proto",
-        ":packet_set",
         ":packet_type",
         ":port",
         ":status_handler",
@@ -1186,9 +1391,9 @@ cc_library(
         ":stream_handler_cc_proto",
         ":subgraph",
         ":thread_pool_executor_cc_proto",
-        ":timestamp",
+        ":vlog_utils",
         "//mediapipe/framework/port:core_proto",
-        "//mediapipe/framework/port:integral_types",
+        "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:ret_check",
@@ -1198,12 +1403,17 @@ cc_library(
         "//mediapipe/framework/tool:name_util",
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/tool:subgraph_expansion",
-        "//mediapipe/framework/tool:validate",
         "//mediapipe/framework/tool:validate_name",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
@@ -1230,7 +1440,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":calculator_framework",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1253,10 +1463,10 @@ cc_test(
         ":packet_set",
         ":packet_type",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/tool:tag_map_helper",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1283,13 +1493,15 @@ cc_test(
     deps = [
         ":calculator_framework",
         ":calculator_node",
+        ":output_side_packet_impl",
         "//mediapipe/calculators/core:pass_through_calculator",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:source",
-        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
 )
 
@@ -1305,10 +1517,10 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:sink",
         "//mediapipe/framework/tool:status_util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -1323,15 +1535,13 @@ cc_test(
         ":calculator_framework",
         ":calculator_graph",
         "//mediapipe/calculators/core:pass_through_calculator",
-        "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:sink",
         "//mediapipe/framework/tool:status_util",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/synchronization",
     ],
 )
 
@@ -1343,10 +1553,45 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:sink",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "calculator_graph_summary_packet_test",
+    srcs = ["calculator_graph_summary_packet_test.cc"],
+    deps = [
+        ":calculator_framework",
+        ":packet",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:packet",
+        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/stream_handler:immediate_input_stream_handler",
+        "//mediapipe/framework/tool:sink",
+        "@com_google_absl//absl/status",
+    ],
+)
+
+cc_test(
+    name = "calculator_graph_error_callback_test",
+    srcs = ["calculator_graph_error_callback_test.cc"],
+    deps = [
+        ":calculator_framework",
+        ":packet",
+        "//mediapipe/framework/api2:node",
+        "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
     ],
@@ -1365,8 +1610,8 @@ cc_test(
         ":packet_type",
         ":timestamp",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1375,24 +1620,20 @@ cc_test(
     name = "calculator_context_test",
     size = "medium",
     srcs = ["calculator_context_test.cc"],
+    data = ["//mediapipe/framework/testdata:resource_calculator.data"],
     linkstatic = 1,
     deps = [
         ":calculator_cc_proto",
         ":calculator_context",
-        ":calculator_context_manager",
         ":calculator_state",
-        ":output_stream",
-        ":output_stream_manager",
-        ":output_stream_shard",
-        ":packet_set",
-        ":packet_type",
+        ":resources",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/testdata:night_light_calculator_cc_proto",
         "//mediapipe/framework/testdata:sky_light_calculator_cc_proto",
-        "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/tool:tag_map_helper",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -1403,6 +1644,7 @@ cc_test(
         "calculator_graph_test.cc",
     ],
     linkstatic = 1,
+    tags = ["not_run:arm"],
     visibility = ["//visibility:public"],
     deps = [
         ":calculator_framework",
@@ -1410,12 +1652,13 @@ cc_test(
         ":collection_item_id",
         ":counter_factory",
         ":executor",
-        ":input_stream_handler",
         ":lifetime_tracker",
         ":mediapipe_options_cc_proto",
         ":output_stream_poller",
         ":packet_set",
         ":packet_type",
+        ":resources",
+        ":resources_service",
         ":status_handler",
         ":subgraph",
         ":test_calculators",
@@ -1426,11 +1669,10 @@ cc_test(
         "//mediapipe/calculators/core:counting_source_calculator",
         "//mediapipe/calculators/core:mux_calculator",
         "//mediapipe/calculators/core:pass_through_calculator",
+        "//mediapipe/framework/deps:clock",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/stream_handler:barrier_input_stream_handler",
         "//mediapipe/framework/stream_handler:early_close_input_stream_handler",
         "//mediapipe/framework/stream_handler:fixed_size_input_stream_handler",
@@ -1442,9 +1684,14 @@ cc_test(
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/gpu:gpu_service",
         "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
     ],
 )
@@ -1469,7 +1716,6 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/stream_handler:barrier_input_stream_handler",
         "//mediapipe/framework/stream_handler:early_close_input_stream_handler",
         "//mediapipe/framework/stream_handler:fixed_size_input_stream_handler",
@@ -1478,6 +1724,7 @@ cc_test(
         "//mediapipe/framework/stream_handler:sync_set_input_stream_handler",
         "//mediapipe/framework/tool:sink",
         "//mediapipe/util:packet_test_util",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1497,11 +1744,11 @@ cc_test(
         "//mediapipe/calculators/core:mux_calculator",
         "//mediapipe/calculators/core:pass_through_calculator",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:sink",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/time",
     ],
 )
@@ -1516,8 +1763,8 @@ cc_test(
         ":packet_set",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map_helper",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1538,9 +1785,9 @@ cc_test(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:status_matchers",
         "//mediapipe/framework/tool:sink",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1556,6 +1803,7 @@ cc_test(
         ":packet",
         "//mediapipe/framework/port:gtest_main",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1574,6 +1822,7 @@ cc_test(
         "//mediapipe/framework/stream_handler:default_input_stream_handler",
         "//mediapipe/framework/tool:tag_map_helper",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -1610,12 +1859,17 @@ cc_test(
     srcs = ["packet_test.cc"],
     linkstatic = 1,
     deps = [
+        ":calculator_framework",
         ":packet",
         ":packet_test_cc_proto",
         ":type_map",
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:gtest_main",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
@@ -1628,8 +1882,10 @@ cc_test(
         ":packet",
         ":packet_test_cc_proto",
         ":type_map",
+        "//mediapipe/framework/api2:builder",
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:gtest_main",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1644,6 +1900,7 @@ cc_test(
         ":packet_type",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/tool:validate_type",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -1672,24 +1929,89 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/tool:template_parser",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
     ],
 )
 
 cc_test(
     name = "subgraph_test",
     srcs = ["subgraph_test.cc"],
+    data = ["//mediapipe/framework/testdata:resource_subgraph.data"],
     deps = [
         ":calculator_framework",
-        ":graph_service_manager",
+        ":graph_service",
+        ":resources",
         ":subgraph",
         ":test_calculators",
         "//mediapipe/calculators/core:constant_side_packet_calculator",
         "//mediapipe/calculators/core:constant_side_packet_calculator_cc_proto",
         "//mediapipe/calculators/core:pass_through_calculator",
+        "//mediapipe/framework/api2:builder",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/tool:sink",
         "//mediapipe/framework/tool/testdata:dub_quad_test_subgraph",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+cc_library(
+    name = "memory_manager",
+    hdrs = ["memory_manager.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":port",
+        "//mediapipe/gpu:multi_pool",
+    ] + select({
+        "//mediapipe:android": [
+            "//mediapipe/framework/formats:hardware_buffer_pool",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "memory_manager_service",
+    hdrs = ["memory_manager_service.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":graph_service",
+        ":memory_manager",
+    ],
+)
+
+cc_library(
+    name = "vlog_overrides",
+    srcs = ["vlog_overrides.cc"],
+    hdrs = ["vlog_overrides.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/log:globals",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
+    name = "vlog_utils",
+    srcs = ["vlog_utils.cc"],
+    hdrs = ["vlog_utils.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework/port:logging",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )

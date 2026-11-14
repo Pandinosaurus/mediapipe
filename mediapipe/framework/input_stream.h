@@ -20,7 +20,7 @@
 
 #include <string>
 
-#include "absl/base/macros.h"
+#include "absl/base/macros.h"  // from @com_google_absl
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/port.h"
 
@@ -57,10 +57,10 @@ class InputStream {
   // IsDone()==true when called from Calculator::Close().
   virtual bool IsDone() const = 0;
 
-  // Returns the const reference of the header Packet, if one was set for the
+  // Returns the header Packet, if one was set for the
   // corresponding OutputStream in the upstream Calculator's Open method.
   // May be called in Calculator::Open(), Process() or Close().
-  const Packet& Header() const { return header_; }
+  Packet Header() const { return header_; }
 
  protected:
   InputStream() = default;

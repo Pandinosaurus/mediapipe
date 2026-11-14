@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@litert//tflite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -20,7 +24,6 @@ cc_library(
     name = "classifier_options",
     srcs = ["classifier_options.cc"],
     hdrs = ["classifier_options.h"],
-    visibility = ["//visibility:public"],
     deps = ["//mediapipe/tasks/cc/components/processors/proto:classifier_options_cc_proto"],
 )
 
@@ -55,10 +58,11 @@ cc_library(
         "//mediapipe/util:label_map_util",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )
@@ -67,7 +71,6 @@ cc_library(
     name = "embedder_options",
     srcs = ["embedder_options.cc"],
     hdrs = ["embedder_options.h"],
-    visibility = ["//visibility:public"],
     deps = ["//mediapipe/tasks/cc/components/processors/proto:embedder_options_cc_proto"],
 )
 
@@ -92,17 +95,22 @@ cc_library(
         "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )
 
-cc_library(
+cc_library_with_tflite(
     name = "image_preprocessing_graph",
     srcs = ["image_preprocessing_graph.cc"],
     hdrs = ["image_preprocessing_graph.h"],
+    tflite_deps = [
+        "//mediapipe/tasks/cc/core:model_resources",
+        "//mediapipe/tasks/cc/vision/utils:image_tensor_specs",
+    ],
     deps = [
         "//mediapipe/calculators/core:pass_through_calculator",
         "//mediapipe/calculators/image:image_clone_calculator",
@@ -120,20 +128,18 @@ cc_library(
         "//mediapipe/gpu:gpu_origin_cc_proto",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/processors/proto:image_preprocessing_graph_options_cc_proto",
-        "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core/proto:acceleration_cc_proto",
-        "//mediapipe/tasks/cc/vision/utils:image_tensor_specs",
+        "//mediapipe/tasks/cc/core/proto:base_options_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )
 
 # TODO: Enable this test
 
-# TODO: Investigate rewriting the build rule to only link
-# the Bert Preprocessor if it's needed.
 cc_library(
     name = "text_preprocessing_graph",
     srcs = ["text_preprocessing_graph.cc"],
@@ -143,6 +149,8 @@ cc_library(
         "//mediapipe/calculators/tensor:bert_preprocessor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:regex_preprocessor_calculator",
         "//mediapipe/calculators/tensor:regex_preprocessor_calculator_cc_proto",
+        "//mediapipe/calculators/tensor:sentencepiece_preprocessor_calculator",
+        "//mediapipe/calculators/tensor:sentencepiece_preprocessor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:text_to_tensor_calculator",
         "//mediapipe/calculators/tensor:universal_sentence_encoder_preprocessor_calculator",
         "//mediapipe/framework:subgraph",
@@ -156,6 +164,7 @@ cc_library(
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/cc/text/utils:text_model_utils",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
@@ -169,6 +178,7 @@ cc_library(
     deps = [
         "//mediapipe/calculators/core:split_vector_calculator",
         "//mediapipe/calculators/core:split_vector_calculator_cc_proto",
+        "//mediapipe/calculators/tensor:tensors_dequantization_calculator",
         "//mediapipe/calculators/tensor:tensors_to_detections_calculator",
         "//mediapipe/calculators/tensor:tensors_to_detections_calculator_cc_proto",
         "//mediapipe/calculators/tflite:ssd_anchors_calculator",
@@ -199,11 +209,14 @@ cc_library(
         "//mediapipe/util:label_map_cc_proto",
         "//mediapipe/util:label_map_util",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@flatbuffers//:runtime_cc",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )

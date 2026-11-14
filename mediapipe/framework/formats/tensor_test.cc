@@ -1,12 +1,18 @@
 #include "mediapipe/framework/formats/tensor.h"
 
+#include <cstdint>
 #include <cstring>
-#include <string>
+#include <utility>
+#include <vector>
 
+#include "mediapipe/framework/memory_manager.h"
+#include "mediapipe/framework/port.h"  // IWYU pragma: keep
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
+#include "mediapipe/gpu/multi_pool.h"
 #if !MEDIAPIPE_DISABLE_GPU
 #include "mediapipe/gpu/gl_calculator_helper.h"
+#include "mediapipe/gpu/gl_context.h"  // IWYU pragma: keep
 #include "mediapipe/gpu/gpu_buffer_format.h"
 #endif
 
@@ -32,6 +38,20 @@ TEST(General, TestDataTypes) {
 
   Tensor t_bool(Tensor::ElementType::kBool, Tensor::Shape{2, 3});
   EXPECT_EQ(t_bool.bytes(), t_bool.shape().num_elements() * sizeof(bool));
+
+  Tensor t_int64(Tensor::ElementType::kInt64, Tensor::Shape{2, 3});
+  EXPECT_EQ(t_int64.bytes(), t_int64.shape().num_elements() * sizeof(int64_t));
+}
+
+TEST(General, TestDynamic) {
+  Tensor t1(Tensor::ElementType::kFloat32, Tensor::Shape({1, 2, 3, 4}, true));
+  EXPECT_EQ(t1.shape().num_elements(), 1 * 2 * 3 * 4);
+  EXPECT_TRUE(t1.shape().is_dynamic);
+
+  std::vector<int> t2_dims = {4, 3, 2, 3};
+  Tensor t2(Tensor::ElementType::kFloat16, Tensor::Shape(t2_dims, true));
+  EXPECT_EQ(t2.shape().num_elements(), 4 * 3 * 2 * 3);
+  EXPECT_TRUE(t2.shape().is_dynamic);
 }
 
 TEST(Cpu, TestMemoryAllocation) {
@@ -39,6 +59,18 @@ TEST(Cpu, TestMemoryAllocation) {
   auto v1 = t1.GetCpuWriteView();
   float* f1 = v1.buffer<float>();
   EXPECT_NE(f1, nullptr);
+}
+
+TEST(Cpu, TestAlignedMemoryAllocation) {
+  for (int i = 0; i < 8; ++i) {
+    const int alignment_bytes = sizeof(void*) << i;
+    Tensor t1(Tensor::ElementType::kFloat32, Tensor::Shape{4, 3, 2, 3},
+              /*memory_manager=*/nullptr, alignment_bytes);
+    auto v1 = t1.GetCpuWriteView();
+    void* data_ptr = v1.buffer<void>();
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(data_ptr) % alignment_bytes, 0);
+    memset(data_ptr, 0, t1.bytes());
+  }
 }
 
 TEST(Cpu, TestTensorMove) {
@@ -66,6 +98,23 @@ TEST(Cpu, TestViewMove) {
   auto p2 = v2.buffer<float>();
   EXPECT_EQ(p1, p2);
   EXPECT_EQ(v1.buffer<float>(), nullptr);  // NOLINT
+}
+
+TEST(General, PreferAhwbHasNoEffectIfAhwbsAreNotSupported) {
+  MemoryManager memory_manager(kDefaultMultiPoolOptions, /*prefer_ahwb=*/true);
+  for (int n = 0; n < 2; ++n) {
+    Tensor tensor(Tensor::ElementType::kFloat32, Tensor::Shape{1, 2, 3, 4},
+                  &memory_manager);
+    {
+      auto view = tensor.GetCpuWriteView();
+      EXPECT_NE(view.buffer<float>(), nullptr);
+    }
+    {
+      auto view = tensor.GetCpuReadView();
+      EXPECT_NE(view.buffer<float>(), nullptr);
+    }
+    EXPECT_FALSE(tensor.ready_as_ahwb());
+  }
 }
 
 }  // namespace mediapipe

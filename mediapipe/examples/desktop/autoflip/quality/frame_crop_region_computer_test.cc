@@ -16,7 +16,7 @@
 
 #include <memory>
 
-#include "absl/memory/memory.h"
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "mediapipe/examples/desktop/autoflip/autoflip_messages.pb.h"
 #include "mediapipe/examples/desktop/autoflip/quality/cropping.pb.h"
 #include "mediapipe/framework/port/gmock.h"
@@ -144,7 +144,7 @@ std::unique_ptr<TestClass> GetTestableClass(
   KeyFrameCropOptions options;
   options.set_non_required_region_min_coverage_fraction(
       non_required_region_min_coverage_fraction);
-  auto test_class = absl::make_unique<TestClass>(options);
+  auto test_class = std::make_unique<TestClass>(options);
   return test_class;
 }
 

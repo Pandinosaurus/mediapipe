@@ -22,8 +22,8 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "flatbuffers/flatbuffers.h"
+#include "absl/strings/string_view.h"  // from @com_google_absl
+#include "flatbuffers/flatbuffers.h"   // from @flatbuffers
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/tasks/metadata/metadata_schema_generated.h"
@@ -83,6 +83,10 @@ static TensorType* FindTensorByName(
     api2::builder::Graph& graph, api2::builder::GenericNode& task_subgraph,
     std::vector<std::string> input_stream_tags, std::string finished_stream_tag,
     int max_in_flight = 1, int max_in_queue = 1);
+
+// Fixs the graph config containing PreviousLoopbackCalculator where the edge
+// forming a loop needs to be tagged as back edge.
+void FixGraphBackEdges(::mediapipe::CalculatorGraphConfig& graph_config);
 
 }  // namespace core
 }  // namespace tasks

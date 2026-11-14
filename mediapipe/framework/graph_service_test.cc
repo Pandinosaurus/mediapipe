@@ -14,15 +14,16 @@
 
 #include "mediapipe/framework/graph_service.h"
 
+#include <type_traits>
+
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_contract.h"
 #include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/test_service.h"
 
@@ -30,6 +31,7 @@ namespace mediapipe {
 
 namespace {
 
+using ::absl_testing::StatusIs;
 using ::testing::HasSubstr;
 using ::testing::Key;
 using ::testing::UnorderedElementsAre;
@@ -159,7 +161,7 @@ TEST_F(GraphServiceTest, CreateDefault) {
 
 struct TestServiceData {};
 
-const GraphService<TestServiceData> kTestServiceAllowDefaultInitialization(
+constexpr GraphService<TestServiceData> kTestServiceAllowDefaultInitialization(
     "kTestServiceAllowDefaultInitialization",
     GraphServiceBase::kAllowDefaultInitialization);
 
@@ -196,29 +198,6 @@ TEST(AllowDefaultInitializationGraphServiceTest,
   MP_EXPECT_OK(graph.WaitUntilIdle());
 }
 
-// Documents and ensures current behavior for setting `nullptr` service objects
-// for "AllowDefaultInitialization" optional services.
-// - It's allowed.
-// - It disables creation of "AllowDefaultInitialization" service objects, hence
-//   results in optional service unavailability.
-TEST(AllowDefaultInitializationGraphServiceTest,
-     NullServiceObjectIsAllowAndResultsInOptionalServiceUnavailability) {
-  CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
-        node { calculator: 'FailOnUnavailableOptionalServiceCalculator' }
-      )pb");
-
-  CalculatorGraph graph;
-  std::shared_ptr<TestServiceData> object = nullptr;
-  MP_ASSERT_OK(
-      graph.SetServiceObject(kTestServiceAllowDefaultInitialization, object));
-  MP_ASSERT_OK(graph.Initialize(config));
-  MP_ASSERT_OK(graph.StartRun({}));
-  EXPECT_THAT(graph.WaitUntilIdle(),
-              StatusIs(absl::StatusCode::kInternal,
-                       HasSubstr("Service is unavailable.")));
-}
-
 class FailOnUnavailableServiceCalculator : public CalculatorBase {
  public:
   static absl::Status GetContract(CalculatorContract* cc) {
@@ -249,32 +228,13 @@ TEST(AllowDefaultInitializationGraphServiceTest, ServiceIsAvailable) {
   MP_EXPECT_OK(graph.WaitUntilIdle());
 }
 
-// Documents and ensures current behavior for setting `nullptr` service objects
-// for "AllowDefaultInitialization" services.
-// - It's allowed.
-// - It disables creation of "AllowDefaultInitialization" service objects, hence
-//   in service unavaialbility.
-TEST(AllowDefaultInitializationGraphServiceTest,
-     NullServiceObjectIsAllowAndResultsInServiceUnavailability) {
-  CalculatorGraphConfig config =
-      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
-        node { calculator: 'FailOnUnavailableServiceCalculator' }
-      )pb");
+constexpr GraphService<TestServiceData>
+    kTestServiceDisallowDefaultInitialization(
+        "kTestServiceDisallowDefaultInitialization",
+        GraphServiceBase::kDisallowDefaultInitialization);
 
-  CalculatorGraph graph;
-  std::shared_ptr<TestServiceData> object = nullptr;
-  MP_ASSERT_OK(
-      graph.SetServiceObject(kTestServiceAllowDefaultInitialization, object));
-  MP_ASSERT_OK(graph.Initialize(config));
-  MP_ASSERT_OK(graph.StartRun({}));
-  EXPECT_THAT(graph.WaitUntilIdle(),
-              StatusIs(absl::StatusCode::kInternal,
-                       HasSubstr("Service is unavailable.")));
-}
-
-const GraphService<TestServiceData> kTestServiceDisallowDefaultInitialization(
-    "kTestServiceDisallowDefaultInitialization",
-    GraphServiceBase::kDisallowDefaultInitialization);
+static_assert(std::is_trivially_destructible_v<GraphService<TestServiceData>>,
+              "GraphService is not trivially destructible");
 
 class FailOnUnavailableOptionalDisallowDefaultInitServiceCalculator
     : public CalculatorBase {

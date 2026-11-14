@@ -15,6 +15,8 @@
 # Description:
 #  Port of various libraries and utilities.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 licenses(["notice"])
 
 package(
@@ -113,6 +115,10 @@ cc_library(
         ":status",
         "//mediapipe/framework/deps:file_helpers",
         "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/deps:mmapped_file",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -124,6 +130,7 @@ cc_library(
             "//mediapipe/framework/deps:image_resizer",
             "//mediapipe/framework/port:opencv_core",
         ],
+        "//mediapipe:emscripten": ["//mediapipe/framework/deps:image_resizer"],
     }),
 )
 
@@ -134,10 +141,11 @@ cc_library(
 
 cc_library(
     name = "benchmark",
-    testonly = 1,
+    testonly = True,
     hdrs = ["benchmark.h"],
     deps = [
         "@com_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -153,7 +161,7 @@ cc_library(
 
 cc_library(
     name = "gtest",
-    testonly = 1,
+    testonly = True,
     hdrs = [
         "gmock.h",
         "gtest.h",
@@ -169,7 +177,24 @@ cc_library(
 
 cc_library(
     name = "gtest_main",
-    testonly = 1,
+    testonly = True,
+    hdrs = [
+        "gmock.h",
+        "gtest.h",
+        "gtest-spi.h",
+        "status_matchers.h",
+    ],
+    deps = [
+        ":status_matchers",
+        "//mediapipe/framework/deps:message_matchers",
+        "//mediapipe/framework/deps:status_matchers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "gtest_main_no_heapcheck",
+    testonly = True,
     hdrs = [
         "gmock.h",
         "gtest.h",
@@ -192,6 +217,7 @@ cc_library(
     deps = [
         "//mediapipe/framework:port",
         "//third_party:glog",
+        "@com_google_absl//absl/strings:has_ostream_operator",
         "@com_google_absl//absl/time",
     ],
 )
@@ -261,8 +287,8 @@ cc_library(
 )
 
 cc_library(
-    name = "opencv_highgui",
-    hdrs = ["opencv_highgui_inc.h"],
+    name = "opencv_photo",
+    hdrs = ["opencv_photo_inc.h"],
     deps = [
         ":opencv_core",
         "//third_party:opencv",
@@ -298,6 +324,15 @@ cc_library(
 )
 
 cc_library(
+    name = "opencv_highgui",
+    hdrs = ["opencv_highgui_inc.h"],
+    deps = [
+        ":opencv_core",
+        "//third_party:opencv",
+    ],
+)
+
+cc_library(
     name = "opencv_videoio",
     hdrs = ["opencv_videoio_inc.h"],
     deps = [
@@ -317,6 +352,7 @@ cc_library(
         ":core_proto",
         ":logging",
         "//mediapipe/framework:port",
+        "@com_google_absl//absl/log:absl_check",
     ],
 )
 
@@ -353,7 +389,9 @@ cc_library(
 cc_library(
     name = "singleton",
     hdrs = ["singleton.h"],
-    deps = ["//mediapipe/framework/deps:singleton"],
+    deps = [
+        "//mediapipe/framework/deps:singleton",
+    ],
 )
 
 cc_library(
@@ -363,7 +401,7 @@ cc_library(
     ],
     deps = [
         "//mediapipe/framework:port",
-        "//mediapipe/framework/deps:source_location",
+        "@com_google_absl//absl/types:source_location",
     ],
 )
 
@@ -378,9 +416,12 @@ cc_library(
     deps = [
         ":source_location",
         "//mediapipe/framework:port",
-        "//mediapipe/framework/deps:status",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_builder",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:source_location",
     ],
 )
 
@@ -397,10 +438,11 @@ cc_library(
 
 cc_library(
     name = "status_matchers",
-    testonly = 1,
+    testonly = True,
     hdrs = ["status_matchers.h"],
     deps = [
-        ":status",
+        "//mediapipe/framework/deps:status_matchers",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -412,6 +454,7 @@ cc_library(
         "//conditions:default": [":threadpool_impl_default_to_google"],
         "//mediapipe:android": [":threadpool_impl_default_to_mediapipe"],
         "//mediapipe:apple": [":threadpool_impl_default_to_mediapipe"],
+        "//mediapipe:emscripten": [":threadpool_impl_default_to_mediapipe"],
     }),
 )
 
@@ -449,5 +492,25 @@ cc_library(
 cc_library(
     name = "requires",
     hdrs = ["requires.h"],
-    deps = ["//mediapipe/framework/deps:requires"],
+    visibility = ["//mediapipe:__subpackages__"],
+)
+
+cc_library(
+    name = "compile_time_string",
+    hdrs = ["compile_time_string.h"],
+    deps = ["//mediapipe/framework/deps:compile_time_string"],
+)
+
+cc_library(
+    name = "libyuv_port",
+    hdrs = ["libyuv_port.h"],
+    visibility = ["//mediapipe:__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/types:span",
+    ] + select({
+        "//conditions:default": [
+            "@libyuv",
+        ],
+    }),
 )

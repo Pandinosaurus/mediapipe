@@ -20,7 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "absl/synchronization/mutex.h"
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 
 // A thread-safe unordered map with locking at the key level.
 template <typename Key, typename T, class Hash = std::hash<Key>>
@@ -104,7 +104,7 @@ class ShardedMap {
     return iterator{maps_.size() - 1, maps_.back().end(), this};
   }
 
-  inline const_iterator begin() const {
+  inline const_iterator begin() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     mutexes_[0].Lock();
     const_iterator result{0, maps_[0].begin(), this};
     result.NextEntryShard();

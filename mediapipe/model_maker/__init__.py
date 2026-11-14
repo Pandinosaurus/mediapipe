@@ -13,7 +13,10 @@
 # limitations under the License.
 
 
+from mediapipe.model_maker.python.vision.core import image_utils
 from mediapipe.model_maker.python.core.utils import quantization
+from mediapipe.model_maker.python.core.utils import model_util
+
 from mediapipe.model_maker.python.vision import image_classifier
 from mediapipe.model_maker.python.vision import gesture_recognizer
 from mediapipe.model_maker.python.text import text_classifier

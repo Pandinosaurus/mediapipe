@@ -15,9 +15,10 @@
 #ifndef MEDIAPIPE_FRAMEWORK_FORMATS_IMAGE_H_
 #define MEDIAPIPE_FRAMEWORK_FORMATS_IMAGE_H_
 
+#include <cstdint>
 #include <utility>
 
-#include "absl/synchronization/mutex.h"
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/port/logging.h"
@@ -113,11 +114,11 @@ class Image {
 #endif  // MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
 #endif  // !MEDIAPIPE_DISABLE_GPU
 
-  // Get a GPU view. Automatically uploads from CPU if needed.
-  const mediapipe::GpuBuffer GetGpuBuffer() const {
-#if !MEDIAPIPE_DISABLE_GPU
-    if (use_gpu_ == false) ConvertToGpu();
-#endif  // !MEDIAPIPE_DISABLE_GPU
+  // Provides access to the underlying GpuBuffer storage.
+  // Automatically uploads from CPU to GPU if needed and requested through the
+  // `upload_to_gpu` argument.
+  const mediapipe::GpuBuffer GetGpuBuffer(bool upload_to_gpu = true) const {
+    if (!use_gpu_ && upload_to_gpu) ConvertToGpu();
     return gpu_buffer_;
   }
 
@@ -207,7 +208,7 @@ inline void Image::UnlockPixels() const {}
 //   Image buf = ...
 //   {
 //     PixelLock lock(&buf);
-//     uint8* buf_ptr = lock.Pixels();
+//     uint8_t* buf_ptr = lock.Pixels();
 //     ... use buf_ptr to access pixel data ...
 //     ... lock released automatically at end of scope ...
 //   }
@@ -228,7 +229,7 @@ class PixelReadLock {
   }
   PixelReadLock(const PixelReadLock&) = delete;
 
-  const uint8* Pixels() const {
+  const uint8_t* Pixels() const {
     if (frame_) return frame_->PixelData();
     return nullptr;
   }
@@ -254,7 +255,7 @@ class PixelWriteLock {
   }
   PixelWriteLock(const PixelWriteLock&) = delete;
 
-  uint8* Pixels() {
+  uint8_t* Pixels() {
     if (frame_) return frame_->MutablePixelData();
     return nullptr;
   }

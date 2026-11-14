@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -22,24 +25,25 @@ cc_library(
     name = "text_classifier",
     srcs = ["text_classifier.cc"],
     hdrs = ["text_classifier.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":text_classifier_graph",
         "//mediapipe/framework:packet",
         "//mediapipe/framework/api2:builder",
-        "//mediapipe/tasks/cc/components/containers:category",
         "//mediapipe/tasks/cc/components/containers:classification_result",
         "//mediapipe/tasks/cc/components/containers/proto:classifications_cc_proto",
         "//mediapipe/tasks/cc/components/processors:classifier_options",
         "//mediapipe/tasks/cc/components/processors/proto:classifier_options_cc_proto",
         "//mediapipe/tasks/cc/core:base_options",
         "//mediapipe/tasks/cc/core:base_task_api",
+        "//mediapipe/tasks/cc/core:running_mode",
         "//mediapipe/tasks/cc/core:task_api_factory",
+        "//mediapipe/tasks/cc/core:task_runner",
         "//mediapipe/tasks/cc/text/text_classifier/proto:text_classifier_graph_options_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@org_tensorflow//tensorflow/lite/core/api:op_resolver",
+        "@litert//tflite/core/api:op_resolver",
     ],
 )
 
@@ -63,6 +67,7 @@ cc_library(
         "//mediapipe/tasks/cc/core/proto:model_resources_calculator_cc_proto",
         "//mediapipe/tasks/cc/text/text_classifier/proto:text_classifier_graph_options_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,
@@ -75,6 +80,7 @@ cc_test(
         "//mediapipe/tasks/testdata/text:bert_text_classifier_models",
         "//mediapipe/tasks/testdata/text:text_classifier_models",
     ],
+    tags = ["not_run:arm"],
     deps = [
         ":text_classifier",
         ":text_classifier_test_utils",
@@ -83,13 +89,17 @@ cc_test(
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/containers:category",
         "//mediapipe/tasks/cc/components/containers:classification_result",
+        "//mediapipe/tasks/cc/core:host_environment",
+        "//mediapipe/tasks/cc/core:running_mode",
+        "//mediapipe/tasks/cc/core:task_runner_test_peer",
+        "//mediapipe/tasks/cc/core/logging:tasks_logger",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
-        "@com_google_sentencepiece//src:sentencepiece_processor",
-        "@org_tensorflow//tensorflow/lite:test_util",
+        "@com_google_sentencepiece//:sentencepiece_processor",  # fixdeps: keep
+        "@litert//tflite:test_util",
     ],
 )
 
@@ -99,16 +109,16 @@ cc_library(
     hdrs = ["text_classifier_test_utils.h"],
     visibility = ["//visibility:private"],
     deps = [
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite:mutable_op_resolver",
-        "@org_tensorflow//tensorflow/lite:string_util",
-        "@org_tensorflow//tensorflow/lite:type_to_tflitetype",
-        "@org_tensorflow//tensorflow/lite/c:common",
-        "@org_tensorflow//tensorflow/lite/kernels:kernel_util",
+        "@litert//tflite:mutable_op_resolver",
+        "@litert//tflite:string_util",
+        "@litert//tflite:type_to_tflitetype",
+        "@litert//tflite/c:common",
+        "@litert//tflite/kernels:kernel_util",
     ],
 )

@@ -15,14 +15,16 @@ limitations under the License.
 
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/sentencepiece_tokenizer_tflite.h"
 
-#include "flatbuffers/flexbuffers.h"
+#include <cstdint>
+
+#include "flatbuffers/flexbuffers.h"  // from @flatbuffers
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/optimized_encoder.h"
-#include "tensorflow/lite/c/common.h"
-#include "tensorflow/lite/context.h"
-#include "tensorflow/lite/kernels/internal/tensor.h"
-#include "tensorflow/lite/kernels/kernel_util.h"
-#include "tensorflow/lite/model.h"
-#include "tensorflow/lite/string_util.h"
+#include "tflite/c/common.h"                 // from @litert
+#include "tflite/context.h"                  // from @litert
+#include "tflite/kernels/internal/tensor.h"  // from @litert
+#include "tflite/kernels/kernel_util.h"      // from @litert
+#include "tflite/model.h"                    // from @litert
+#include "tflite/string_util.h"              // from @litert
 
 namespace mediapipe::tflite_operations {
 namespace sentencepiece::tokenizer {
@@ -85,8 +87,8 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
       context->tensors[node->inputs->data[kReverseInput]];
   const bool reverse = reverse_tensor.data.b[0];
 
-  std::vector<int32> encoded;
-  std::vector<int32> splits;
+  std::vector<int32_t> encoded;
+  std::vector<int32_t> splits;
   const int num_strings = tflite::GetStringCount(&input_text);
   for (int i = 0; i < num_strings; ++i) {
     const auto strref = tflite::GetString(&input_text, i);

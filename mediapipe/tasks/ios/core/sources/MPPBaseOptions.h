@@ -14,18 +14,17 @@
 
 #import <Foundation/Foundation.h>
 
-NS_ASSUME_NONNULL_BEGIN
-
 /**
- * MediaPipe Tasks delegate.
+ * The delegate to run MediaPipe. If the delegate is not set, the default
+ * delegate CPU is used.
  */
 typedef NS_ENUM(NSUInteger, MPPDelegate) {
-  /** CPU. */
+  MPPDelegateDefault,
   MPPDelegateCPU,
-
-  /** GPU. */
-  MPPDelegateGPU
+  MPPDelegateGPU,
 } NS_SWIFT_NAME(Delegate);
+
+NS_ASSUME_NONNULL_BEGIN
 
 /**
  * Holds the base options that is used for creation of any type of task. It has fields with
@@ -37,10 +36,7 @@ NS_SWIFT_NAME(BaseOptions)
 /** The path to the model asset to open and mmap in memory. */
 @property(nonatomic, copy) NSString *modelAssetPath;
 
-/**
- * Device delegate to run the MediaPipe pipeline. If the delegate is not set, the default
- * delegate CPU is used.
- */
+/** Overrides the default backend to use for the provided model. */
 @property(nonatomic) MPPDelegate delegate;
 
 @end

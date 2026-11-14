@@ -16,7 +16,6 @@ import os
 import random
 import numpy as np
 import tensorflow as tf
-
 from mediapipe.model_maker.python.vision.core import image_utils
 from mediapipe.model_maker.python.vision.core import test_utils
 from mediapipe.model_maker.python.vision.image_classifier import dataset
@@ -41,7 +40,7 @@ class DatasetTest(tf.test.TestCase):
 
   def test_split(self):
     ds = tf.data.Dataset.from_tensor_slices([[0, 1], [1, 1], [0, 0], [1, 0]])
-    data = dataset.Dataset(dataset=ds, size=4, label_names=['pos', 'neg'])
+    data = dataset.Dataset(dataset=ds, label_names=['pos', 'neg'], size=4)
     train_data, test_data = data.split(fraction=0.5)
 
     self.assertLen(train_data, 2)
@@ -77,25 +76,28 @@ class DatasetTest(tf.test.TestCase):
   def test_from_tfds(self):
     # TODO: Remove this once tfds download error is fixed.
     self.skipTest('Temporarily skip the unittest due to tfds download error.')
-    train_data, validation_data, test_data = (
-        dataset.Dataset.from_tfds('beans'))
+    train_data, validation_data, test_data = dataset.Dataset.from_tfds('beans')
     self.assertIsInstance(train_data.gen_tf_dataset(), tf.data.Dataset)
     self.assertLen(train_data, 1034)
     self.assertEqual(train_data.num_classes, 3)
-    self.assertEqual(train_data.label_names,
-                     ['angular_leaf_spot', 'bean_rust', 'healthy'])
+    self.assertEqual(
+        train_data.label_names, ['angular_leaf_spot', 'bean_rust', 'healthy']
+    )
 
     self.assertIsInstance(validation_data.gen_tf_dataset(), tf.data.Dataset)
     self.assertLen(validation_data, 133)
     self.assertEqual(validation_data.num_classes, 3)
-    self.assertEqual(validation_data.label_names,
-                     ['angular_leaf_spot', 'bean_rust', 'healthy'])
+    self.assertEqual(
+        validation_data.label_names,
+        ['angular_leaf_spot', 'bean_rust', 'healthy'],
+    )
 
     self.assertIsInstance(test_data.gen_tf_dataset(), tf.data.Dataset)
     self.assertLen(test_data, 128)
     self.assertEqual(test_data.num_classes, 3)
-    self.assertEqual(test_data.label_names,
-                     ['angular_leaf_spot', 'bean_rust', 'healthy'])
+    self.assertEqual(
+        test_data.label_names, ['angular_leaf_spot', 'bean_rust', 'healthy']
+    )
 
 
 if __name__ == '__main__':

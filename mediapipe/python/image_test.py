@@ -99,7 +99,7 @@ class ImageTest(absltest.TestCase):
   def test_create_image_from_rgba64_pil_image(self):
     w, h, channels = random.randrange(3, 100), random.randrange(3, 100), 4
     img = PIL.Image.fromarray(
-        np.random.randint(2**16 - 1, size=(h, w, channels), dtype=np.uint16),
+        np.random.randint(2**8 - 1, size=(h, w, channels), dtype=np.uint8),
         'RGBA')
     rgba_image = Image(
         image_format=ImageFormat.SRGBA64,
@@ -207,8 +207,12 @@ class ImageTest(absltest.TestCase):
     loaded_image = Image.create_from_file(image_path)
     self.assertEqual(loaded_image.width, 720)
     self.assertEqual(loaded_image.height, 382)
-    self.assertEqual(loaded_image.channels, 3)
-    self.assertEqual(loaded_image.image_format, ImageFormat.SRGB)
+    # On Mac w/ GPU support, images use 4 channels (SRGBA). Otherwise, all
+    # images use 3 channels (SRGB).
+    self.assertIn(loaded_image.channels, [3, 4])
+    self.assertIn(
+        loaded_image.image_format, [ImageFormat.SRGB, ImageFormat.SRGBA]
+    )
 
 if __name__ == '__main__':
   absltest.main()

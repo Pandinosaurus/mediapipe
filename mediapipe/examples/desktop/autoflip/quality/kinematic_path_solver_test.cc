@@ -14,10 +14,11 @@
 
 #include "mediapipe/examples/desktop/autoflip/quality/kinematic_path_solver.h"
 
+#include <cstdint>
+
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 constexpr int64_t kMicroSecInSec = 1000000;

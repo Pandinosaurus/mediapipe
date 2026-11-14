@@ -18,8 +18,10 @@
 #include <jni.h>
 
 #include <string>
+#include <vector>
 
-#include "mediapipe/framework/port/status.h"
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
 
 namespace mediapipe {
 
@@ -28,6 +30,9 @@ namespace android {
 std::string JStringToStdString(JNIEnv* env, jstring jstr);
 
 std::vector<std::string> JavaListToStdStringVector(JNIEnv* env, jobject from);
+
+absl::flat_hash_map<std::string, std::string> JMapToAbslStringMap(JNIEnv* env,
+                                                                  jobject from);
 
 // Creates a java MediaPipeException object for a absl::Status.
 jthrowable CreateMediaPipeException(JNIEnv* env, absl::Status status);

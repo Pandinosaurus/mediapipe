@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow/lite:build_def.bzl", "tflite_copts")
+load("@litert//tflite:build_def.bzl", "tflite_copts")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -24,9 +26,9 @@ cc_library(
     hdrs = ["kmeans_embedding_lookup.h"],
     copts = tflite_copts(),
     deps = [
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
-        "@org_tensorflow//tensorflow/lite/kernels:kernel_util",
-        "@org_tensorflow//tensorflow/lite/kernels/internal:tensor",
+        "@litert//tflite/kernels:builtin_ops",
+        "@litert//tflite/kernels:kernel_util",
+        "@litert//tflite/kernels/internal:tensor",
     ],
 )
 
@@ -37,9 +39,10 @@ cc_test(
     deps = [
         ":kmeans_embedding_lookup",
         "//mediapipe/framework/port:gtest_main",
-        "@org_tensorflow//tensorflow/lite:framework",
-        "@org_tensorflow//tensorflow/lite/c:common",
-        "@org_tensorflow//tensorflow/lite/kernels:test_util",
+        "@com_google_absl//absl/log:absl_check",
+        "@litert//tflite:framework",
+        "@litert//tflite/c:common",
+        "@litert//tflite/kernels:test_util",
     ],
 )
 
@@ -52,9 +55,9 @@ cc_library(
         "//mediapipe/tasks/cc/text/language_detector/custom_ops/utils:ngram_hash_ops_utils",
         "//mediapipe/tasks/cc/text/language_detector/custom_ops/utils/hash:murmur",
         "@flatbuffers",
-        "@org_tensorflow//tensorflow/lite:string_util",
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
-        "@org_tensorflow//tensorflow/lite/kernels:kernel_util",
+        "@litert//tflite:string_util",
+        "@litert//tflite/kernels:builtin_ops",
+        "@litert//tflite/kernels:kernel_util",
     ],
     alwayslink = 1,
 )
@@ -66,12 +69,13 @@ cc_test(
         ":ngram_hash",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/tasks/cc/text/language_detector/custom_ops/utils/hash:murmur",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/types:optional",
         "@flatbuffers",
-        "@org_tensorflow//tensorflow/lite:framework",
-        "@org_tensorflow//tensorflow/lite:string_util",
-        "@org_tensorflow//tensorflow/lite/c:common",
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
-        "@org_tensorflow//tensorflow/lite/kernels:test_util",
+        "@litert//tflite:framework",
+        "@litert//tflite:string_util",
+        "@litert//tflite/c:common",
+        "@litert//tflite/kernels:builtin_ops",
+        "@litert//tflite/kernels:test_util",
     ],
 )

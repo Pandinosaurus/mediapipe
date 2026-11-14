@@ -14,21 +14,29 @@
 //
 // A utility to extract iris depth from a single image of face using the graph
 // mediapipe/graphs/iris_tracking/iris_depth_cpu.pbtxt.
+#include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <iostream>
 #include <memory>
+#include <string>
+#include <utility>
 
-#include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
+#include "absl/flags/flag.h"            // from @com_google_absl
+#include "absl/flags/parse.h"           // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
-#include "mediapipe/framework/port/canonical_errors.h"
+#include "mediapipe/framework/output_stream_poller.h"
 #include "mediapipe/framework/port/file_helpers.h"
+#include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_highgui_inc.h"
+#include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-#include "mediapipe/framework/port/opencv_video_inc.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
 
 constexpr char kInputStream[] = "input_image_bytes";
 constexpr char kOutputImageStream[] = "output_image";
@@ -50,29 +58,30 @@ namespace {
 
 absl::StatusOr<std::string> ReadFileToString(const std::string& file_path) {
   std::string contents;
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(file_path, &contents));
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(file_path, &contents));
   return contents;
 }
 
 absl::Status ProcessImage(std::unique_ptr<mediapipe::CalculatorGraph> graph) {
-  LOG(INFO) << "Load the image.";
-  ASSIGN_OR_RETURN(const std::string raw_image,
-                   ReadFileToString(absl::GetFlag(FLAGS_input_image_path)));
+  ABSL_LOG(INFO) << "Load the image.";
+  ABSL_ASSIGN_OR_RETURN(
+      const std::string raw_image,
+      ReadFileToString(absl::GetFlag(FLAGS_input_image_path)));
 
-  LOG(INFO) << "Start running the calculator graph.";
-  ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller output_image_poller,
-                   graph->AddOutputStreamPoller(kOutputImageStream));
-  ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller left_iris_depth_poller,
-                   graph->AddOutputStreamPoller(kLeftIrisDepthMmStream));
-  ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller right_iris_depth_poller,
-                   graph->AddOutputStreamPoller(kRightIrisDepthMmStream));
-  MP_RETURN_IF_ERROR(graph->StartRun({}));
+  ABSL_LOG(INFO) << "Start running the calculator graph.";
+  ABSL_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller output_image_poller,
+                        graph->AddOutputStreamPoller(kOutputImageStream));
+  ABSL_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller left_iris_depth_poller,
+                        graph->AddOutputStreamPoller(kLeftIrisDepthMmStream));
+  ABSL_ASSIGN_OR_RETURN(mediapipe::OutputStreamPoller right_iris_depth_poller,
+                        graph->AddOutputStreamPoller(kRightIrisDepthMmStream));
+  ABSL_RETURN_IF_ERROR(graph->StartRun({}));
 
   // Send image packet into the graph.
   const size_t fake_timestamp_us = (double)cv::getTickCount() /
                                    (double)cv::getTickFrequency() *
                                    kMicrosPerSecond;
-  MP_RETURN_IF_ERROR(graph->AddPacketToInputStream(
+  ABSL_RETURN_IF_ERROR(graph->AddPacketToInputStream(
       kInputStream, mediapipe::MakePacket<std::string>(raw_image).At(
                         mediapipe::Timestamp(fake_timestamp_us))));
 
@@ -108,7 +117,7 @@ absl::Status ProcessImage(std::unique_ptr<mediapipe::CalculatorGraph> graph) {
   cv::cvtColor(output_frame_mat, output_frame_mat, cv::COLOR_RGB2BGR);
   const bool save_image = !absl::GetFlag(FLAGS_output_image_path).empty();
   if (save_image) {
-    LOG(INFO) << "Saving image to file...";
+    ABSL_LOG(INFO) << "Saving image to file...";
     cv::imwrite(absl::GetFlag(FLAGS_output_image_path), output_frame_mat);
   } else {
     cv::namedWindow(kWindowName, /*flags=WINDOW_AUTOSIZE*/ 1);
@@ -117,25 +126,25 @@ absl::Status ProcessImage(std::unique_ptr<mediapipe::CalculatorGraph> graph) {
     cv::waitKey(0);
   }
 
-  LOG(INFO) << "Shutting down.";
-  MP_RETURN_IF_ERROR(graph->CloseInputStream(kInputStream));
+  ABSL_LOG(INFO) << "Shutting down.";
+  ABSL_RETURN_IF_ERROR(graph->CloseInputStream(kInputStream));
   return graph->WaitUntilDone();
 }
 
 absl::Status RunMPPGraph() {
   std::string calculator_graph_config_contents;
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       kCalculatorGraphConfigFile, &calculator_graph_config_contents));
-  LOG(INFO) << "Get calculator graph config contents: "
-            << calculator_graph_config_contents;
+  ABSL_LOG(INFO) << "Get calculator graph config contents: "
+                 << calculator_graph_config_contents;
   mediapipe::CalculatorGraphConfig config =
       mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(
           calculator_graph_config_contents);
 
-  LOG(INFO) << "Initialize the calculator graph.";
+  ABSL_LOG(INFO) << "Initialize the calculator graph.";
   std::unique_ptr<mediapipe::CalculatorGraph> graph =
-      absl::make_unique<mediapipe::CalculatorGraph>();
-  MP_RETURN_IF_ERROR(graph->Initialize(config));
+      std::make_unique<mediapipe::CalculatorGraph>();
+  ABSL_RETURN_IF_ERROR(graph->Initialize(config));
 
   const bool load_image = !absl::GetFlag(FLAGS_input_image_path).empty();
   if (load_image) {
@@ -152,10 +161,10 @@ int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   absl::Status run_status = RunMPPGraph();
   if (!run_status.ok()) {
-    LOG(ERROR) << "Failed to run the graph: " << run_status.message();
+    ABSL_LOG(ERROR) << "Failed to run the graph: " << run_status.message();
     return EXIT_FAILURE;
   } else {
-    LOG(INFO) << "Success!";
+    ABSL_LOG(INFO) << "Success!";
   }
   return EXIT_SUCCESS;
 }

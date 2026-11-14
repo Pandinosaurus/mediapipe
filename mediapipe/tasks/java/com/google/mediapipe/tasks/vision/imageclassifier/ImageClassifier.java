@@ -104,6 +104,7 @@ public final class ImageClassifier extends BaseVisionTaskApi {
       "mediapipe.tasks.vision.image_classifier.ImageClassifierGraph";
 
   static {
+    System.loadLibrary("mediapipe_tasks_jni");
     ProtoUtil.registerTypeName(
         ClassificationsProto.ClassificationResult.class,
         "mediapipe.tasks.components.containers.proto.ClassificationResult");
@@ -187,7 +188,7 @@ public final class ImageClassifier extends BaseVisionTaskApi {
           @Override
           public MPImage convertToTaskInput(List<Packet> packets) {
             return new BitmapImageBuilder(
-                    AndroidPacketGetter.getBitmapFromRgb(packets.get(IMAGE_OUT_STREAM_INDEX)))
+                    AndroidPacketGetter.getBitmap(packets.get(IMAGE_OUT_STREAM_INDEX)))
                 .build();
           }
         });
@@ -197,7 +198,7 @@ public final class ImageClassifier extends BaseVisionTaskApi {
         TaskRunner.create(
             context,
             TaskInfo.<ImageClassifierOptions>builder()
-                .setTaskName(ImageClassifier.class.getSimpleName())
+                .setTaskName("ImageClassifier")
                 .setTaskRunningModeName(options.runningMode().name())
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(INPUT_STREAMS)

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
 package(default_visibility = ["//mediapipe/tasks:internal"])
 
 licenses(["notice"])
@@ -21,9 +23,8 @@ objc_library(
     srcs = ["sources/MPPBaseOptions+Helpers.mm"],
     hdrs = ["sources/MPPBaseOptions+Helpers.h"],
     deps = [
-        "//mediapipe/tasks/cc/core/proto:acceleration_cc_proto",
-        "//mediapipe/tasks/cc/core/proto:base_options_cc_proto",
-        "//mediapipe/tasks/cc/core/proto:external_file_cc_proto",
+        "//mediapipe/tasks/c/core:base_options",
+        "//mediapipe/tasks/ios/common/utils:MPPCommonUtils",
         "//mediapipe/tasks/ios/core:MPPBaseOptions",
     ],
 )

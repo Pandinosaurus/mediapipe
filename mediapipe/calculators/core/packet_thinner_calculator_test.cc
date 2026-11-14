@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_cat.h"
+#include "absl/log/absl_check.h"   // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/calculators/core/packet_thinner_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
 #include "mediapipe/framework/formats/video_stream_header.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -56,7 +57,7 @@ class SimpleRunner : public CalculatorRunner {
   }
 
   void SetFrameRate(const double frame_rate) {
-    auto video_header = absl::make_unique<VideoHeader>();
+    auto video_header = std::make_unique<VideoHeader>();
     video_header->frame_rate = frame_rate;
     MutableInputs()->Index(0).header = Adopt(video_header.release());
   }
@@ -70,7 +71,7 @@ class SimpleRunner : public CalculatorRunner {
   }
 
   double GetFrameRate() const {
-    CHECK(!Outputs().Index(0).header.IsEmpty());
+    ABSL_CHECK(!Outputs().Index(0).header.IsEmpty());
     return Outputs().Index(0).header.Get<VideoHeader>().frame_rate;
   }
 };

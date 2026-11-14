@@ -14,6 +14,7 @@
 
 #include "mediapipe/framework/stream_handler/in_order_output_stream_handler.h"
 
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "mediapipe/framework/collection.h"
 #include "mediapipe/framework/collection_item_id.h"
 #include "mediapipe/framework/output_stream_shard.h"
@@ -23,7 +24,7 @@ namespace mediapipe {
 REGISTER_OUTPUT_STREAM_HANDLER(InOrderOutputStreamHandler);
 
 void InOrderOutputStreamHandler::PropagationLoop() {
-  CHECK_EQ(propagation_state_, kIdle);
+  ABSL_CHECK_EQ(propagation_state_, kIdle);
   Timestamp context_timestamp;
   CalculatorContext* calculator_context;
   if (!calculator_context_manager_->HasActiveContexts()) {
@@ -34,7 +35,7 @@ void InOrderOutputStreamHandler::PropagationLoop() {
     if (!completed_input_timestamps_.empty()) {
       Timestamp completed_timestamp = *completed_input_timestamps_.begin();
       if (context_timestamp != completed_timestamp) {
-        CHECK_LT(context_timestamp, completed_timestamp);
+        ABSL_CHECK_LT(context_timestamp, completed_timestamp);
         return;
       }
       propagation_state_ = kPropagatingPackets;
@@ -45,7 +46,7 @@ void InOrderOutputStreamHandler::PropagationLoop() {
     if (propagation_state_ == kPropagatingPackets) {
       PropagatePackets(&calculator_context, &context_timestamp);
     } else {
-      CHECK_EQ(kPropagatingBound, propagation_state_);
+      ABSL_CHECK_EQ(kPropagatingBound, propagation_state_);
       PropagationBound(&calculator_context, &context_timestamp);
     }
   }
@@ -53,11 +54,11 @@ void InOrderOutputStreamHandler::PropagationLoop() {
 
 void InOrderOutputStreamHandler::PropagatePackets(
     CalculatorContext** calculator_context, Timestamp* context_timestamp) {
-  timestamp_mutex_.Unlock();
+  timestamp_mutex_.unlock();
   // Propagates packets without holding timestamp_mutex_.
   PropagateOutputPackets(*context_timestamp, &(*calculator_context)->Outputs());
   calculator_context_manager_->RecycleCalculatorContext();
-  timestamp_mutex_.Lock();
+  timestamp_mutex_.lock();
   completed_input_timestamps_.erase(completed_input_timestamps_.begin());
   // The first check is for performance reasons (it's cheaper).
   // Note that completed_input_timestamps_ is a subset of the input
@@ -92,10 +93,10 @@ void InOrderOutputStreamHandler::PropagatePackets(
 void InOrderOutputStreamHandler::PropagationBound(
     CalculatorContext** calculator_context, Timestamp* context_timestamp) {
   Timestamp bound_to_propagate = task_timestamp_bound_;
-  timestamp_mutex_.Unlock();
+  timestamp_mutex_.unlock();
   // Timestamp bound propagation without holding timestamp_mutex_.
   TryPropagateTimestampBound(bound_to_propagate);
-  timestamp_mutex_.Lock();
+  timestamp_mutex_.lock();
   if (propagation_state_ == kPropagatingBound) {
     // There is no invocation completed and no newly arrived timestamp
     // bound during the timestamp bound propagation. So the propagation
@@ -105,12 +106,12 @@ void InOrderOutputStreamHandler::PropagationBound(
   }
   // Some recent changes require the propagation thread to recheck if any
   // new packets can be propagated.
-  CHECK_EQ(propagation_state_, kPropagationPending);
+  ABSL_CHECK_EQ(propagation_state_, kPropagationPending);
   // task_timestamp_bound_ was updated while the propagation thread was
   // doing timestamp propagation. This thread will redo timestamp
   // propagation for the new task_timestamp_bound_.
   if (!calculator_context_manager_->HasActiveContexts()) {
-    CHECK_LT(bound_to_propagate, task_timestamp_bound_);
+    ABSL_CHECK_LT(bound_to_propagate, task_timestamp_bound_);
     propagation_state_ = kPropagatingBound;
     return;
   }

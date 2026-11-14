@@ -14,8 +14,52 @@
 
 #import <Foundation/Foundation.h>
 
+#ifdef __cplusplus
+#include <memory>
+#include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/image_frame.h"
+#include "mediapipe/tasks/c/vision/core/image.h"
+
+#ifndef MP_IMAGE_PTR_DEFINED
+#define MP_IMAGE_PTR_DEFINED
+#endif
+
+class ScopedMpImage {
+ public:
+  ScopedMpImage(MpImagePtr image = nullptr) : image_(image) {}
+  ~ScopedMpImage() {
+    if (image_) {
+      MpImageFree(image_);
+    }
+  }
+  ScopedMpImage(const ScopedMpImage &) = delete;
+  ScopedMpImage &operator=(const ScopedMpImage &) = delete;
+  ScopedMpImage(ScopedMpImage &&other) noexcept : image_(other.image_) { other.image_ = nullptr; }
+  ScopedMpImage &operator=(ScopedMpImage &&other) noexcept {
+    if (this != &other) {
+      if (image_) {
+        MpImageFree(image_);
+      }
+      image_ = other.image_;
+      other.image_ = nullptr;
+    }
+    return *this;
+  }
+  MpImagePtr get() const { return image_; }
+  operator MpImagePtr() const { return image_; }
+  explicit operator bool() const { return image_ != nullptr; }
+
+ private:
+  MpImagePtr image_;
+};
+#endif
+
 #import "mediapipe/tasks/ios/vision/core/sources/MPPImage.h"
+
+#ifndef MP_IMAGE_PTR_DEFINED
+#define MP_IMAGE_PTR_DEFINED
+typedef struct MpImageInternal *MpImagePtr;
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -23,11 +67,36 @@ NS_ASSUME_NONNULL_BEGIN
  * Helper utility for converting `MPPImage` into a `mediapipe::ImageFrame`.
  */
 @interface MPPImage (Utils)
+
+/**
+ * Converts the `MPPImage` into a C API `MpImagePtr`.
+ *
+ * @param error Pointer to the memory location where errors if any should be saved.
+ * @return An `MpImagePtr` or `nullptr` in case of errors.
+ */
+- (nullable MpImagePtr)mpImageWithError:(NSError **)error;
+
+/**
+ * Initializes an `MPPImage` object from an `MpImagePtr` C container.
+ *
+ * @param image The `MpImagePtr` whose pixels are used for creating the `MPPImage`.
+ * @param sourceImage The `MPPImage` whose `orientation` and `imageSourceType` are used for creating
+ * the new `MPPImage`.
+ * @param shouldCopyPixelData `BOOL` that determines if the newly created `MPPImage` stores a
+ * reference to a deep copied pixel data of the given `image` or not.
+ * @param error Pointer to the memory location where errors if any should be saved.
+ * @return A new `MPPImage` instance or `nil` on error.
+ */
+- (nullable instancetype)initWithMpImage:(MpImagePtr)image
+          cloningPropertiesOfSourceImage:(MPPImage *)sourceImage
+                     shouldCopyPixelData:(BOOL)shouldCopyPixelData
+                                   error:(NSError **)error;
+#ifdef __cplusplus
 /**
  * Converts the `MPPImage` into a `mediapipe::ImageFrame`.
- * Irrespective of whether the underlying buffer is grayscale, RGB, RGBA, BGRA etc., the MPPImage is
- * converted to an RGB format. In case of grayscale images, the mono channel is duplicated in the R,
- * G, B channels.
+ * Irrespective of whether the underlying buffer is grayscale, RGBA, BGRA etc., the `MPPImage` is
+ * converted to an RGBA format. In case of grayscale images, the mono channel is duplicated in the
+ * R, G, B channels.
  *
  * @param error Pointer to the memory location where errors if any should be saved. If @c NULL, no
  * error will be saved.
@@ -35,6 +104,42 @@ NS_ASSUME_NONNULL_BEGIN
  * @return An std::unique_ptr<mediapipe::ImageFrame> or `nullptr` in case of errors.
  */
 - (std::unique_ptr<mediapipe::ImageFrame>)imageFrameWithError:(NSError **)error;
+
+/**
+ * Initializes an `MPPImage` object with the pixels from the given `mediapipe::Image` and source
+ * type and orientation from the given source image.
+ *
+ * Only supports initialization from `mediapipe::Image` of format RGBA.
+ * If `shouldCopyPixelData` is set to `YES`, the newly created `MPPImage` stores a reference to a
+ * deep copied pixel data of the given `image`. Since deep copies are expensive, it is recommended
+ * to not set `shouldCopyPixelData` unless the `MPPImage` must outlive the passed in `image`.
+ *
+ * @param image The `mediapipe::Image` whose pixels are used for creating the `MPPImage`.
+ * @param sourceImage The `MPPImage` whose `orientation` and `imageSourceType` are used for creating
+ * the new `MPPImage`.
+ * @param shouldCopyPixelData `BOOL` that determines if the newly created `MPPImage` stores a
+ * reference to a deep copied pixel data of the given `image` or not.
+ *
+ * @param error Pointer to the memory location where errors if any should be saved. If @c NULL, no
+ * error will be saved.
+ *
+ * @return A new `MPImage` instance with the pixels from the given `mediapipe::Image` and meta data
+ * equal to the `sourceImage`. `nil` if there is an error in initializing the `MPPImage`.
+ */
+- (nullable instancetype)initWithCppImage:(const mediapipe::Image &)image
+           cloningPropertiesOfSourceImage:(MPPImage *)sourceImage
+                      shouldCopyPixelData:(BOOL)shouldCopyPixelData
+                                    error:(NSError **)error;
+#endif
+
+/**
+ * Returns a `UIImage` representation of the `MPPImage`, converting the underlying
+ * buffer if it is a pixel buffer or sample buffer.
+ *
+ * @param error Pointer to the memory location where errors if any should be saved.
+ * @return A `UIImage` or `nil` in case of errors.
+ */
+- (nullable UIImage *)toUIImageWithError:(NSError **)error;
 
 @end
 

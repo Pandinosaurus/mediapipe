@@ -14,19 +14,17 @@
 
 #include <cmath>
 #include <memory>
+#include <vector>
 
-#include "Eigen/Core"
-#include "Eigen/Dense"
-#include "Eigen/Geometry"
-#include "absl/memory/memory.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
+#include "Eigen/Core"            // from @eigen
+#include "Eigen/Geometry"        // from @eigen
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/collection_item_id.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/graphs/instant_motion_tracking/calculators/transformations.h"
 #include "mediapipe/graphs/object_detection_3d/calculators/model_matrix.pb.h"
-#include "mediapipe/modules/objectron/calculators/box.h"
 
 namespace mediapipe {
 
@@ -116,8 +114,8 @@ class MatricesManagerCalculator : public CalculatorBase {
         return user_scaling.scale_factor;
       }
     }
-    LOG(WARNING) << "Cannot find sticker_id: " << sticker_id
-                 << ", returning 1.0f scaling";
+    ABSL_LOG(WARNING) << "Cannot find sticker_id: " << sticker_id
+                      << ", returning 1.0f scaling";
     return 1.0f;
   }
 
@@ -129,8 +127,8 @@ class MatricesManagerCalculator : public CalculatorBase {
         return rotation.rotation_radians;
       }
     }
-    LOG(WARNING) << "Cannot find sticker_id: " << sticker_id
-                 << ", returning 0.0f rotation";
+    ABSL_LOG(WARNING) << "Cannot find sticker_id: " << sticker_id
+                      << ", returning 0.0f rotation";
     return 0.0f;
   }
 };
@@ -221,8 +219,9 @@ absl::Status MatricesManagerCalculator::Process(CalculatorContext* cc) {
       model_matrix = asset_matrices_gif->add_model_matrix();
     } else {  // Asset 3D
       if (render_data[render_idx] != 1) {
-        LOG(ERROR) << "render id: " << render_data[render_idx]
-                   << " is not supported. Fall back to using render_id = 1.";
+        ABSL_LOG(ERROR)
+            << "render id: " << render_data[render_idx]
+            << " is not supported. Fall back to using render_id = 1.";
       }
       model_matrix = asset_matrices_1->add_model_matrix();
     }
@@ -379,8 +378,8 @@ DiagonalMatrix3f MatricesManagerCalculator::GetDefaultRenderScaleDiagonal(
       break;
     }
     default: {
-      LOG(INFO) << "Unsupported render_id: " << render_id
-                << ", returning default render_scale";
+      ABSL_LOG(INFO) << "Unsupported render_id: " << render_id
+                     << ", returning default render_scale";
       break;
     }
   }

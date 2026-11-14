@@ -16,8 +16,8 @@
 
 #include <memory>
 
-#include "absl/memory/memory.h"
-#include "absl/status/statusor.h"
+#include "absl/memory/memory.h"    // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/calculators/image/affine_transformation.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
@@ -46,6 +46,8 @@ int GetInterpolationForOpenCv(
       return cv::INTER_LINEAR;
     case AffineTransformation::Interpolation::kCubic:
       return cv::INTER_CUBIC;
+    case AffineTransformation::Interpolation::kNearest:
+      return cv::INTER_NEAREST;
   }
 }
 
@@ -59,7 +61,7 @@ class OpenCvRunner
       const ImageFrame& input, const std::array<float, 16>& matrix,
       const AffineTransformation::Size& size,
       AffineTransformation::BorderMode border_mode) override {
-    // OpenCV warpAffine works in absolute coordinates, so the transfom (which
+    // OpenCV warpAffine works in absolute coordinates, so the transform (which
     // accepts and produces relative coordinates) should be adjusted to first
     // normalize coordinates and then scale them.
     // clang-format off
@@ -171,7 +173,7 @@ absl::StatusOr<
     std::unique_ptr<AffineTransformation::Runner<ImageFrame, ImageFrame>>>
 CreateAffineTransformationOpenCvRunner(
     AffineTransformation::Interpolation interpolation) {
-  return absl::make_unique<OpenCvRunner>(interpolation);
+  return std::make_unique<OpenCvRunner>(interpolation);
 }
 
 }  // namespace mediapipe

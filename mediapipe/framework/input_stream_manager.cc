@@ -14,11 +14,17 @@
 
 #include "mediapipe/framework/input_stream_manager.h"
 
+#include <string>
 #include <type_traits>
 #include <utility>
 
-#include "absl/strings/str_cat.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/log/absl_check.h"         // from @com_google_absl
+#include "absl/log/absl_log.h"           // from @com_google_absl
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/strings/str_cat.h"        // from @com_google_absl
+#include "absl/strings/str_format.h"     // from @com_google_absl
+#include "absl/strings/str_join.h"       // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/source_location.h"
@@ -47,7 +53,7 @@ void InputStreamManager::SetQueueSizeCallbacks(
 }
 
 void InputStreamManager::PrepareForRun() {
-  absl::MutexLock stream_lock(&stream_mutex_);
+  absl::MutexLock stream_lock(stream_mutex_);
   queue_.clear();
   last_reported_stream_full_ = false;
   num_packets_added_ = 0;
@@ -58,12 +64,12 @@ void InputStreamManager::PrepareForRun() {
 }
 
 bool InputStreamManager::IsEmpty() const {
-  absl::MutexLock stream_lock(&stream_mutex_);
+  absl::MutexLock stream_lock(stream_mutex_);
   return queue_.empty();
 }
 
 Packet InputStreamManager::QueueHead() const {
-  absl::MutexLock stream_lock(&stream_mutex_);
+  absl::MutexLock stream_lock(stream_mutex_);
   if (queue_.empty()) {
     return Packet();
   }
@@ -71,6 +77,7 @@ Packet InputStreamManager::QueueHead() const {
 }
 
 absl::Status InputStreamManager::SetHeader(const Packet& header) {
+  absl::MutexLock stream_lock(stream_mutex_);
   if (header.Timestamp() != Timestamp::Unset()) {
     return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
            << "Headers must not have a timestamp.  Stream: \"" << name_
@@ -98,8 +105,21 @@ absl::Status InputStreamManager::AddOrMovePacketsInternal(Container container,
   bool queue_became_full = false;
   {
     // Scope to prevent locking the stream when notification is called.
-    absl::MutexLock stream_lock(&stream_mutex_);
+    absl::MutexLock stream_lock(stream_mutex_);
     if (closed_) {
+      // There are some elaborate use cases where adding to an already closed
+      // stream may be fine (e.g. CalculatorGraph.DirectFormII test case).
+      // However, high chances packet dropping indicates issues in calculators
+      // or graph config.
+      ABSL_LOG(WARNING) << absl::StrFormat(
+          "Dropping %d packet(s) (%s) on attempt to add to a closed \"%s\" "
+          "stream.",
+          container.size(),
+          absl::StrJoin(container, ", ",
+                        [](std::string* out, const Packet& p) {
+                          return absl::StrAppend(out, p.DebugString());
+                        }),
+          name_);
       return absl::OkStatus();
     }
     // Check if the queue was full before packets came in.
@@ -155,8 +175,7 @@ absl::Status InputStreamManager::AddOrMovePacketsInternal(Container container,
       ++num_packets_added_;
       VLOG(3) << "Input stream:" << name_
               << " has added packet at time: " << packet.Timestamp();
-      if (std::is_const<
-              typename std::remove_reference<Container>::type>::value) {
+      if (std::is_const_v<std::remove_reference_t<Container>>) {
         queue_.emplace_back(packet);
       } else {
         queue_.emplace_back(std::move(packet));
@@ -185,7 +204,7 @@ absl::Status InputStreamManager::SetNextTimestampBound(const Timestamp bound,
   *notify = false;
   {
     // Scope to prevent locking the stream when notification is called.
-    absl::MutexLock stream_lock(&stream_mutex_);
+    absl::MutexLock stream_lock(stream_mutex_);
     if (closed_) {
       return absl::OkStatus();
     }
@@ -219,7 +238,7 @@ absl::Status InputStreamManager::SetNextTimestampBound(const Timestamp bound,
 void InputStreamManager::DisableTimestamps() { enable_timestamps_ = false; }
 
 void InputStreamManager::Close() {
-  absl::MutexLock stream_lock(&stream_mutex_);
+  absl::MutexLock stream_lock(stream_mutex_);
   if (closed_) {
     return;
   }
@@ -229,7 +248,7 @@ void InputStreamManager::Close() {
 }
 
 Timestamp InputStreamManager::MinTimestampOrBound(bool* is_empty) const {
-  absl::MutexLock stream_lock(&stream_mutex_);
+  absl::MutexLock stream_lock(stream_mutex_);
   if (is_empty) {
     *is_empty = queue_.empty();
   }
@@ -244,15 +263,15 @@ Timestamp InputStreamManager::MinTimestampOrBoundHelper() const
 Packet InputStreamManager::PopPacketAtTimestamp(Timestamp timestamp,
                                                 int* num_packets_dropped,
                                                 bool* stream_is_done) {
-  CHECK(enable_timestamps_);
+  ABSL_CHECK(enable_timestamps_);
   *num_packets_dropped = -1;
   *stream_is_done = false;
   bool queue_became_non_full = false;
   Packet packet;
   {
-    absl::MutexLock stream_lock(&stream_mutex_);
+    absl::MutexLock stream_lock(stream_mutex_);
     // Make sure timestamp didn't decrease from last time.
-    CHECK_LE(last_select_timestamp_, timestamp);
+    ABSL_CHECK_LE(last_select_timestamp_, timestamp);
     last_select_timestamp_ = timestamp;
 
     // Make sure AddPacket and SetNextTimestampBound are not called with
@@ -282,6 +301,7 @@ Packet InputStreamManager::PopPacketAtTimestamp(Timestamp timestamp,
     if (current_timestamp != timestamp) {
       // The timestamp bound reported when no packet is sent.
       Timestamp bound = MinTimestampOrBoundHelper();
+      // Generate empty packet at the timestamp bound.
       packet = Packet().At(bound.PreviousAllowedInStream());
       ++(*num_packets_dropped);
     }
@@ -299,12 +319,12 @@ Packet InputStreamManager::PopPacketAtTimestamp(Timestamp timestamp,
 }
 
 Packet InputStreamManager::PopQueueHead(bool* stream_is_done) {
-  CHECK(!enable_timestamps_);
+  ABSL_CHECK(!enable_timestamps_);
   *stream_is_done = false;
   bool queue_became_non_full = false;
   Packet packet;
   {
-    absl::MutexLock stream_lock(&stream_mutex_);
+    absl::MutexLock stream_lock(stream_mutex_);
 
     VLOG(3) << "Input stream " << name_ << " selecting at queue head";
 
@@ -332,17 +352,17 @@ Packet InputStreamManager::PopQueueHead(bool* stream_is_done) {
 }
 
 int InputStreamManager::NumPacketsAdded() const {
-  absl::MutexLock lock(&stream_mutex_);
+  absl::MutexLock lock(stream_mutex_);
   return num_packets_added_;
 }
 
 int InputStreamManager::QueueSize() const {
-  absl::MutexLock lock(&stream_mutex_);
+  absl::MutexLock lock(stream_mutex_);
   return static_cast<int>(queue_.size());
 }
 
 int InputStreamManager::MaxQueueSize() const {
-  absl::MutexLock lock(&stream_mutex_);
+  absl::MutexLock lock(stream_mutex_);
   return max_queue_size_;
 }
 
@@ -350,7 +370,7 @@ void InputStreamManager::SetMaxQueueSize(int max_queue_size) {
   bool was_full;
   bool is_full;
   {
-    absl::MutexLock lock(&stream_mutex_);
+    absl::MutexLock lock(stream_mutex_);
     was_full = (max_queue_size_ != -1 && queue_.size() >= max_queue_size_);
     max_queue_size_ = max_queue_size;
     is_full = (max_queue_size_ != -1 && queue_.size() >= max_queue_size_);
@@ -367,12 +387,12 @@ void InputStreamManager::SetMaxQueueSize(int max_queue_size) {
 }
 
 bool InputStreamManager::IsFull() const {
-  absl::MutexLock lock(&stream_mutex_);
+  absl::MutexLock lock(stream_mutex_);
   return max_queue_size_ != -1 && queue_.size() >= max_queue_size_;
 }
 
 Timestamp InputStreamManager::GetMinTimestampAmongNLatest(int n) const {
-  absl::MutexLock lock(&stream_mutex_);
+  absl::MutexLock lock(stream_mutex_);
   if (queue_.empty()) {
     return Timestamp::Unset();
   }
@@ -382,7 +402,7 @@ Timestamp InputStreamManager::GetMinTimestampAmongNLatest(int n) const {
 void InputStreamManager::ErasePacketsEarlierThan(Timestamp timestamp) {
   bool queue_became_non_full = false;
   {
-    absl::MutexLock lock(&stream_mutex_);
+    absl::MutexLock lock(stream_mutex_);
     // Checks if queue is full.
     bool was_queue_full =
         (max_queue_size_ != -1 && queue_.size() >= max_queue_size_);

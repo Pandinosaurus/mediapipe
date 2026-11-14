@@ -64,8 +64,8 @@ message LandmarksSmoothingCalculatorOptions {
     // balance between jittering and lag.
     optional float beta = 3 [default = 0.0];
 
-    // Cutoff frequency for derivate. It is set to 1Hz in the original
-    // algorithm, but can be tuned to further smooth the speed (i.e. derivate)
+    // Cutoff frequency for derivative. It is set to 1Hz in the original
+    // algorithm, but can be tuned to further smooth the speed (i.e. derivative)
     // on the object.
     optional float derivate_cutoff = 4 [default = 1.0];
 
@@ -80,9 +80,23 @@ message LandmarksSmoothingCalculatorOptions {
     optional bool disable_value_scaling = 6 [default = false];
   }
 
+  // Enum to define behavior when an empty landmark list is received.
+  enum EmptyLandmarksPolicy {
+    // Defaults to FAIL.
+    EMPTY_LANDMARKS_POLICY_UNSPECIFIED = 0;
+    // Reset the internal filter state.
+    EMPTY_LANDMARKS_POLICY_RESET = 1;
+    // Fail the calculator with a meaningful status.
+    EMPTY_LANDMARKS_POLICY_FAIL = 2;
+  }
+
   oneof filter_options {
     NoFilter no_filter = 1;
     VelocityFilter velocity_filter = 2;
     OneEuroFilter one_euro_filter = 3;
   }
+
+  // Defines the behavior when an empty LandmarkList is received as input.
+  optional EmptyLandmarksPolicy empty_landmarks_policy = 4
+      [default = EMPTY_LANDMARKS_POLICY_FAIL];
 }

@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
 cc_library(
     name = "image_segmenter_result",
     hdrs = ["image_segmenter_result.h"],
-    visibility = ["//visibility:public"],
     deps = ["//mediapipe/framework/formats:image"],
 )
 
@@ -29,7 +31,6 @@ cc_library(
     name = "image_segmenter",
     srcs = ["image_segmenter.cc"],
     hdrs = ["image_segmenter.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":image_segmenter_graph",
         ":image_segmenter_result",
@@ -48,9 +49,11 @@ cc_library(
         "//mediapipe/tasks/cc/vision/image_segmenter/proto:segmenter_options_cc_proto",
         "//mediapipe/util:label_map_cc_proto",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
+        "@litert//tflite/kernels:builtin_ops",
     ],
 )
 
@@ -63,25 +66,29 @@ cc_library(
         "//mediapipe/calculators/image:image_properties_calculator",
         "//mediapipe/calculators/image:image_transformation_calculator",
         "//mediapipe/calculators/image:image_transformation_calculator_cc_proto",
+        "//mediapipe/calculators/image:set_alpha_calculator",
+        "//mediapipe/calculators/image:set_alpha_calculator_cc_proto",
         "//mediapipe/calculators/tensor:image_to_tensor_calculator",
-        "//mediapipe/calculators/tensor:image_to_tensor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:inference_calculator",
         "//mediapipe/calculators/tensor:tensor_converter_calculator",
         "//mediapipe/calculators/tensor:tensor_converter_calculator_cc_proto",
+        "//mediapipe/calculators/tensor:tensors_dequantization_calculator",
         "//mediapipe/calculators/util:from_image_calculator",
+        "//mediapipe/framework:calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:subgraph",
         "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/api2:packet",
         "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/formats:tensor",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/gpu:scale_mode_cc_proto",
+        "//mediapipe/framework/port:ret_check",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/processors:image_preprocessing_graph",
         "//mediapipe/tasks/cc/components/processors/proto:image_preprocessing_graph_options_cc_proto",
         "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core:model_task_graph",
-        "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/cc/vision/image_segmenter/calculators:tensors_to_segmentation_calculator",
         "//mediapipe/tasks/cc/vision/image_segmenter/calculators:tensors_to_segmentation_calculator_cc_proto",
@@ -93,10 +100,13 @@ cc_library(
         "//mediapipe/util:graph_builder_utils",
         "//mediapipe/util:label_map_cc_proto",
         "//mediapipe/util:label_map_util",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )

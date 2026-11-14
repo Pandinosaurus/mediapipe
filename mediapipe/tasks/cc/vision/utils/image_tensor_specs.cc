@@ -17,20 +17,23 @@ limitations under the License.
 
 #include <stddef.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
-#include <type_traits>
 
-#include "absl/algorithm/container.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
-#include "absl/types/optional.h"
-#include "flatbuffers/flatbuffers.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/status_macros.h"
+#include "absl/algorithm/container.h"   // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/types/optional.h"        // from @com_google_absl
 #include "mediapipe/tasks/cc/common.h"
+#include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/metadata/metadata_extractor.h"
-#include "tensorflow/lite/schema/schema_generated.h"
+#include "mediapipe/tasks/metadata/metadata_schema_generated.h"
+#include "tflite/schema/schema_generated.h"  // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -69,14 +72,14 @@ absl::StatusOr<const ImageProperties*> GetImagePropertiesIfAny(
   return tensor_metadata.content()->content_properties_as_ImageProperties();
 }
 
-absl::StatusOr<absl::optional<NormalizationOptions>>
+absl::StatusOr<std::optional<NormalizationOptions>>
 GetNormalizationOptionsIfAny(const TensorMetadata& tensor_metadata) {
-  ASSIGN_OR_RETURN(
+  ABSL_ASSIGN_OR_RETURN(
       const tflite::ProcessUnit* normalization_process_unit,
       ModelMetadataExtractor::FindFirstProcessUnit(
           tensor_metadata, tflite::ProcessUnitOptions_NormalizationOptions));
   if (normalization_process_unit == nullptr) {
-    return {absl::nullopt};
+    return {std::nullopt};
   }
   const tflite::NormalizationOptions* tf_normalization_options =
       normalization_process_unit->options_as_NormalizationOptions();
@@ -90,7 +93,7 @@ GetNormalizationOptionsIfAny(const TensorMetadata& tensor_metadata) {
                      mean_values.size(), " and ", std_values.size(), "."),
         MediaPipeTasksStatus::kMetadataInvalidProcessUnitsError);
   }
-  absl::optional<NormalizationOptions> normalization_options;
+  std::optional<NormalizationOptions> normalization_options;
   if (mean_values.size() == 1) {
     normalization_options = NormalizationOptions{
         /* mean_values= */ {mean_values[0], mean_values[0], mean_values[0]},
@@ -142,11 +145,12 @@ absl::StatusOr<ImageTensorSpecs> BuildInputImageTensorSpecs(
     const tflite::Tensor& image_tensor,
     const tflite::TensorMetadata* image_tensor_metadata) {
   const ImageProperties* props = nullptr;
-  absl::optional<NormalizationOptions> normalization_options;
+  std::optional<NormalizationOptions> normalization_options;
   if (image_tensor_metadata != nullptr) {
-    ASSIGN_OR_RETURN(props, GetImagePropertiesIfAny(*image_tensor_metadata));
-    ASSIGN_OR_RETURN(normalization_options,
-                     GetNormalizationOptionsIfAny(*image_tensor_metadata));
+    ABSL_ASSIGN_OR_RETURN(props,
+                          GetImagePropertiesIfAny(*image_tensor_metadata));
+    ABSL_ASSIGN_OR_RETURN(normalization_options,
+                          GetNormalizationOptionsIfAny(*image_tensor_metadata));
   }
 
   // Input-related specifications.
@@ -241,11 +245,12 @@ absl::StatusOr<ImageTensorSpecs> BuildInputImageTensorSpecs(
 absl::StatusOr<ImageTensorSpecs> BuildInputImageTensorSpecs(
     const core::ModelResources& model_resources) {
   const tflite::Model& model = *model_resources.GetTfLiteModel();
+  // TODO: Investigate if there is any better solutions support
+  // running inference with multiple subgraphs.
   if (model.subgraphs()->size() != 1) {
-    return CreateStatusWithPayload(
-        absl::StatusCode::kInvalidArgument,
-        "Image tflite models are assumed to have a single subgraph.",
-        MediaPipeTasksStatus::kInvalidArgumentError);
+    ABSL_LOG(WARNING)
+        << "TFLite model has more than 1 subgraphs. Use subrgaph 0 as "
+           "the primary subgraph for inference";
   }
   const auto* primary_subgraph = (*model.subgraphs())[0];
   if (primary_subgraph->inputs()->size() != 1) {
@@ -256,9 +261,9 @@ absl::StatusOr<ImageTensorSpecs> BuildInputImageTensorSpecs(
   }
   const auto* input_tensor =
       (*primary_subgraph->tensors())[(*primary_subgraph->inputs())[0]];
-  ASSIGN_OR_RETURN(const auto* image_tensor_metadata,
-                   vision::GetImageTensorMetadataIfAny(
-                       *model_resources.GetMetadataExtractor(), 0));
+  ABSL_ASSIGN_OR_RETURN(const auto* image_tensor_metadata,
+                        vision::GetImageTensorMetadataIfAny(
+                            *model_resources.GetMetadataExtractor(), 0));
   return vision::BuildInputImageTensorSpecs(*input_tensor,
                                             image_tensor_metadata);
 }

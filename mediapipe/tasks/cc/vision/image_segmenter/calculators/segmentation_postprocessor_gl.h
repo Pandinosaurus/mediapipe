@@ -14,12 +14,26 @@
 
 #ifndef MEDIAPIPE_TASKS_CC_VISION_IMAGE_SEGMENTER_CALCULATORS_SEGMENTATION_POSTPROCESSOR_GL_H_
 #define MEDIAPIPE_TASKS_CC_VISION_IMAGE_SEGMENTER_CALCULATORS_SEGMENTATION_POSTPROCESSOR_GL_H_
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/gpu/gl_calculator_helper.h"
 #include "mediapipe/tasks/cc/vision/image_segmenter/calculators/tensors_to_segmentation_calculator.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
+
+// On Android with compute shaders we include the SSBO-to-texture converter
+#if MEDIAPIPE_OPENGL_ES_VERSION >= MEDIAPIPE_OPENGL_ES_31 && \
+    defined(__ANDROID__)
+#define TASK_SEGMENTATION_USE_GLES_31_POSTPROCESSING 1
+#include "mediapipe/tasks/cc/vision/image_segmenter/calculators/ssbo_to_texture_converter.h"
+#endif  // MEDIAPIPE_OPENGL_ES_VERSION >= MEDIAPIPE_OPENGL_ES_31 &&
+        // defined(__ANDROID__)
 
 namespace mediapipe {
 namespace tasks {
@@ -45,6 +59,7 @@ class SegmentationPostprocessorGl {
   };
 
   absl::Status GlInit(const bool produce_confidence_masks);
+  bool HasGlExtension(std::string const& extension);
   absl::Status CreateBasicFragmentShaderProgram(
       std::string const& program_name,
       std::string const& fragment_shader_source,
@@ -66,9 +81,14 @@ class SegmentationPostprocessorGl {
   GlShader argmax_shader_;
   GlShader argmax_one_class_shader_;
   GlShader channel_select_shader_;
+  GlShader multi_channel_select_shader_;
   GlShader softmax_max_shader_;
   GlShader softmax_transform_and_sum_shader_;
   GlShader softmax_normalization_shader_;
+
+#ifdef TASK_SEGMENTATION_USE_GLES_31_POSTPROCESSING
+  SsboToTextureConverter ssbo_to_texture_converter_;
+#endif
 };
 
 }  // namespace tasks

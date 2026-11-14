@@ -18,9 +18,12 @@
 #ifndef MEDIAPIPE_GPU_GL_TEXTURE_BUFFER_H_
 #define MEDIAPIPE_GPU_GL_TEXTURE_BUFFER_H_
 
-#include <atomic>
+#include <cstddef>
+#include <functional>
+#include <memory>
 
-#include "absl/memory/memory.h"
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/gpu/gl_base.h"
 #include "mediapipe/gpu/gl_context.h"
@@ -91,9 +94,9 @@ class GlTextureBuffer
   // TODO: turn into a single call?
   GLuint name() const { return name_; }
   GLenum target() const { return target_; }
-  int width() const { return width_; }
-  int height() const { return height_; }
-  GpuBufferFormat format() const { return format_; }
+  int width() const override { return width_; }
+  int height() const override { return height_; }
+  GpuBufferFormat format() const override { return format_; }
 
   GlTextureView GetReadView(internal::types<GlTextureView>,
                             int plane) const override;
@@ -138,13 +141,17 @@ class GlTextureBuffer
   void WaitForConsumersOnGpu();
 
   // Returns the GL context this buffer was created with.
-  const std::shared_ptr<GlContext>& GetProducerContext() {
+  const std::shared_ptr<GlContext>& GetProducerContext() const {
     return producer_context_;
   }
 
-#if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
+#if MEDIAPIPE_GPU_BUFFER_POOL_USE_CV_PIXEL_BUFFER
+  // Where the pool vends CVPixelBuffer-backed storage, GlTextureBuffer must not
+  // register a competing factory. On macOS the pool vends GlTextureBuffer, so
+  // it stays registered there; see gpu_shared_data_internal.cc for how its
+  // factory is ordered after GpuBufferStorageCvPixelBuffer's.
   static constexpr bool kDisableGpuBufferRegistration = true;
-#endif  // MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
+#endif  // MEDIAPIPE_GPU_BUFFER_POOL_USE_CV_PIXEL_BUFFER
 
  private:
   // Creates a texture of dimensions width x height and allocates space for it.
@@ -153,7 +160,10 @@ class GlTextureBuffer
   // Returns true on success.
   bool CreateInternal(const void* data, int alignment = 4);
 
-  void ViewDoneWriting(const GlTextureView& view);
+  void ViewDoneReading(const GlTextureView& view,
+                       bool sync_with_external_context) const;
+  void ViewDoneWriting(const GlTextureView& view,
+                       bool sync_with_external_context);
 
   friend class GlCalculatorHelperImpl;
 
@@ -168,10 +178,17 @@ class GlTextureBuffer
   // Tokens tracking the point when consumers finished using this texture.
   mutable std::unique_ptr<GlMultiSyncPoint> consumer_multi_sync_
       ABSL_GUARDED_BY(consumer_sync_mutex_) =
-          absl::make_unique<GlMultiSyncPoint>();
+          std::make_unique<GlMultiSyncPoint>();
   DeletionCallback deletion_callback_;
   std::shared_ptr<GlContext> producer_context_;
 };
+
+// Reads `texture_view` into `output`.
+// NOTE: It's clients responsibility to allocate `output` properly and provide
+// the right `size`.
+// NOTE: Must be invoked on a thread with GL context.
+void ReadTexture(GlContext& ctx, const GlTextureView& texture_view,
+                 GpuBufferFormat format, void* output, size_t size);
 
 using GlTextureBufferSharedPtr = std::shared_ptr<GlTextureBuffer>;
 

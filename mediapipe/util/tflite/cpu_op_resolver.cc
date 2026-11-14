@@ -14,20 +14,20 @@
 
 #include "mediapipe/util/tflite/cpu_op_resolver.h"
 
-#include "mediapipe/framework/port/logging.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "mediapipe/util/tflite/operations/landmarks_to_transform_matrix.h"
 #include "mediapipe/util/tflite/operations/max_pool_argmax.h"
 #include "mediapipe/util/tflite/operations/max_unpooling.h"
+#include "mediapipe/util/tflite/operations/resampler.h"
 #include "mediapipe/util/tflite/operations/transform_landmarks.h"
 #include "mediapipe/util/tflite/operations/transform_tensor_bilinear.h"
 #include "mediapipe/util/tflite/operations/transpose_conv_bias.h"
-#include "tensorflow/lite/builtin_op_data.h"
-#include "tensorflow/lite/mutable_op_resolver.h"
+#include "tflite/mutable_op_resolver.h"  // from @litert
 
 namespace mediapipe {
 
-void MediaPipe_RegisterTfLiteOpResolver(tflite::MutableOpResolver *resolver) {
-  CHECK(resolver != nullptr);
+void MediaPipe_RegisterTfLiteOpResolver(tflite::MutableOpResolver* resolver) {
+  ABSL_CHECK(resolver != nullptr);
   resolver->AddCustom("MaxPoolingWithArgmax2D",
                       tflite_operations::RegisterMaxPoolingWithArgmax2D());
   resolver->AddCustom("MaxUnpooling2D",
@@ -44,6 +44,9 @@ void MediaPipe_RegisterTfLiteOpResolver(tflite::MutableOpResolver *resolver) {
   resolver->AddCustom("Landmarks2TransformMatrix",
                       tflite_operations::RegisterLandmarksToTransformMatrixV2(),
                       /*version=*/2);
+
+  resolver->AddCustom("Resampler", tflite_operations::RegisterResampler(),
+                      /*version=*/1);
 }
 
 }  // namespace mediapipe

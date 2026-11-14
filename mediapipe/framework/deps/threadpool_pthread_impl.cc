@@ -18,8 +18,19 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
+#include <algorithm>
+#include <cstddef>
+#include <functional>
+#include <ostream>
+#include <set>
+#include <string>
+#include <utility>
+
+#include "absl/log/absl_check.h"    // from @com_google_absl
+#include "absl/log/absl_log.h"      // from @com_google_absl
+#include "absl/strings/str_cat.h"   // from @com_google_absl
+#include "absl/strings/str_join.h"  // from @com_google_absl
+#include "mediapipe/framework/deps/thread_options.h"
 #include "mediapipe/framework/deps/threadpool.h"
 #include "mediapipe/framework/port/logging.h"
 
@@ -48,7 +59,7 @@ ThreadPool::WorkerThread::WorkerThread(ThreadPool* pool,
                                        const std::string& name_prefix)
     : pool_(pool), name_prefix_(name_prefix) {
   int res = pthread_create(&thread_, nullptr, ThreadBody, this);
-  CHECK_EQ(res, 0) << "pthread_create failed";
+  ABSL_CHECK_EQ(res, 0) << "pthread_create failed";
 }
 
 ThreadPool::WorkerThread::~WorkerThread() {}
@@ -67,9 +78,9 @@ void* ThreadPool::WorkerThread::ThreadBody(void* arg) {
     if (nice(nice_priority_level) != -1 || errno == 0) {
       VLOG(1) << "Changed the nice priority level by " << nice_priority_level;
     } else {
-      LOG(ERROR) << "Error : " << strerror(errno) << std::endl
-                 << "Could not change the nice priority level by "
-                 << nice_priority_level;
+      ABSL_LOG(ERROR) << "Error : " << strerror(errno) << std::endl
+                      << "Could not change the nice priority level by "
+                      << nice_priority_level;
     }
   }
   if (!selected_cpus.empty()) {
@@ -84,27 +95,27 @@ void* ThreadPool::WorkerThread::ThreadBody(void* arg) {
       VLOG(1) << "Pinned the thread pool executor to processor "
               << absl::StrJoin(selected_cpus, ", processor ") << ".";
     } else {
-      LOG(ERROR) << "Error : " << strerror(errno) << std::endl
-                 << "Failed to set processor affinity. Ignore processor "
-                    "affinity setting for now.";
+      ABSL_LOG(ERROR) << "Error : " << strerror(errno) << std::endl
+                      << "Failed to set processor affinity. Ignore processor "
+                         "affinity setting for now.";
     }
   }
   int error = pthread_setname_np(pthread_self(), name.c_str());
   if (error != 0) {
-    LOG(ERROR) << "Error : " << strerror(error) << std::endl
-               << "Failed to set name for thread: " << name;
+    ABSL_LOG(ERROR) << "Error : " << strerror(error) << std::endl
+                    << "Failed to set name for thread: " << name;
   }
 #else
   const std::string name = internal::CreateThreadName(thread->name_prefix_, 0);
   if (nice_priority_level != 0 || !selected_cpus.empty()) {
-    LOG(ERROR) << "Thread priority and processor affinity feature aren't "
-                  "supported on the current platform.";
+    ABSL_LOG(ERROR) << "Thread priority and processor affinity feature aren't "
+                       "supported on the current platform.";
   }
 #if __APPLE__
   int error = pthread_setname_np(name.c_str());
   if (error != 0) {
-    LOG(ERROR) << "Error : " << strerror(error) << std::endl
-               << "Failed to set name for thread: " << name;
+    ABSL_LOG(ERROR) << "Error : " << strerror(error) << std::endl
+                    << "Failed to set name for thread: " << name;
   }
 #endif  // __APPLE__
 #endif  // __linux__
@@ -128,10 +139,10 @@ ThreadPool::ThreadPool(const ThreadOptions& thread_options,
 }
 
 ThreadPool::~ThreadPool() {
-  mutex_.Lock();
+  mutex_.lock();
   stopped_ = true;
   condition_.SignalAll();
-  mutex_.Unlock();
+  mutex_.unlock();
 
   for (int i = 0; i < threads_.size(); ++i) {
     threads_[i]->Join();
@@ -148,23 +159,23 @@ void ThreadPool::StartWorkers() {
 }
 
 void ThreadPool::Schedule(std::function<void()> callback) {
-  mutex_.Lock();
+  mutex_.lock();
   tasks_.push_back(std::move(callback));
   condition_.Signal();
-  mutex_.Unlock();
+  mutex_.unlock();
 }
 
 int ThreadPool::num_threads() const { return num_threads_; }
 
 void ThreadPool::RunWorker() {
-  mutex_.Lock();
+  mutex_.lock();
   while (true) {
     if (!tasks_.empty()) {
       std::function<void()> task = std::move(tasks_.front());
       tasks_.pop_front();
-      mutex_.Unlock();
+      mutex_.unlock();
       task();
-      mutex_.Lock();
+      mutex_.lock();
     } else {
       if (stopped_) {
         break;
@@ -173,7 +184,7 @@ void ThreadPool::RunWorker() {
       }
     }
   }
-  mutex_.Unlock();
+  mutex_.unlock();
 }
 
 const ThreadOptions& ThreadPool::thread_options() const {

@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
-#include "Eigen/Dense"
-#include "absl/memory/memory.h"
-#include "absl/strings/str_format.h"
-#include "absl/types/span.h"
+#include "Eigen/Dense"                  // from @eigen
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/memory/memory.h"         // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
+#include "absl/types/span.h"            // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/formats/tensor.h"
@@ -75,7 +80,7 @@ class TensorsToObjectsCalculator : public CalculatorBase {
   // In a single MediaPipe session, the IDs are unique.
   // Also assign timestamp for the FrameAnnotation to be the input packet
   // timestamp.
-  void AssignObjectIdAndTimestamp(int64 timestamp_us,
+  void AssignObjectIdAndTimestamp(int64_t timestamp_us,
                                   FrameAnnotation* annotation);
 
   int num_classes_ = 0;
@@ -102,7 +107,7 @@ absl::Status TensorsToObjectsCalculator::GetContract(CalculatorContract* cc) {
 }
 
 absl::Status TensorsToObjectsCalculator::Open(CalculatorContext* cc) {
-  MP_RETURN_IF_ERROR(LoadOptions(cc));
+  ABSL_RETURN_IF_ERROR(LoadOptions(cc));
   // clang-format off
   projection_matrix_ <<
       1.5731,   0,       0, 0,
@@ -110,8 +115,8 @@ absl::Status TensorsToObjectsCalculator::Open(CalculatorContext* cc) {
       0,        0, -1.0002, -0.2,
       0,        0,      -1, 0;
   // clang-format on
-  decoder_ = absl::make_unique<Decoder>(
-      BeliefDecoderConfig(options_.decoder_config()));
+  decoder_ =
+      std::make_unique<Decoder>(BeliefDecoderConfig(options_.decoder_config()));
 
   return absl::OkStatus();
 }
@@ -121,9 +126,9 @@ absl::Status TensorsToObjectsCalculator::Process(CalculatorContext* cc) {
     return absl::OkStatus();
   }
 
-  auto output_objects = absl::make_unique<FrameAnnotation>();
+  auto output_objects = std::make_unique<FrameAnnotation>();
 
-  MP_RETURN_IF_ERROR(ProcessCPU(cc, output_objects.get()));
+  ABSL_RETURN_IF_ERROR(ProcessCPU(cc, output_objects.get()));
 
   // Output
   if (cc->Outputs().HasTag(kOutputStreamTag)) {
@@ -148,7 +153,7 @@ absl::Status TensorsToObjectsCalculator::ProcessCPU(
   auto status = decoder_->Lift2DTo3D(projection_matrix_, /*portrait*/ true,
                                      output_objects);
   if (!status.ok()) {
-    LOG(ERROR) << status;
+    ABSL_LOG(ERROR) << status;
     return status;
   }
   Project3DTo2D(/*portrait*/ true, output_objects);
@@ -170,7 +175,7 @@ absl::Status TensorsToObjectsCalculator::LoadOptions(CalculatorContext* cc) {
   num_keypoints_ = options_.num_keypoints();
 
   // Currently only support 2D when num_values_per_keypoint equals to 2.
-  CHECK_EQ(options_.num_values_per_keypoint(), 2);
+  ABSL_CHECK_EQ(options_.num_values_per_keypoint(), 2);
 
   return absl::OkStatus();
 }
@@ -199,7 +204,7 @@ void TensorsToObjectsCalculator::Project3DTo2D(
 }
 
 void TensorsToObjectsCalculator::AssignObjectIdAndTimestamp(
-    int64 timestamp_us, FrameAnnotation* annotation) {
+    int64_t timestamp_us, FrameAnnotation* annotation) {
   for (auto& ann : *annotation->mutable_annotations()) {
     ann.set_object_id(GetNextObjectId());
   }

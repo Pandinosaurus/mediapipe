@@ -13,11 +13,13 @@
 // limitations under the License.
 
 #include <cmath>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/memory/memory.h"
-#include "absl/strings/substitute.h"
+#include "absl/flags/flag.h"          // from @com_google_absl
+#include "absl/memory/memory.h"       // from @com_google_absl
+#include "absl/strings/substitute.h"  // from @com_google_absl
 #include "mediapipe/calculators/image/affine_transformation.h"
 #include "mediapipe/calculators/tensor/image_to_tensor_converter.h"
 #include "mediapipe/calculators/tensor/image_to_tensor_utils.h"
@@ -31,7 +33,6 @@
 #include "mediapipe/framework/formats/rect.pb.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
@@ -84,6 +85,9 @@ void RunTest(const std::string& graph_text, const std::string& tag,
         break;
       case AffineTransformation::Interpolation::kCubic:
         interpolation_str = "interpolation: INTER_CUBIC";
+        break;
+      case AffineTransformation::Interpolation::kNearest:
+        interpolation_str = "interpolation: INTER_NEAREST";
         break;
     }
   }
@@ -284,7 +288,7 @@ std::array<float, 16> GetMatrix(cv::Mat input, mediapipe::NormalizedRect roi,
       .IgnoreError();
   mediapipe::GetRotatedSubRectToRectTransformMatrix(
       roi_absolute, input.cols, input.rows,
-      /*flip_horizontaly=*/false, &transform_mat);
+      /*flip_horizontally=*/false, &transform_mat);
   return transform_mat;
 }
 
@@ -464,6 +468,62 @@ TEST(WarpAffineCalculatorTest, MediumSubRectWithRotationBorderZeroInterpCubic) {
       AffineTransformation::Interpolation::kCubic;
   RunTest(input, expected_output,
           {.threshold_on_cpu = 0.99, .threshold_on_gpu = 0.78},
+          GetMatrix(input, roi, keep_aspect_ratio, out_width, out_height),
+          out_width, out_height, border_mode, interpolation);
+}
+
+TEST(WarpAffineCalculatorTest,
+     MediumSubRectWithRotationBorderZeroInterpLinear) {
+  mediapipe::NormalizedRect roi;
+  roi.set_x_center(0.65f);
+  roi.set_y_center(0.4f);
+  roi.set_width(0.5f);
+  roi.set_height(0.5f);
+  roi.set_rotation(M_PI * -45.0f / 180.0f);
+  auto input = GetRgb(
+      "/mediapipe/calculators/"
+      "tensor/testdata/image_to_tensor/input.jpg");
+  auto expected_output = GetRgb(
+      "/mediapipe/calculators/"
+      "tensor/testdata/image_to_tensor/"
+      "medium_sub_rect_with_rotation_border_zero.png");
+  int out_width = 256;
+  int out_height = 256;
+  bool keep_aspect_ratio = false;
+  std::optional<AffineTransformation::BorderMode> border_mode =
+      AffineTransformation::BorderMode::kZero;
+  std::optional<AffineTransformation::Interpolation> interpolation =
+      AffineTransformation::Interpolation::kLinear;
+  RunTest(input, expected_output,
+          {.threshold_on_cpu = 0.99, .threshold_on_gpu = 0.80},
+          GetMatrix(input, roi, keep_aspect_ratio, out_width, out_height),
+          out_width, out_height, border_mode, interpolation);
+}
+
+TEST(WarpAffineCalculatorTest,
+     MediumSubRectWithRotationBorderZeroInterpNearestNeighbor) {
+  mediapipe::NormalizedRect roi;
+  roi.set_x_center(0.65f);
+  roi.set_y_center(0.4f);
+  roi.set_width(0.5f);
+  roi.set_height(0.5f);
+  roi.set_rotation(M_PI * -45.0f / 180.0f);
+  auto input = GetRgb(
+      "/mediapipe/calculators/"
+      "tensor/testdata/image_to_tensor/input.jpg");
+  auto expected_output = GetRgb(
+      "/mediapipe/calculators/"
+      "tensor/testdata/image_to_tensor/"
+      "medium_sub_rect_with_rotation_border_zero.png");
+  int out_width = 256;
+  int out_height = 256;
+  bool keep_aspect_ratio = false;
+  std::optional<AffineTransformation::BorderMode> border_mode =
+      AffineTransformation::BorderMode::kZero;
+  std::optional<AffineTransformation::Interpolation> interpolation =
+      AffineTransformation::Interpolation::kNearest;
+  RunTest(input, expected_output,
+          {.threshold_on_cpu = 0.80, .threshold_on_gpu = 0.74},
           GetMatrix(input, roi, keep_aspect_ratio, out_width, out_height),
           out_width, out_height, border_mode, interpolation);
 }
@@ -671,4 +731,5 @@ TEST(WarpAffineCalculatorTest, NoOpBorderZero) {
 }
 
 }  // namespace
+
 }  // namespace mediapipe

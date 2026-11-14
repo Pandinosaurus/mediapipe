@@ -26,8 +26,8 @@
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port.h"
 
@@ -43,9 +43,8 @@ class MtlBufferView : public Tensor::View {
   static MtlBufferView GetWriteView(const Tensor& tensor, id<MTLDevice> device);
 
   id<MTLBuffer> buffer() const { return buffer_; }
-  MtlBufferView(MtlBufferView&& src)
-      : Tensor::View(std::move(src)), buffer_(src.buffer_) {
-    src.buffer_ = nil;
+  MtlBufferView(MtlBufferView&& src) : Tensor::View(std::move(src.lock_)) {
+    buffer_ = std::exchange(src.buffer_, nil);
   }
 
  protected:

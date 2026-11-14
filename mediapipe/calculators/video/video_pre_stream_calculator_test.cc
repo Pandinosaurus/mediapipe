@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
+
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/video_stream_header.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -81,7 +83,7 @@ TEST(VideoPreStreamCalculatorTest, ProcessesWithFrameRateInPreStream) {
   MP_ASSERT_OK(poller_status.status());
   OutputStreamPoller& poller = poller_status.value();
   MP_ASSERT_OK(graph.StartRun({}));
-  auto input_header = absl::make_unique<VideoHeader>();
+  auto input_header = std::make_unique<VideoHeader>();
   input_header->frame_rate = 3.0;
   MP_ASSERT_OK(graph.AddPacketToInputStream(
       "input_header",
@@ -163,11 +165,11 @@ TEST(VideoPreStreamCalculatorTest, FailsWithoutFrameRateInPreStream2) {
     }
   )pb");
 
-  for (int64 timestamp = -1; timestamp < 2; ++timestamp) {
+  for (int64_t timestamp = -1; timestamp < 2; ++timestamp) {
     CalculatorGraph graph;
     MP_ASSERT_OK(graph.Initialize(config));
     MP_ASSERT_OK(graph.StartRun({}));
-    auto input_header = absl::make_unique<VideoHeader>();
+    auto input_header = std::make_unique<VideoHeader>();
     input_header->frame_rate = 3.0;
     MP_ASSERT_OK(graph.AddPacketToInputStream(
         "input_header",

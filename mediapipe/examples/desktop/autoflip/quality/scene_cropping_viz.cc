@@ -16,7 +16,8 @@
 
 #include <memory>
 
-#include "absl/memory/memory.h"
+#include "absl/memory/memory.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/examples/desktop/autoflip/autoflip_messages.pb.h"
 #include "mediapipe/examples/desktop/autoflip/quality/cropping.pb.h"
 #include "mediapipe/examples/desktop/autoflip/quality/focus_point.pb.h"
@@ -27,7 +28,6 @@
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 namespace autoflip {
@@ -70,7 +70,7 @@ absl::Status DrawDetectionsAndCropRegions(
   int key_frame_idx = 0;
   for (int i = 0; i < num_frames; ++i) {
     const auto& scene_frame = scene_frames[i];
-    auto viz_frame = absl::make_unique<ImageFrame>(
+    auto viz_frame = std::make_unique<ImageFrame>(
         image_format, scene_frame.cols, scene_frame.rows);
     cv::Mat viz_mat = formats::MatView(viz_frame.get());
     scene_frame.copyTo(viz_mat);
@@ -154,7 +154,7 @@ absl::Status DrawDetectionAndFramingWindow(
     std::vector<std::unique_ptr<ImageFrame>>* viz_frames) {
   for (int i = 0; i < org_scene_frames.size(); i++) {
     const auto& scene_frame = org_scene_frames[i];
-    auto viz_frame = absl::make_unique<ImageFrame>(
+    auto viz_frame = std::make_unique<ImageFrame>(
         image_format, scene_frame.cols, scene_frame.rows);
     cv::Mat darkened = formats::MatView(viz_frame.get());
     scene_frame.copyTo(darkened);
@@ -185,7 +185,7 @@ absl::Status DrawFocusPointAndCropWindow(
 
   for (int i = 0; i < num_frames; ++i) {
     const auto& scene_frame = scene_frames[i];
-    auto viz_frame = absl::make_unique<ImageFrame>(
+    auto viz_frame = std::make_unique<ImageFrame>(
         image_format, scene_frame.cols, scene_frame.rows);
     cv::Mat darkened = formats::MatView(viz_frame.get());
     scene_frame.copyTo(darkened);

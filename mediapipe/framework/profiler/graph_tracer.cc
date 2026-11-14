@@ -14,8 +14,10 @@
 
 #include "mediapipe/framework/profiler/graph_tracer.h"
 
-#include "absl/synchronization/mutex.h"
-#include "absl/time/time.h"
+#include <atomic>
+
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/time/time.h"              // from @com_google_absl
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/input_stream_shard.h"
 #include "mediapipe/framework/output_stream_shard.h"
@@ -32,7 +34,7 @@ const absl::Duration kDefaultTraceLogInterval = absl::Milliseconds(500);
 
 // Returns a unique identifier for the current thread.
 inline int GetCurrentThreadId() {
-  static int next_thread_id = 0;
+  static std::atomic<int> next_thread_id = 0;
   static thread_local int thread_id = next_thread_id++;
   return thread_id;
 }
@@ -45,7 +47,7 @@ absl::Duration GraphTracer::GetTraceLogInterval() {
              : kDefaultTraceLogInterval;
 }
 
-int64 GraphTracer::GetTraceLogCapacity() {
+int64_t GraphTracer::GetTraceLogCapacity() {
   return profiler_config_.trace_log_capacity()
              ? profiler_config_.trace_log_capacity()
              : 20000;
@@ -125,14 +127,14 @@ absl::Mutex* trace_builder_mutex() {
 
 void GraphTracer::GetTrace(absl::Time begin_time, absl::Time end_time,
                            GraphTrace* result) {
-  absl::MutexLock lock(trace_builder_mutex());
+  absl::MutexLock lock(*trace_builder_mutex());
   trace_builder_.CreateTrace(trace_buffer_, begin_time, end_time, result);
   trace_builder_.Clear();
 }
 
 void GraphTracer::GetLog(absl::Time begin_time, absl::Time end_time,
                          GraphTrace* result) {
-  absl::MutexLock lock(trace_builder_mutex());
+  absl::MutexLock lock(*trace_builder_mutex());
   trace_builder_.CreateLog(trace_buffer_, begin_time, end_time, result);
   trace_builder_.Clear();
 }

@@ -17,10 +17,13 @@
 #include <memory>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/memory/memory.h"
+#include "absl/base/macros.h"     // from @com_google_absl
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/memory/memory.h"   // from @com_google_absl
+#include "absl/status/status.h"   // from @com_google_absl
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_context_manager.h"
+#include "mediapipe/framework/calculator_state.h"
 #include "mediapipe/framework/input_stream_handler.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
@@ -74,9 +77,10 @@ class BarrierInputStreamHandlerTest : public ::testing::Test {
 
   void SetupInputStreamHandler(
       const std::shared_ptr<tool::TagMap>& input_tag_map) {
-    calculator_state_ = absl::make_unique<CalculatorState>(
+    calculator_state_ = std::make_unique<CalculatorState>(
         "Node", /*node_id=*/0, "Calculator", CalculatorGraphConfig::Node(),
-        nullptr);
+        /*profiling_context=*/nullptr,
+        /*graph_service_manager=*/nullptr);
     calculator_context_manager_.Initialize(
         calculator_state_.get(), input_tag_map,
         /*output_tag_map=*/tool::CreateTagMap({"output_a"}).value(),
@@ -105,7 +109,7 @@ class BarrierInputStreamHandlerTest : public ::testing::Test {
   void NotifyNoOp() {}
 
   void Schedule(CalculatorContext* calculator_context) {
-    CHECK(calculator_context);
+    ABSL_CHECK(calculator_context);
     calculator_context_ = calculator_context;
   }
 

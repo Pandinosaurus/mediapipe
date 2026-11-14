@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 licenses(["notice"])
 
 package(
@@ -40,6 +42,7 @@ cc_library(
         "//mediapipe:android": [
             "android_asset_util_jni.cc",
             "android_packet_creator_jni.cc",
+            "resources_jni.cc",
         ],
     }) + select({
         "//conditions:default": [
@@ -64,6 +67,7 @@ cc_library(
         "//mediapipe:android": [
             "android_asset_util_jni.h",
             "android_packet_creator_jni.h",
+            "resources_jni.h",
         ],
     }) + select({
         "//conditions:default": [
@@ -88,6 +92,8 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_profile_cc_proto",
         "//mediapipe/framework:camera_intrinsics",
+        "//mediapipe/framework:graph_service",
+        "//mediapipe/framework:packet",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:image_format_cc_proto",
         "//mediapipe/framework/formats:image_frame",
@@ -96,16 +102,24 @@ cc_library(
         "//mediapipe/framework/formats:video_stream_header",
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:logging",
+        "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:singleton",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:threadpool",
+        "//mediapipe/framework/profiler:graph_profiler",
         "//mediapipe/framework/stream_handler:fixed_size_input_stream_handler",
         "//mediapipe/framework/tool:executor_util",
         "//mediapipe/framework/tool:name_util",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
-        "@eigen_archive//:eigen3",
+        "@eigen//:eigen3",
     ] + select({
         "//conditions:default": [
             "//mediapipe/framework/port:file_helpers",
@@ -117,7 +131,10 @@ cc_library(
     }) + select({
         "//conditions:default": [
             "//mediapipe/gpu:egl_surface_holder",
+            "//mediapipe/gpu:gl_app_texture_support",
+            "//mediapipe/gpu:gl_base",
             "//mediapipe/gpu:gl_calculator_helper",
+            "//mediapipe/gpu:gl_context",
             "//mediapipe/gpu:gl_quad_renderer",
             "//mediapipe/gpu:gl_surface_sink_calculator",
             "//mediapipe/gpu:gl_texture_buffer",
@@ -126,7 +143,6 @@ cc_library(
             "//mediapipe/gpu:graph_support",
         ],
         "//mediapipe/gpu:disable_gpu": [
-            "//mediapipe/gpu:gpu_shared_data_internal",
         ],
     }),
     alwayslink = 1,
@@ -138,8 +154,9 @@ cc_library(
     hdrs = ["jni_util.h"],
     deps = [
         ":class_registry",
-        "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
     ] + select({
         "//conditions:default": [
@@ -173,8 +190,8 @@ cc_library(
         ":class_registry",
         ":loose_headers",
         ":mediapipe_framework_jni",
-        "//mediapipe/framework/port:logging",
         "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
     ] + select({
@@ -198,6 +215,7 @@ cc_library(
     textual_hdrs = [
         "android_asset_util_jni.h",
         "android_packet_creator_jni.h",
+        "resources_jni.h",
     ],
-    visibility = [":__pkg__"],
+    visibility = ["//visibility:private"],
 )

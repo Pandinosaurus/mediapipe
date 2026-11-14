@@ -22,9 +22,10 @@ android_library(
     manifest = "AndroidManifest.xml",
     visibility = ["//visibility:public"],
     deps = [
-        "//third_party:androidx_legacy_support_v4",
         "//third_party:autovalue",
         "@maven//:androidx_annotation_annotation",
+        "@maven//:androidx_legacy_legacy_support_v4",
+        "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
     ],
 )
@@ -33,5 +34,7 @@ android_library(
 filegroup(
     name = "java_src",
     srcs = glob(["*.java"]),
-    visibility = ["//mediapipe:__subpackages__"],
+    visibility = [
+        "//mediapipe:__subpackages__",
+    ],
 )

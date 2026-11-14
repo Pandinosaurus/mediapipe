@@ -13,28 +13,17 @@
 # limitations under the License.
 """Image classifier dataset library."""
 
+import dataclasses
+import functools
 import os
 import random
-
 from typing import List, Optional
+
+from google.protobuf import text_format
 import tensorflow as tf
-import tensorflow_datasets as tfds
 
 from mediapipe.model_maker.python.core.data import classification_dataset
 from mediapipe.model_maker.python.vision.core import image_utils
-
-
-def _create_data(
-    name: str, data: tf.data.Dataset, info: tfds.core.DatasetInfo,
-    label_names: List[str]
-) -> Optional[classification_dataset.ClassificationDataset]:
-  """Creates a Dataset object from tfds data."""
-  if name not in data:
-    return None
-  data = data[name]
-  data = data.map(lambda a: (a['image'], a['label']))
-  size = info.splits[name].num_examples
-  return Dataset(data, size, label_names)
 
 
 class Dataset(classification_dataset.ClassificationDataset):
@@ -82,7 +71,7 @@ class Dataset(classification_dataset.ClassificationDataset):
         for path in all_image_paths
     ]
 
-    path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
+    path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)  # pyrefly: ignore[bad-argument-type]
 
     image_ds = path_ds.map(
         image_utils.load_image, num_parallel_calls=tf.data.AUTOTUNE
@@ -93,10 +82,11 @@ class Dataset(classification_dataset.ClassificationDataset):
         tf.cast(all_image_labels, tf.int64))
 
     # Create a dataset if (image, label) pairs
-    image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
+    image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))  # pyrefly: ignore[bad-argument-type]
 
     tf.compat.v1.logging.info(
         'Load image with size: %d, num_label: %d, labels: %s.', all_image_size,
         all_label_size, ', '.join(label_names))
     return Dataset(
-        dataset=image_label_ds, size=all_image_size, label_names=label_names)
+        dataset=image_label_ds, label_names=label_names, size=all_image_size
+    )

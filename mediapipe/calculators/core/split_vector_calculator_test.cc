@@ -16,22 +16,20 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "mediapipe/calculators/core/split_vector_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
-#include "mediapipe/framework/deps/file_path.h"
+#include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/status_matchers.h"  // NOLINT
 #include "mediapipe/framework/tool/validate_type.h"
-#include "tensorflow/lite/error_reporter.h"
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/model.h"
+#include "tflite/interpreter.h"  // from @litert
 
 namespace mediapipe {
 
@@ -43,7 +41,7 @@ const int channels = 1;
 
 class SplitTfLiteTensorVectorCalculatorTest : public ::testing::Test {
  protected:
-  void TearDown() {
+  void TearDown() override {
     // Note: Since the pointers contained in this vector will be cleaned up by
     // the interpreter, only ensure that the vector is cleaned up for the next
     // test.
@@ -61,7 +59,7 @@ class SplitTfLiteTensorVectorCalculatorTest : public ::testing::Test {
     interpreter_->AddTensors(vector_size);
     interpreter_->SetInputs(indices);
 
-    input_vec_ = absl::make_unique<std::vector<TfLiteTensor>>();
+    input_vec_ = std::make_unique<std::vector<TfLiteTensor>>();
     for (int i = 0; i < vector_size; ++i) {
       interpreter_->SetTensorParametersReadWrite(i, kTfLiteFloat32, "", {3},
                                                  TfLiteQuantization());
@@ -148,7 +146,7 @@ class SplitTfLiteTensorVectorCalculatorTest : public ::testing::Test {
     }
   }
 
-  std::unique_ptr<Interpreter> interpreter_ = absl::make_unique<Interpreter>();
+  std::unique_ptr<Interpreter> interpreter_ = std::make_unique<Interpreter>();
   std::unique_ptr<std::vector<TfLiteTensor>> input_vec_ = nullptr;
   std::vector<float*> input_buffers_;
   std::unique_ptr<CalculatorRunner> runner_ = nullptr;
@@ -568,9 +566,9 @@ TEST_F(MovableSplitUniqueIntPtrCalculatorTest, SmokeTest) {
 
   // input_vector : {0, 1, 2, 3, 4, 5}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_vector =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(6);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(6);
   for (int i = 0; i < 6; ++i) {
-    input_vector->at(i) = absl::make_unique<int>(i);
+    input_vector->at(i) = std::make_unique<int>(i);
   }
 
   MP_ASSERT_OK(graph.AddPacketToInputStream(
@@ -625,9 +623,9 @@ TEST_F(MovableSplitUniqueIntPtrCalculatorTest, SmokeTestElementOnly) {
 
   // input_vector : {0, 1, 2, 3, 4, 5}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_vector =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(6);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(6);
   for (int i = 0; i < 6; ++i) {
-    input_vector->at(i) = absl::make_unique<int>(i);
+    input_vector->at(i) = std::make_unique<int>(i);
   }
 
   MP_ASSERT_OK(graph.AddPacketToInputStream(
@@ -673,9 +671,9 @@ TEST_F(MovableSplitUniqueIntPtrCalculatorTest, SmokeTestCombiningOutputs) {
 
   // input_vector : {0, 1, 2, 3, 4, 5}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_vector =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(6);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(6);
   for (int i = 0; i < 6; ++i) {
-    input_vector->at(i) = absl::make_unique<int>(i);
+    input_vector->at(i) = std::make_unique<int>(i);
   }
 
   MP_ASSERT_OK(graph.AddPacketToInputStream(
@@ -689,6 +687,50 @@ TEST_F(MovableSplitUniqueIntPtrCalculatorTest, SmokeTestCombiningOutputs) {
   std::vector<int> input_end_indices = {1, 3, 5};
   ValidateCombinedVectorOutput(range_0_packets, /*expected_elements=*/3,
                                input_begin_indices, input_end_indices);
+}
+
+TEST(MovableSplitImageFrameVectorCalculatorTest, SmokeTest) {
+  CalculatorGraphConfig graph_config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
+          R"pb(
+            input_stream: "input_frames"
+            node {
+              calculator: "MovableSplitImageFrameVectorCalculator"
+              input_stream: "input_frames"
+              output_stream: "output_frame"
+              options {
+                [mediapipe.SplitVectorCalculatorOptions.ext] {
+                  ranges: { begin: 0 end: 1 }
+                  element_only: true
+                }
+              }
+            }
+          )pb");
+
+  std::vector<Packet> output_frame_packets;
+  tool::AddVectorSink("output_frame", &graph_config, &output_frame_packets);
+
+  CalculatorGraph graph;
+  MP_ASSERT_OK(graph.Initialize(graph_config));
+  MP_ASSERT_OK(graph.StartRun({}));
+
+  std::vector<ImageFrame> input_frames;
+  input_frames.push_back(ImageFrame(ImageFormat::SRGB, 20, 10));
+
+  MP_ASSERT_OK(graph.AddPacketToInputStream(
+      "input_frames",
+      MakePacket<std::vector<ImageFrame>>(std::move(input_frames))
+          .At(Timestamp(1))));
+
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+  MP_ASSERT_OK(graph.CloseAllPacketSources());
+  MP_ASSERT_OK(graph.WaitUntilDone());
+
+  ASSERT_EQ(output_frame_packets.size(), 1);
+  const ImageFrame& output_frame = output_frame_packets[0].Get<ImageFrame>();
+  EXPECT_EQ(output_frame.Format(), ImageFormat::SRGB);
+  EXPECT_EQ(output_frame.Width(), 20);
+  EXPECT_EQ(output_frame.Height(), 10);
 }
 
 }  // namespace mediapipe

@@ -2,23 +2,25 @@
 
 This package contains the vision tasks for MediaPipe.
 
-## Face Detection
+## Face Detector
 
 The MediaPipe Face Detector task lets you detect the presence and location of
 faces within images or videos.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const faceDetector = await FaceDetector.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/face_detector/face_detection_short_range.tflite"
+    "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const detections = faceDetector.detect(image);
 ```
 
-## Face Landmark Detection
+For more information, refer to the [Face Detector](https://developers.google.com/mediapipe/solutions/vision/face_detector/web_js) documentation.
+
+## Face Landmarker
 
 The MediaPipe Face Landmarker task lets you detect the landmarks of faces in
 an image. You can use this Task to localize key points of a face and render
@@ -26,31 +28,18 @@ visual effects over the faces.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const faceLandmarker = await FaceLandmarker.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/face_landmarker/face_landmarker.task"
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const landmarks = faceLandmarker.detect(image);
 ```
 
-## Face Stylizer
+For more information, refer to the [Face Landmarker](https://developers.google.com/mediapipe/solutions/vision/face_landmarker/web_js) documentation.
 
-The MediaPipe Face Stylizer lets you perform face stylization on images.
-
-```
-const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-);
-const faceStylizer = await FaceStylizer.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/face_stylizer/face_stylizer_with_metadata.tflite"
-);
-const image = document.getElementById("image") as HTMLImageElement;
-const stylizedImage = faceStylizer.stylize(image);
-```
-
-## Gesture Recognition
+## Gesture Recognizer
 
 The MediaPipe Gesture Recognizer task lets you recognize hand gestures in real
 time, and provides the recognized hand gesture results along with the landmarks
@@ -59,16 +48,18 @@ from a user, and invoke application features that correspond to those gestures.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const gestureRecognizer = await GestureRecognizer.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/gesture_recognizer/gesture_recognizer.task"
+    "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const recognitions = gestureRecognizer.recognize(image);
 ```
 
-## Hand Landmark Detection
+For more information, refer to the [Gesture Recognizer](https://developers.google.com/mediapipe/solutions/vision/gesture_recognizer/web_js) documentation.
+
+## Hand Landmarker
 
 The MediaPipe Hand Landmarker task lets you detect the landmarks of the hands in
 an image. You can use this Task to localize key points of the hands and render
@@ -76,18 +67,35 @@ visual effects over the hands.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const handLandmarker = await HandLandmarker.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/hand_landmarker/hand_landmarker.task"
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const landmarks = handLandmarker.detect(image);
 ```
 
-For more information, refer to the [Handlandmark Detection](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker/web_js) documentation.
+For more information, refer to the [Hand Landmarker](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker/web_js) documentation.
 
-## Image Classification
+## Holistic Landmarker
+
+The MediaPipe Holistic Landmarker task task lets you combine components of the
+pose, face, and hand landmarkers to create a complete landmarker for the human
+body.
+
+```
+const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+);
+const holisticLandmarker = await HolisticLandmarker.createFromModelPath(vision,
+    "https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/1/hand_landmark.task"
+);
+const image = document.getElementById("image") as HTMLImageElement;
+const landmarks = holisticLandmarker.detect(image);
+```
+
+## Image Classifier
 
 The MediaPipe Image Classifier task lets you perform classification on images.
 You can use this task to identify what an image represents among a set of
@@ -95,27 +103,42 @@ categories defined at training time.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const imageClassifier = await ImageClassifier.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/image_classifier/efficientnet_lite0_uint8.tflite"
+    "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const classifications = imageClassifier.classify(image);
 ```
 
-For more information, refer to the [Image Classification](https://developers.google.com/mediapipe/solutions/vision/image_classifier/web_js) documentation.
+For more information, refer to the [Image Classifier](https://developers.google.com/mediapipe/solutions/vision/image_classifier/web_js) documentation.
 
-## Image Segmentation
+## Image Embedder
+
+The MediaPipe Image Embedder extracts embeddings from an image.
+
+```
+const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+);
+const imageEmbedder = await ImageEmbedder.createFromModelPath(vision,
+    "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite"
+);
+const image = document.getElementById("image") as HTMLImageElement;
+const embeddings = imageSegmenter.embed(image);
+```
+
+## Image Segmenter
 
 The MediaPipe Image Segmenter lets you segment an image into categories.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const imageSegmenter = await ImageSegmenter.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/image_segmenter/selfie_segmentation.tflite"
+    "https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 imageSegmenter.segment(image, (masks, width, height) => {
@@ -123,36 +146,43 @@ imageSegmenter.segment(image, (masks, width, height) => {
 });
 ```
 
-## Interactive Segmentation
+For more information, refer to the [Image Segmenter](https://developers.google.com/mediapipe/solutions/vision/image_segmenter/web_js) documentation.
+
+## Interactive Segmenter
 
 The MediaPipe Interactive Segmenter lets you select a region of interest to
 segment an image by.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const interactiveSegmenter = await InteractiveSegmenter.createFromModelPath(
     vision,
-    "https://storage.googleapis.com/mediapipe-tasks/interactive_segmenter/ptm_512_hdt_ptm_woid.tflite
+    "https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task"
 );
 const image = document.getElementById("image") as HTMLImageElement;
-interactiveSegmenter.segment(image, { keypoint: { x: 0.1, y: 0.2 } },
-    (masks, width, height) => { ... }
-);
+interactiveSegmenter.setImage(image);
+const mask = interactiveSegmenter.segment([{
+  brushMode: BrushMode.POSITIVE,
+  point: [{x: 0.1, y: 0.2}],
+  isCompleted: true
+}]);
 ```
 
-## Object Detection
+For more information, refer to the [Interactive Segmenter](https://developers.google.com/mediapipe/solutions/vision/interactive_segmenter/web_js) documentation.
+
+## Object Detector
 
 The MediaPipe Object Detector task lets you detect the presence and location of
 multiple classes of objects within images or videos.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const objectDetector = await ObjectDetector.createFromModelPath(vision,
-    "https://storage.googleapis.com/mediapipe-tasks/object_detector/efficientdet_lite0_uint8.tflite"
+    "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite"
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const detections = objectDetector.detect(image);
@@ -160,8 +190,7 @@ const detections = objectDetector.detect(image);
 
 For more information, refer to the [Object Detector](https://developers.google.com/mediapipe/solutions/vision/object_detector/web_js) documentation.
 
-
-## Pose Landmark Detection
+## Pose Landmarker
 
 The MediaPipe Pose Landmarker task lets you detect the landmarks of body poses
 in an image. You can use this Task to localize key points of a pose and render
@@ -169,11 +198,31 @@ visual effects over the body.
 
 ```
 const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
 );
 const poseLandmarker = await PoseLandmarker.createFromModelPath(vision,
-    "model.task"
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
 );
 const image = document.getElementById("image") as HTMLImageElement;
 const landmarks = poseLandmarker.detect(image);
 ```
+
+For more information, refer to the [Pose Landmarker](https://developers.google.com/mediapipe/solutions/vision/pose_landmarker/web_js) documentation.
+
+### Privacy Notice
+
+Last modified: June 5, 2026
+
+When you use MediaPipe Tasks, processing of the input data (e.g. images, video,
+text) takes place on device, and MediaPipe does not send that input data to
+Google servers. As a result, you can use our MediaPipe Tasks APIs for
+processing data that should not leave the device.
+
+MediaPipe Tasks APIs send metrics about the performance and utilization of the
+APIs in your app to Google. Google uses this metrics data to measure
+performance, usage, debug, maintain and improve the MediaPipe Tasks, as further
+described in our [Privacy Policy](https://policies.google.com/privacy).
+
+**You are responsible for obtaining informed consent from your app users about
+Google's processing of MediaPipe metrics data as required by applicable law.**
+

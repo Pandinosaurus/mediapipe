@@ -14,10 +14,12 @@ limitations under the License.
 ==============================================================================*/
 
 #include <optional>
-#include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/status/statusor.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
 #include "mediapipe/calculators/core/split_vector_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/calculator.pb.h"
@@ -69,8 +71,8 @@ void ConfigureFaceGeometryEnvGeneratorCalculator(
   auto& perspective_camera =
       *options.mutable_environment()->mutable_perspective_camera();
   perspective_camera.set_vertical_fov_degrees(63.0 /*degrees*/);
-  perspective_camera.set_near(1.0 /* 1cm */);
-  perspective_camera.set_far(10000.0 /* 100m */);
+  perspective_camera.set_near_plane(1.0 /* 1cm */);
+  perspective_camera.set_far_plane(10000.0 /* 100m */);
 }
 }  // namespace
 
@@ -122,13 +124,13 @@ class FaceGeometryFromLandmarksGraph : public Subgraph {
       environment = std::make_optional<>(
           graph.SideIn(kEnvironmentTag).Cast<Environment>());
     }
-    ASSIGN_OR_RETURN(auto outs,
-                     BuildFaceGeometryFromLandmarksGraph(
-                         *sc->MutableOptions<proto::FaceGeometryGraphOptions>(),
-                         graph.In(kFaceLandmarksTag)
-                             .Cast<std::vector<NormalizedLandmarkList>>(),
-                         graph.In(kImageSizeTag).Cast<std::pair<int, int>>(),
-                         environment, graph));
+    ABSL_ASSIGN_OR_RETURN(
+        auto outs, BuildFaceGeometryFromLandmarksGraph(
+                       *sc->MutableOptions<proto::FaceGeometryGraphOptions>(),
+                       graph.In(kFaceLandmarksTag)
+                           .Cast<std::vector<NormalizedLandmarkList>>(),
+                       graph.In(kImageSizeTag).Cast<std::pair<int, int>>(),
+                       environment, graph));
     outs.multi_face_geometry >>
         graph.Out(kFaceGeometryTag).Cast<std::vector<FaceGeometry>>();
     return graph.GetConfig();

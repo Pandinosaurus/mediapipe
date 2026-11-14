@@ -16,11 +16,12 @@
 #define MEDIAPIPE_FRAMEWORK_TOOL_TYPE_UTIL_H_
 
 #include <cstddef>
+#include <ostream>
 #include <string>
 #include <typeinfo>
 #include <utility>
 
-#include "absl/base/attributes.h"
+#include "absl/base/attributes.h"  // from @com_google_absl
 #include "mediapipe/framework/demangle.h"
 #include "mediapipe/framework/port.h"
 
@@ -35,6 +36,9 @@ class TypeId {
   std::string name() const { return impl_.name(); }
   bool operator==(const TypeId& other) const { return impl_ == other.impl_; }
   bool operator<(const TypeId& other) const { return impl_ < other.impl_; }
+  friend std::ostream& operator<<(std::ostream& stream, const TypeId& id) {
+    return stream << id.name();
+  }
 
   template <typename H>
   friend H AbslHashValue(H h, const TypeId& r) {

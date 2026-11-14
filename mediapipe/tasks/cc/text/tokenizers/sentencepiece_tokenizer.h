@@ -21,10 +21,11 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/tasks/cc/text/tokenizers/tokenizer.h"
-#include "src/sentencepiece_processor.h"
+#include "sentencepiece/src/sentencepiece_processor.h"  // from @com_google_sentencepiece
 
 namespace mediapipe {
 namespace tasks {
@@ -36,21 +37,34 @@ class SentencePieceTokenizer : public Tokenizer {
  public:
   // Initialize the SentencePiece tokenizer from model file path.
   explicit SentencePieceTokenizer(const std::string& path_to_model) {
-    CHECK_OK(sp_.Load(path_to_model));
+    // Can't use ABSL_CHECK_OK here because in internal builds
+    // the return type is absl::Status while the open source builds
+    // use sentencepiece/src/deps/status.h's util::Status which
+    // doesn't work with the absl CHECK macros.
+    const auto status = sp_.Load(path_to_model);
+    ABSL_CHECK(status.ok()) << status.ToString();
   }
 
   explicit SentencePieceTokenizer(const char* spmodel_buffer_data,
                                   size_t spmodel_buffer_size) {
     absl::string_view buffer_binary(spmodel_buffer_data, spmodel_buffer_size);
-    CHECK_OK(sp_.LoadFromSerializedProto(buffer_binary));
+    const auto status = sp_.LoadFromSerializedProto(buffer_binary);
+    ABSL_CHECK(status.ok()) << status.ToString();
   }
 
   // Perform tokenization, return tokenized results.
   TokenizerResult Tokenize(const std::string& input) override {
     TokenizerResult result;
     std::vector<std::string>& subwords = result.subwords;
-    CHECK_OK(sp_.Encode(input, &subwords));
+    const auto status = sp_.Encode(input, &subwords);
+    ABSL_CHECK(status.ok()) << status.ToString();
     return result;
+  }
+
+  // Encode to token-ids
+  void Encode(const std::string& input, std::vector<int>* ids) const {
+    const auto status = sp_.Encode(input, ids);
+    ABSL_CHECK(status.ok()) << status;
   }
 
   // Find the id of a string token.
@@ -64,6 +78,10 @@ class SentencePieceTokenizer : public Tokenizer {
     *result = sp_.IdToPiece(vocab_id);
     return true;
   }
+
+  int bos_id() const { return sp_.bos_id(); }
+  int eos_id() const { return sp_.eos_id(); }
+  int pad_id() const { return sp_.pad_id(); }
 
  private:
   sentencepiece::SentencePieceProcessor sp_;

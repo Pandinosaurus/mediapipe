@@ -14,18 +14,26 @@
 
 #include "mediapipe/python/pybind/packet_creator.h"
 
-#include "absl/memory/memory.h"
-#include "absl/strings/str_cat.h"
+#include <algorithm>
+#include <climits>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/memory/memory.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/image.h"
+#include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/packet.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/timestamp.h"
 #include "mediapipe/python/pybind/image_frame_util.h"
 #include "mediapipe/python/pybind/util.h"
-#include "pybind11/eigen.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
+#include "pybind11/eigen.h"     // from @pybind11
+#include "pybind11/pybind11.h"  // from @pybind11
+#include "pybind11/stl.h"       // from @pybind11
 
 namespace mediapipe {
 namespace python {
@@ -389,7 +397,7 @@ void PublicPacketCreators(pybind11::module* m) {
       [](const std::vector<int>& data) {
         int* ints = new int[data.size()];
         std::copy(data.begin(), data.end(), ints);
-        return Adopt(reinterpret_cast<int(*)[]>(ints));
+        return Adopt(reinterpret_cast<int (*)[]>(ints));
       },
       R"doc(Create a MediaPipe int array Packet from a list of integers.
 
@@ -412,7 +420,7 @@ void PublicPacketCreators(pybind11::module* m) {
       [](const std::vector<float>& data) {
         float* floats = new float[data.size()];
         std::copy(data.begin(), data.end(), floats);
-        return Adopt(reinterpret_cast<float(*)[]>(floats));
+        return Adopt(reinterpret_cast<float (*)[]>(floats));
       },
       R"doc(Create a MediaPipe float array Packet from a list of floats.
 
@@ -542,6 +550,31 @@ void PublicPacketCreators(pybind11::module* m) {
       py::arg().noconvert(), py::return_value_policy::move);
 
   m->def(
+      "create_image_frame_vector",
+      [](const py::list& data) {
+        return MakePacket<std::vector<ImageFrame>>(
+            CreateImageFrameVectorFromImageFrameList(data));
+      },
+      R"doc(Create a MediaPipe Packet holding a vector of MediaPipe ImageFrames.
+
+  Args:
+    data: A list of MediaPipe ImageFrames.
+
+  Returns:
+    A MediaPipe Packet holding a vector of MediaPipe ImageFrames that are copies
+    of the original ImageFrames.
+
+  Raises:
+    TypeError: If the input is not a list of MediaPipe ImageFrames.
+
+  Examples:
+    packet = mp.packet_creator.create_image_frame_vector([
+        image_frame_1, image_frame_2, image_frame_3])
+    data = mp.packet_getter.get_image_frame_list(packet)
+)doc",
+      py::arg().noconvert(), py::return_value_policy::move);
+
+  m->def(
       "create_packet_vector",
       [](const std::vector<Packet>& data) {
         return MakePacket<std::vector<Packet>>(data);
@@ -649,7 +682,7 @@ void InternalPacketCreators(pybind11::module* m) {
   m->def(
       "_create_image_frame_from_image_frame",
       [](ImageFrame& image_frame) {
-        auto image_frame_copy = absl::make_unique<ImageFrame>();
+        auto image_frame_copy = std::make_unique<ImageFrame>();
         // Set alignment_boundary to kGlDefaultAlignmentBoundary so that
         // both GPU and CPU can process it.
         image_frame_copy->CopyFrom(image_frame,
@@ -661,7 +694,7 @@ void InternalPacketCreators(pybind11::module* m) {
   m->def(
       "_create_image_from_image",
       [](Image& image) {
-        auto image_frame_copy = absl::make_unique<ImageFrame>();
+        auto image_frame_copy = std::make_unique<ImageFrame>();
         // Set alignment_boundary to kGlDefaultAlignmentBoundary so that
         // both GPU and CPU can process it.
         image_frame_copy->CopyFrom(*image.GetImageFrameSharedPtr(),

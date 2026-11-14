@@ -15,18 +15,19 @@
 // Definition of helper functions.
 #include "mediapipe/framework/tool/validate_name.h"
 
-#include "absl/strings/escaping.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
-#include "mediapipe/framework/port/canonical_errors.h"
+#include <cstdint>
+
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/escaping.h"      // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/strings/str_join.h"      // from @com_google_absl
+#include "absl/strings/str_split.h"     // from @com_google_absl
 #include "mediapipe/framework/port/core_proto_inc.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/source_location.h"
 #include "mediapipe/framework/port/status_builder.h"
-#include "mediapipe/framework/port/status_macros.h"
 
 namespace mediapipe {
 namespace tool {
@@ -50,7 +51,7 @@ absl::Status GetTagAndNameInfo(
   for (const auto& tag_and_name : tags_and_names) {
     std::string tag;
     std::string name;
-    MP_RETURN_IF_ERROR(ParseTagAndName(tag_and_name, &tag, &name));
+    ABSL_RETURN_IF_ERROR(ParseTagAndName(tag_and_name, &tag, &name));
     if (!tag.empty()) {
       info->tags.push_back(tag);
     }
@@ -73,7 +74,7 @@ absl::Status SetFromTagAndNameInfo(
   tags_and_names->Clear();
   if (info.tags.empty()) {
     for (const auto& name : info.names) {
-      MP_RETURN_IF_ERROR(ValidateName(name));
+      ABSL_RETURN_IF_ERROR(ValidateName(name));
       *tags_and_names->Add() = name;
     }
   } else {
@@ -83,8 +84,8 @@ absl::Status SetFromTagAndNameInfo(
              << " does not match the number of tags " << info.tags.size();
     }
     for (int i = 0; i < info.tags.size(); ++i) {
-      MP_RETURN_IF_ERROR(ValidateTag(info.tags[i]));
-      MP_RETURN_IF_ERROR(ValidateName(info.names[i]));
+      ABSL_RETURN_IF_ERROR(ValidateTag(info.tags[i]));
+      ABSL_RETURN_IF_ERROR(ValidateName(info.names[i]));
       *tags_and_names->Add() = absl::StrCat(info.tags[i], ":", info.names[i]);
     }
   }
@@ -127,14 +128,14 @@ absl::Status ValidateTag(const std::string& tag) {
                    "\" does not match \"" MEDIAPIPE_TAG_REGEX "\"."));
 }
 
-absl::Status ParseTagAndName(const std::string& tag_and_name, std::string* tag,
+absl::Status ParseTagAndName(absl::string_view tag_and_name, std::string* tag,
                              std::string* name) {
   // An optional tag and colon, followed by a name.
   RET_CHECK(tag);
   RET_CHECK(name);
   absl::Status tag_status = absl::OkStatus();
   absl::Status name_status = absl::UnknownError("");
-  int name_index = 0;
+  int name_index = -1;
   std::vector<std::string> v = absl::StrSplit(tag_and_name, ':');
   if (v.size() == 1) {
     name_status = ValidateName(v[0]);
@@ -143,7 +144,7 @@ absl::Status ParseTagAndName(const std::string& tag_and_name, std::string* tag,
     tag_status = ValidateTag(v[0]);
     name_status = ValidateName(v[1]);
     name_index = 1;
-  }
+  }  // else omitted, name_index == -1, triggering error.
   if (name_index == -1 || tag_status != absl::OkStatus() ||
       name_status != absl::OkStatus()) {
     tag->clear();

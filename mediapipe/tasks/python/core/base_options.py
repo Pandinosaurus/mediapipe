@@ -14,15 +14,45 @@
 """Base options for MediaPipe Task APIs."""
 
 import dataclasses
-import os
+import enum
+import platform
+import sys
+import types
 from typing import Any, Optional
 
-from mediapipe.tasks.cc.core.proto import base_options_pb2
-from mediapipe.tasks.cc.core.proto import external_file_pb2
+import certifi
+
+from mediapipe.tasks.python.core import base_options_c as base_options_c_lib
 from mediapipe.tasks.python.core.optional_dependencies import doc_controls
 
-_BaseOptionsProto = base_options_pb2.BaseOptions
-_ExternalFileProto = external_file_pb2.ExternalFile
+
+# C enum value for host environment.
+HOST_ENVIRONMENT_PYTHON: int = 3
+
+
+class _HostSystem(enum.IntEnum):
+  """An mapping for the C enum values for the host operating system.
+
+  Attributes:
+    HOST_SYSTEM_UNKNOWN: Unknown host system.
+    HOST_SYSTEM_LINUX: Linux host system.
+    HOST_SYSTEM_MAC: MacOS host system.
+    HOST_SYSTEM_WINDOWS: Windows host system.
+  """
+
+  HOST_SYSTEM_UNKNOWN = 0
+  HOST_SYSTEM_LINUX = 1
+  HOST_SYSTEM_MAC = 2
+  HOST_SYSTEM_WINDOWS = 3
+
+
+
+
+_HOST_SYSTEM_BY_PLATFORM = types.MappingProxyType({
+    'Darwin': _HostSystem.HOST_SYSTEM_MAC,
+    'Windows': _HostSystem.HOST_SYSTEM_WINDOWS,
+    'Linux': _HostSystem.HOST_SYSTEM_LINUX,
+})
 
 
 @dataclasses.dataclass
@@ -41,31 +71,48 @@ class BaseOptions:
   Attributes:
     model_asset_path: Path to the model asset file.
     model_asset_buffer: The model asset file contents as bytes.
+    delegate: Acceleration to use. Supported values are GPU and CPU. GPU support
+      is currently limited to Ubuntu platforms.
   """
+
+  class Delegate(enum.IntEnum):
+    DEFAULT = 0
+    CPU = 1
+    GPU = 2
+
 
   model_asset_path: Optional[str] = None
   model_asset_buffer: Optional[bytes] = None
-  # TODO: Allow Python API to specify acceleration settings.
+  delegate: Optional[Delegate] = None
 
   @doc_controls.do_not_generate_docs
-  def to_pb2(self) -> _BaseOptionsProto:
-    """Generates a BaseOptions protobuf object."""
-    if self.model_asset_path is not None:
-      full_path = os.path.abspath(self.model_asset_path)
-    else:
-      full_path = None
-
-    return _BaseOptionsProto(
-        model_asset=_ExternalFileProto(
-            file_name=full_path, file_content=self.model_asset_buffer))
-
-  @classmethod
-  @doc_controls.do_not_generate_docs
-  def create_from_pb2(cls, pb2_obj: _BaseOptionsProto) -> 'BaseOptions':
-    """Creates a `BaseOptions` object from the given protobuf object."""
-    return BaseOptions(
-        model_asset_path=pb2_obj.model_asset.file_name,
-        model_asset_buffer=pb2_obj.model_asset.file_content)
+  def to_ctypes(self) -> base_options_c_lib.MpBaseOptionsC:
+    """Creates a MpBaseOptionsC struct from the BaseOptions object."""
+    ca_bundle_path = certifi.where()
+    host_system = _HOST_SYSTEM_BY_PLATFORM.get(
+        platform.system(), _HostSystem.HOST_SYSTEM_UNKNOWN
+    )
+    options = base_options_c_lib.MpBaseOptionsC()
+    options.model_asset_buffer = self.model_asset_buffer
+    options.model_asset_buffer_count = (
+        len(self.model_asset_buffer) if self.model_asset_buffer else 0
+    )
+    options.model_asset_path = (
+        self.model_asset_path.encode('utf-8') if self.model_asset_path else None
+    )
+    options.delegate = (
+        self.delegate.value if self.delegate is not None else self.Delegate.CPU
+    )
+    options.host_environment = HOST_ENVIRONMENT_PYTHON
+    host_version, *_ = sys.version.split(' ')
+    options.host_system = host_system
+    options.host_version = host_version.encode('utf-8')
+    options.ca_bundle_path = ca_bundle_path.encode('utf-8')
+    options.app_id = None
+    options.app_version = None
+    options.npu_dispatch_library_dir = None
+    options.file_descriptor = -1
+    return options
 
   def __eq__(self, other: Any) -> bool:
     """Checks if this object is equal to the given object.
@@ -78,5 +125,8 @@ class BaseOptions:
     """
     if not isinstance(other, BaseOptions):
       return False
-
-    return self.to_pb2().__eq__(other.to_pb2())
+    return (
+        self.model_asset_path == other.model_asset_path
+        and self.model_asset_buffer == other.model_asset_buffer
+        and self.delegate == other.delegate
+    )

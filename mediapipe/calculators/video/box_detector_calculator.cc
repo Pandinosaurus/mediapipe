@@ -14,22 +14,24 @@
 
 #include <stdio.h>
 
+#include <cstdint>
 #include <memory>
 #include <unordered_set>
 
-#include "absl/memory/memory.h"
-#include "absl/strings/numbers.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/memory/memory.h"         // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/numbers.h"       // from @com_google_absl
 #include "mediapipe/calculators/video/box_detector_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/formats/video_stream_header.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_features2d_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/resource_util.h"
 #include "mediapipe/util/tracking/box_detector.h"
 #include "mediapipe/util/tracking/box_tracker.h"
@@ -42,6 +44,7 @@
 #include "mediapipe/util/android/file/base/file.h"
 #include "mediapipe/util/android/file/base/helpers.h"
 #else
+
 #include "mediapipe/framework/port/file_helpers.h"
 #endif
 
@@ -116,7 +119,7 @@ class BoxDetectorCalculator : public CalculatorBase {
   BoxDetectorCalculatorOptions options_;
   std::unique_ptr<BoxDetectorInterface> box_detector_;
   bool detector_switch_ = true;
-  uint32 frame_alignment_ = ImageFrame::kDefaultAlignmentBoundary;
+  uint32_t frame_alignment_ = ImageFrame::kDefaultAlignmentBoundary;
   bool write_index_ = false;
   int box_id_ = 0;
 };
@@ -198,19 +201,20 @@ absl::Status BoxDetectorCalculator::Open(CalculatorContext* cc) {
     if (!predefined_index.ParseFromString(cc->InputSidePackets()
                                               .Tag(kIndexProtoStringTag)
                                               .Get<std::string>())) {
-      LOG(FATAL) << "failed to parse BoxDetectorIndex from INDEX_PROTO_STRING";
+      ABSL_LOG(FATAL)
+          << "failed to parse BoxDetectorIndex from INDEX_PROTO_STRING";
     }
     box_detector_->AddBoxDetectorIndex(predefined_index);
   }
 
   for (const auto& filename : options_.index_proto_filename()) {
     std::string string_path;
-    ASSIGN_OR_RETURN(string_path, PathToResourceAsFile(filename));
+    ABSL_ASSIGN_OR_RETURN(string_path, PathToResourceAsFile(filename));
     std::string index_string;
-    MP_RETURN_IF_ERROR(file::GetContents(string_path, &index_string));
+    ABSL_RETURN_IF_ERROR(file::GetContents(string_path, &index_string));
     BoxDetectorIndex predefined_index;
     if (!predefined_index.ParseFromString(index_string)) {
-      LOG(FATAL)
+      ABSL_LOG(FATAL)
           << "failed to parse BoxDetectorIndex from index_proto_filename";
     }
     box_detector_->AddBoxDetectorIndex(predefined_index);
@@ -230,7 +234,7 @@ absl::Status BoxDetectorCalculator::Open(CalculatorContext* cc) {
 
 absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
   const Timestamp timestamp = cc->InputTimestamp();
-  const int64 timestamp_msec = timestamp.Value() / 1000;
+  const int64_t timestamp_msec = timestamp.Value() / 1000;
 
   InputStream* cancel_object_id_stream =
       cc->Inputs().HasTag(kCancelObjectIdTag)
@@ -248,7 +252,7 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
     BoxDetectorIndex predefined_index;
     if (!predefined_index.ParseFromString(
             add_index_stream->Get<std::string>())) {
-      LOG(FATAL) << "failed to parse BoxDetectorIndex from ADD_INDEX";
+      ABSL_LOG(FATAL) << "failed to parse BoxDetectorIndex from ADD_INDEX";
     }
     box_detector_->AddBoxDetectorIndex(predefined_index);
   }
@@ -276,8 +280,8 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
                                        ? &(cc->Inputs().Tag(kDescriptorsTag))
                                        : nullptr;
 
-  CHECK(track_stream != nullptr || video_stream != nullptr ||
-        (feature_stream != nullptr && descriptor_stream != nullptr))
+  ABSL_CHECK(track_stream != nullptr || video_stream != nullptr ||
+             (feature_stream != nullptr && descriptor_stream != nullptr))
       << "One and only one of {tracking_data, input image frame, "
          "feature/descriptor} need to be valid.";
 
@@ -295,7 +299,7 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
 
     const TrackingData& tracking_data = track_stream->Get<TrackingData>();
 
-    CHECK(tracked_boxes_stream != nullptr) << "tracked_boxes needed.";
+    ABSL_CHECK(tracked_boxes_stream != nullptr) << "tracked_boxes needed.";
 
     const TimedBoxProtoList tracked_boxes =
         tracked_boxes_stream->Get<TimedBoxProtoList>();
@@ -359,7 +363,7 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
 
     const auto& descriptors = descriptor_stream->Get<std::vector<float>>();
     const int dims = options_.detector_options().descriptor_dims();
-    CHECK_GE(descriptors.size(), feature_size * dims);
+    ABSL_CHECK_GE(descriptors.size(), feature_size * dims);
     cv::Mat descriptors_mat(feature_size, dims, CV_32F);
     for (int j = 0; j < feature_size; ++j) {
       features_vec[j].Set(features[j].pt.x * inv_scale,
@@ -379,7 +383,7 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
     cv::Mat viz_view;
     std::unique_ptr<ImageFrame> viz_frame;
     if (video_stream != nullptr && !video_stream->IsEmpty()) {
-      viz_frame = absl::make_unique<ImageFrame>();
+      viz_frame = std::make_unique<ImageFrame>();
       viz_frame->CopyFrom(video_stream->Get<ImageFrame>(), frame_alignment_);
       viz_view = formats::MatView(viz_frame.get());
     }
@@ -399,7 +403,7 @@ absl::Status BoxDetectorCalculator::Process(CalculatorContext* cc) {
 absl::Status BoxDetectorCalculator::Close(CalculatorContext* cc) {
   if (write_index_) {
     BoxDetectorIndex index = box_detector_->ObtainBoxDetectorIndex();
-    MEDIAPIPE_CHECK_OK(mediapipe::file::SetContents(
+    ABSL_CHECK_OK(mediapipe::file::SetContents(
         cc->InputSidePackets().Tag(kOutputIndexFilenameTag).Get<std::string>(),
         index.SerializeAsString()));
   }

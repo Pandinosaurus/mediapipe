@@ -14,8 +14,9 @@
 
 #include <memory>
 
-#include "absl/status/status.h"
-#include "absl/types/optional.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/types/optional.h"        // from @com_google_absl
 #include "mediapipe/calculators/core/split_vector_calculator.h"
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/api2/port.h"
@@ -23,7 +24,6 @@
 #include "mediapipe/framework/calculator_runner.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -327,13 +327,13 @@ class ToOptionalNode : public mediapipe::api2::Node {
  public:
   static constexpr mediapipe::api2::Input<int> kTick{"TICK"};
   static constexpr mediapipe::api2::Input<int> kInValue{"VALUE"};
-  static constexpr mediapipe::api2::Output<absl::optional<int>> kOutValue{
+  static constexpr mediapipe::api2::Output<std::optional<int>> kOutValue{
       "OUTPUT"};
   MEDIAPIPE_NODE_CONTRACT(kTick, kInValue, kOutValue);
 
   absl::Status Process(CalculatorContext* cc) override {
     if (kInValue(cc).IsEmpty()) {
-      kOutValue(cc).Send(absl::nullopt);
+      kOutValue(cc).Send(std::nullopt);
     } else {
       kOutValue(cc).Send({kInValue(cc).Get()});
     }
@@ -377,22 +377,22 @@ TEST(MuxCalculatorTest, HandleTimestampBoundUpdates) {
   MP_ASSERT_OK(graph.StartRun({}));
 
   auto send_value_fn = [&](int value, Timestamp ts) -> absl::Status {
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         graph.AddPacketToInputStream("select", MakePacket<int>(value).At(ts)));
     return graph.WaitUntilIdle();
   };
 
   MP_ASSERT_OK(send_value_fn(0, Timestamp(1)));
   ASSERT_EQ(output_packets.size(), 1);
-  EXPECT_EQ(output_packets[0].Get<absl::optional<int>>(), 0);
+  EXPECT_EQ(output_packets[0].Get<std::optional<int>>(), 0);
 
   MP_ASSERT_OK(send_value_fn(1, Timestamp(2)));
   ASSERT_EQ(output_packets.size(), 2);
-  EXPECT_EQ(output_packets[1].Get<absl::optional<int>>(), absl::nullopt);
+  EXPECT_EQ(output_packets[1].Get<std::optional<int>>(), std::nullopt);
 
   MP_ASSERT_OK(send_value_fn(0, Timestamp(3)));
   ASSERT_EQ(output_packets.size(), 3);
-  EXPECT_EQ(output_packets[2].Get<absl::optional<int>>(), 0);
+  EXPECT_EQ(output_packets[2].Get<std::optional<int>>(), 0);
 
   MP_ASSERT_OK(graph.CloseAllInputStreams());
   MP_ASSERT_OK(graph.WaitUntilDone());

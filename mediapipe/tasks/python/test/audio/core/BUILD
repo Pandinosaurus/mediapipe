@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Placeholder for internal Python strict test compatibility macro.
-
-package(default_visibility = ["//mediapipe/tasks:internal"])
+# Placeholder: load py_test
 
 licenses(["notice"])
 
 py_test(
     name = "audio_record_test",
     srcs = ["audio_record_test.py"],
-    deps = ["//mediapipe/tasks/python/audio/core:audio_record"],
+    deps = [
+        "//mediapipe/tasks/python/audio/core:audio_record",
+        "@mediapipe_pip_deps_absl_py//:pkg",
+        "@mediapipe_pip_deps_numpy//:pkg",
+    ],
 )

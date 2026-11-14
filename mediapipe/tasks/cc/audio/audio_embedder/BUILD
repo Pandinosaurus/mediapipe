@@ -1,4 +1,4 @@
-# Copyright 2022 The MediaPipe Authors.
+# Copyright 2026 The MediaPipe Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,70 +12,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
-# Docs for Mediapipe Tasks Audio Embedder
-# https://developers.google.com/mediapipe/solutions/audio/audio_embedder
 cc_library(
     name = "audio_embedder",
     srcs = ["audio_embedder.cc"],
     hdrs = ["audio_embedder.h"],
-    visibility = ["//visibility:public"],
     deps = [
-        ":audio_embedder_graph",
-        "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework:timestamp",
         "//mediapipe/framework/formats:matrix",
-        "//mediapipe/tasks/cc/audio/audio_embedder/proto:audio_embedder_graph_options_cc_proto",
-        "//mediapipe/tasks/cc/audio/core:audio_task_api_factory",
-        "//mediapipe/tasks/cc/audio/core:base_audio_task_api",
-        "//mediapipe/tasks/cc/audio/core:running_mode",
         "//mediapipe/tasks/cc/components/containers:embedding_result",
-        "//mediapipe/tasks/cc/components/containers/proto:embeddings_cc_proto",
         "//mediapipe/tasks/cc/components/processors:embedder_options",
-        "//mediapipe/tasks/cc/components/processors/proto:embedder_options_cc_proto",
         "//mediapipe/tasks/cc/core:base_options",
-        "//mediapipe/tasks/cc/core:task_runner",
-        "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
-        "@com_google_absl//absl/status:statusor",
-        "@org_tensorflow//tensorflow/lite/core/api:op_resolver",
-    ],
-)
-
-cc_library(
-    name = "audio_embedder_graph",
-    srcs = ["audio_embedder_graph.cc"],
-    deps = [
-        "//mediapipe/calculators/audio:time_series_framer_calculator",
-        "//mediapipe/calculators/core:constant_side_packet_calculator",
-        "//mediapipe/calculators/core:constant_side_packet_calculator_cc_proto",
-        "//mediapipe/calculators/core:side_packet_to_stream_calculator",
-        "//mediapipe/calculators/tensor:audio_to_tensor_calculator",
-        "//mediapipe/calculators/tensor:audio_to_tensor_calculator_cc_proto",
-        "//mediapipe/calculators/tensor:inference_calculator_cpu",
-        "//mediapipe/framework:calculator_cc_proto",
-        "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework/api2:builder",
-        "//mediapipe/framework/api2:port",
-        "//mediapipe/framework/formats:matrix",
-        "//mediapipe/tasks/cc:common",
-        "//mediapipe/tasks/cc/audio/audio_embedder/proto:audio_embedder_graph_options_cc_proto",
-        "//mediapipe/tasks/cc/audio/utils:audio_tensor_specs",
-        "//mediapipe/tasks/cc/components/containers/proto:embeddings_cc_proto",
-        "//mediapipe/tasks/cc/components/processors:embedding_postprocessing_graph",
-        "//mediapipe/tasks/cc/components/processors/proto:embedding_postprocessing_graph_options_cc_proto",
-        "//mediapipe/tasks/cc/core:model_resources",
-        "//mediapipe/tasks/cc/core:model_task_graph",
-        "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
-        "//mediapipe/tasks/cc/metadata:metadata_extractor",
-        "//mediapipe/tasks/metadata:metadata_schema_cc",
+        "//mediapipe/tasks/cc/core:running_mode",
+        "//mediapipe/tasks/cc/core:tasks_logging_factory",
+        "//mediapipe/tasks/cc/core/logging:tasks_logger",
+        "//mediapipe/tasks/cc/core/logging/factory:logging_factory_hdr",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert_lm//runtime/core:embedding_engine_impl",
+        "@litert_lm//runtime/engine:embedding_engine",
+        "@litert_lm//runtime/engine:embedding_engine_settings",
+        "@litert_lm//runtime/engine:io_types",
+        "@litert_lm//runtime/executor:embedding_executor_base",
+        "@litert_lm//runtime/executor:executor_settings_base",
+        "@litert_lm//support/util:io_types",
+        "@litert_lm//support/util:memory_mapped_file",
     ],
-    alwayslink = 1,
 )
 
-# TODO: mediapipe/tasks/cc/audio/utils:test_utils does not compile in the OSS build
+cc_test(
+    name = "audio_embedder_test",
+    srcs = ["audio_embedder_test.cc"],
+    data = [
+        "//mediapipe/tasks/testdata/audio:test_audio_clips",
+        "//mediapipe/tasks/testdata/audio:test_models",
+    ],
+    deps = [
+        ":audio_embedder",
+        "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/formats:matrix",
+        "//mediapipe/framework/port:gtest",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@litert//tflite:test_util",
+    ],
+)

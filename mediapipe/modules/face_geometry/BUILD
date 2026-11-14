@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 load("//mediapipe/framework/tool:mediapipe_graph.bzl", "mediapipe_simple_subgraph")
 
@@ -63,14 +64,13 @@ cc_library(
     deps = [
         ":effect_renderer_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:resources",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/gpu:gl_calculator_helper",
         "//mediapipe/gpu:gpu_buffer",
         "//mediapipe/modules/face_geometry/libs:effect_renderer",
@@ -79,6 +79,10 @@ cc_library(
         "//mediapipe/modules/face_geometry/protos:face_geometry_cc_proto",
         "//mediapipe/modules/face_geometry/protos:mesh_3d_cc_proto",
         "//mediapipe/util:resource_util",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
     ],
     alwayslink = 1,
@@ -99,9 +103,10 @@ cc_library(
     deps = [
         ":env_generator_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework/port:status",
         "//mediapipe/modules/face_geometry/libs:validation_utils",
         "//mediapipe/modules/face_geometry/protos:environment_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
     alwayslink = 1,
 )
@@ -120,18 +125,19 @@ cc_library(
     deps = [
         ":geometry_pipeline_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:resources",
         "//mediapipe/framework/formats:landmark_cc_proto",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/modules/face_geometry/libs:geometry_pipeline",
         "//mediapipe/modules/face_geometry/libs:validation_utils",
         "//mediapipe/modules/face_geometry/protos:environment_cc_proto",
         "//mediapipe/modules/face_geometry/protos:face_geometry_cc_proto",
         "//mediapipe/modules/face_geometry/protos:geometry_pipeline_metadata_cc_proto",
         "//mediapipe/util:resource_util",
-        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
     ],
     alwayslink = 1,
 )

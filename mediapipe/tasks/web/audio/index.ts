@@ -15,13 +15,19 @@
  */
 
 import {AudioClassifier as AudioClassifierImpl} from '../../../tasks/web/audio/audio_classifier/audio_classifier';
-import {AudioEmbedder as AudioEmbedderImpl} from '../../../tasks/web/audio/audio_embedder/audio_embedder';
+import {AudioTranscriber as AudioTranscriberImpl} from '../../../tasks/web/audio/audio_transcriber/audio_transcriber';
+import {
+  TextToSpeech as TextToSpeechImpl,
+  TextToSpeechStream as TextToSpeechStreamImpl,
+} from '../../../tasks/web/audio/text_to_speech/text_to_speech';
 import {FilesetResolver as FilesetResolverImpl} from '../../../tasks/web/core/fileset_resolver';
 
-// Declare the variables locally so that Rollup in OSS includes them explicitly
-// as exports.
-const AudioClassifier = AudioClassifierImpl;
-const AudioEmbedder = AudioEmbedderImpl;
-const FilesetResolver = FilesetResolverImpl;
+// tslint:disable:enforce-comments-on-exported-symbols
 
-export {AudioClassifier, AudioEmbedder, FilesetResolver};
+// Declare and export the variables inline so that Rollup in OSS
+// explicitly retains the bindings and avoids dead-code elimination bugs.
+export const AudioClassifier = AudioClassifierImpl;
+export const AudioTranscriber = AudioTranscriberImpl;
+export const TextToSpeech = TextToSpeechImpl;
+export const TextToSpeechStream = TextToSpeechStreamImpl;
+export const FilesetResolver = FilesetResolverImpl;

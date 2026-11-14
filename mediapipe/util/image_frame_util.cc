@@ -14,29 +14,21 @@
 
 #include "mediapipe/util/image_frame_util.h"
 
-#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
-#include <string>
-#include <vector>
 
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/string_view.h"
-#include "libyuv/convert.h"
-#include "libyuv/convert_argb.h"
-#include "libyuv/convert_from.h"
-#include "libyuv/row.h"
-#include "libyuv/video_common.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"    // from @com_google_absl
+#include "absl/types/span.h"      // from @com_google_absl
+#include "libyuv/video_common.h"  // from @libyuv
 #include "mediapipe/framework/deps/mathutil.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/formats/yuv_image.h"
 #include "mediapipe/framework/port/aligned_malloc_and_free.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/logging.h"
+#include "mediapipe/framework/port/libyuv_port.h"
 #include "mediapipe/framework/port/port.h"
-#include "mediapipe/framework/port/status_macros.h"
 
 namespace mediapipe {
 
@@ -46,8 +38,8 @@ void RescaleImageFrame(const ImageFrame& source_frame, const int width,
                        const int height, const int alignment_boundary,
                        const int open_cv_interpolation_algorithm,
                        ImageFrame* destination_frame) {
-  CHECK(destination_frame);
-  CHECK_EQ(ImageFormat::SRGB, source_frame.Format());
+  ABSL_CHECK(destination_frame);
+  ABSL_CHECK_EQ(ImageFormat::SRGB, source_frame.Format());
 
   cv::Mat source_mat = ::mediapipe::formats::MatView(&source_frame);
   destination_frame->Reset(source_frame.Format(), width, height,
@@ -61,7 +53,7 @@ void RescaleImageFrame(const ImageFrame& source_frame, const int width,
 void RescaleSrgbImage(const cv::Mat& source, const int width, const int height,
                       const int open_cv_interpolation_algorithm,
                       cv::Mat* destination) {
-  CHECK(destination);
+  ABSL_CHECK(destination);
 
   // Convert input_mat into 16 bit per channel linear RGB space.
   cv::Mat input_mat16;
@@ -92,21 +84,44 @@ void ImageFrameToYUVImage(const ImageFrame& image_frame, YUVImage* yuv_image) {
   uint8_t* data =
       reinterpret_cast<uint8_t*>(aligned_malloc(y_size + uv_size * 2, 16));
   std::function<void()> deallocate = [data]() { aligned_free(data); };
-  uint8_t* y = data;
-  uint8_t* u = y + y_size;
-  uint8_t* v = u + uv_size;
+  auto y = absl::MakeSpan(data, y_size);
+  auto u = absl::MakeSpan(data + y_size, uv_size);
+  auto v = absl::MakeSpan(data + y_size + uv_size, uv_size);
   yuv_image->Initialize(libyuv::FOURCC_I420, deallocate,  //
                         y, y_stride,                      //
                         u, uv_stride,                     //
                         v, uv_stride,                     //
                         width, height);
-  int rv =
-      libyuv::RAWToI420(image_frame.PixelData(), image_frame.WidthStep(),  //
-                        y, y_stride,                                       //
-                        u, uv_stride,                                      //
-                        v, uv_stride,                                      //
-                        width, height);
-  CHECK_EQ(0, rv);
+  switch (image_frame.Format()) {
+    case ImageFormat::SRGBA:
+      // ABGR little endian (RGBA in memory).
+      ABSL_CHECK_OK(libyuv_port::ABGRToI420(
+          {image_frame.PixelDataSpan(), image_frame.WidthStep()},  //
+          {y, y_stride},                                           //
+          {u, uv_stride},                                          //
+          {v, uv_stride},                                          //
+          width, height));
+      break;
+    case ImageFormat::SRGB:
+      // RAW in libyuv is byte order R, G, B, see libyuv/convert.h.
+      ABSL_CHECK_OK(libyuv_port::RAWToI420(
+          {image_frame.PixelDataSpan(), image_frame.WidthStep()},  //
+          {y, y_stride},                                           //
+          {u, uv_stride},                                          //
+          {v, uv_stride},                                          //
+          width, height));
+      break;
+    default:
+      ABSL_LOG(ERROR)
+          << "Using RGB conversion for unexpected image frame format";
+      // RAW in libyuv is byte order R, G, B, see libyuv/convert.h.
+      ABSL_CHECK_OK(libyuv_port::RAWToI420(
+          {image_frame.PixelDataSpan(), image_frame.WidthStep()},  //
+          {y, y_stride},                                           //
+          {u, uv_stride},                                          //
+          {v, uv_stride},                                          //
+          width, height));
+  }
 }
 
 void ImageFrameToYUVNV12Image(const ImageFrame& image_frame,
@@ -126,47 +141,49 @@ void ImageFrameToYUVNV12Image(const ImageFrame& image_frame,
   uint8_t* data =
       reinterpret_cast<uint8_t*>(aligned_malloc(y_size + uv_size, 16));
   std::function<void()> deallocate = [data] { aligned_free(data); };
-  uint8_t* y = data;
-  uint8_t* uv = y + y_size;
-  yuv_nv12_image->Initialize(libyuv::FOURCC_NV12, deallocate, y, y_stride, uv,
-                             uv_stride, nullptr, 0, width, height);
-  const int rv = libyuv::I420ToNV12(
-      yuv_i420_image.data(0), yuv_i420_image.stride(0), yuv_i420_image.data(1),
-      yuv_i420_image.stride(1), yuv_i420_image.data(2),
-      yuv_i420_image.stride(2), yuv_nv12_image->mutable_data(0),
-      yuv_nv12_image->stride(0), yuv_nv12_image->mutable_data(1),
-      yuv_nv12_image->stride(1), width, height);
-  CHECK_EQ(0, rv);
+  auto y = absl::MakeSpan(data, y_size);
+  auto uv = absl::MakeSpan(data + y_size, uv_size);
+  yuv_nv12_image->Initialize(libyuv::FOURCC_NV12, deallocate,  //
+                             y, y_stride,                      //
+                             uv, uv_stride,                    //
+                             {}, 0,                            //
+                             width, height);
+  ABSL_CHECK_OK(libyuv_port::I420ToNV12(
+      {yuv_i420_image.data_span(0), yuv_i420_image.stride(0)},  //
+      {yuv_i420_image.data_span(1), yuv_i420_image.stride(1)},  //
+      {yuv_i420_image.data_span(2), yuv_i420_image.stride(2)},  //
+      {y, y_stride},                                            //
+      {uv, uv_stride},                                          //
+      width, height));
 }
 
 void YUVImageToImageFrame(const YUVImage& yuv_image, ImageFrame* image_frame,
                           bool use_bt709) {
-  CHECK(image_frame);
+  ABSL_CHECK(image_frame);
   int width = yuv_image.width();
   int height = yuv_image.height();
   image_frame->Reset(ImageFormat::SRGB, width, height, 16);
-  int rv;
 
   if (use_bt709) {
-    rv = libyuv::H420ToRAW(yuv_image.data(0), yuv_image.stride(0),  //
-                           yuv_image.data(1), yuv_image.stride(1),  //
-                           yuv_image.data(2), yuv_image.stride(2),  //
-                           image_frame->MutablePixelData(),
-                           image_frame->WidthStep(), width, height);
-
+    ABSL_CHECK_OK(libyuv_port::H420ToRAW(                                 //
+        {yuv_image.data_span(0), yuv_image.stride(0)},                    //
+        {yuv_image.data_span(1), yuv_image.stride(1)},                    //
+        {yuv_image.data_span(2), yuv_image.stride(2)},                    //
+        {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},  //
+        width, height));
   } else {
-    rv = libyuv::I420ToRAW(yuv_image.data(0), yuv_image.stride(0),  //
-                           yuv_image.data(1), yuv_image.stride(1),  //
-                           yuv_image.data(2), yuv_image.stride(2),  //
-                           image_frame->MutablePixelData(),
-                           image_frame->WidthStep(), width, height);
+    ABSL_CHECK_OK(libyuv_port::I420ToRAW(                                 //
+        {yuv_image.data_span(0), yuv_image.stride(0)},                    //
+        {yuv_image.data_span(1), yuv_image.stride(1)},                    //
+        {yuv_image.data_span(2), yuv_image.stride(2)},                    //
+        {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},  //
+        width, height));
   }
-  CHECK_EQ(0, rv);
 }
 
 void YUVImageToImageFrameFromFormat(const YUVImage& yuv_image,
                                     ImageFrame* image_frame) {
-  CHECK(image_frame);
+  ABSL_CHECK(image_frame);
   int width = yuv_image.width();
   int height = yuv_image.height();
   image_frame->Reset(ImageFormat::SRGB, width, height, 16);
@@ -176,38 +193,42 @@ void YUVImageToImageFrameFromFormat(const YUVImage& yuv_image,
     case libyuv::FOURCC_NV12:
       // 8-bit Y plane followed by an interleaved 8-bit U/V plane with 2×2
       // subsampling.
-      libyuv::NV12ToRAW(
-          yuv_image.data(0), yuv_image.stride(0), yuv_image.data(1),
-          yuv_image.stride(1), image_frame->MutablePixelData(),
-          image_frame->WidthStep(), yuv_image.width(), yuv_image.height());
+      ABSL_CHECK_OK(libyuv_port::NV12ToRAW(
+          {yuv_image.data_span(0), yuv_image.stride(0)},  //
+          {yuv_image.data_span(1), yuv_image.stride(1)},  //
+          {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},
+          width, height));
       break;
     case libyuv::FOURCC_NV21:
       // 8-bit Y plane followed by an interleaved 8-bit V/U plane with 2×2
       // subsampling.
-      libyuv::NV21ToRAW(
-          yuv_image.data(0), yuv_image.stride(0), yuv_image.data(1),
-          yuv_image.stride(1), image_frame->MutablePixelData(),
-          image_frame->WidthStep(), yuv_image.width(), yuv_image.height());
+      ABSL_CHECK_OK(libyuv_port::NV21ToRAW(
+          {yuv_image.data_span(0), yuv_image.stride(0)},                    //
+          {yuv_image.data_span(1), yuv_image.stride(1)},                    //
+          {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},  //
+          width, height));
       break;
     case libyuv::FOURCC_I420:
       // Also known as YV21.
       // 8-bit Y plane followed by 8-bit 2×2 subsampled U and V planes.
-      libyuv::I420ToRAW(
-          yuv_image.data(0), yuv_image.stride(0), yuv_image.data(1),
-          yuv_image.stride(1), yuv_image.data(2), yuv_image.stride(2),
-          image_frame->MutablePixelData(), image_frame->WidthStep(),
-          yuv_image.width(), yuv_image.height());
+      ABSL_CHECK_OK(libyuv_port::I420ToRAW(                                 //
+          {yuv_image.data_span(0), yuv_image.stride(0)},                    //
+          {yuv_image.data_span(1), yuv_image.stride(1)},                    //
+          {yuv_image.data_span(2), yuv_image.stride(2)},                    //
+          {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},  //
+          width, height));
       break;
     case libyuv::FOURCC_YV12:
       // 8-bit Y plane followed by 8-bit 2×2 subsampled V and U planes.
-      libyuv::I420ToRAW(
-          yuv_image.data(0), yuv_image.stride(0), yuv_image.data(2),
-          yuv_image.stride(2), yuv_image.data(1), yuv_image.stride(1),
-          image_frame->MutablePixelData(), image_frame->WidthStep(),
-          yuv_image.width(), yuv_image.height());
+      ABSL_CHECK_OK(libyuv_port::I420ToRAW(                                 //
+          {yuv_image.data_span(0), yuv_image.stride(0)},                    //
+          {yuv_image.data_span(2), yuv_image.stride(2)},                    //
+          {yuv_image.data_span(1), yuv_image.stride(1)},                    //
+          {image_frame->MutablePixelDataSpan(), image_frame->WidthStep()},  //
+          width, height));
       break;
     default:
-      LOG(FATAL) << "Unsupported YUVImage format.";
+      ABSL_LOG(FATAL) << "Unsupported YUVImage format.";
   }
 }
 
@@ -310,12 +331,13 @@ void LinearRgb16ToSrgb(const cv::Mat& source, cv::Mat* destination) {
   const uint8_t* lookup_table_ptr = kLut.ptr<uint8_t>();
   const int num_channels = source.channels();
   for (int row = 0; row < source.rows; ++row) {
+    uint8_t* ptr = destination->ptr<uint8_t>(row);
+    const uint16_t* ptr16 = source.ptr<uint16_t>(row);
     for (int col = 0; col < source.cols; ++col) {
       for (int channel = 0; channel < num_channels; ++channel) {
-        uint8_t* ptr = destination->ptr<uint8_t>(row);
-        const uint16_t* ptr16 = source.ptr<uint16_t>(row);
-        ptr[col * num_channels + channel] =
-            lookup_table_ptr[ptr16[col * num_channels + channel]];
+        *ptr = lookup_table_ptr[*ptr16];
+        ++ptr;
+        ++ptr16;
       }
     }
   }

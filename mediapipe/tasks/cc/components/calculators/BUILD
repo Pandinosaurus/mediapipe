@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -58,12 +60,12 @@ cc_test(
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc/components/containers/proto:classifications_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
-        "@org_tensorflow//tensorflow/lite:test_util",
+        "@litert//tflite:test_util",
     ],
 )
 
@@ -88,6 +90,7 @@ cc_library(
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/tasks/cc:common",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
     ],
@@ -115,10 +118,10 @@ cc_library(
     hdrs = ["score_calibration_utils.h"],
     deps = [
         ":score_calibration_calculator_cc_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
     ],
@@ -133,6 +136,8 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -140,7 +145,6 @@ cc_test(
 cc_library(
     name = "end_loop_calculator",
     srcs = ["end_loop_calculator.cc"],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/calculators/core:end_loop_calculator",
         "//mediapipe/framework:calculator_context",
@@ -150,7 +154,6 @@ cc_library(
         "//mediapipe/framework:packet",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc/components/containers/proto:classifications_cc_proto",
     ],
     alwayslink = 1,
@@ -228,10 +231,10 @@ cc_test(
         "//mediapipe/framework/api2:port",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc/components/containers/proto:embeddings_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@org_tensorflow//tensorflow/lite:test_util",
+        "@litert//tflite:test_util",
     ],
 )

@@ -25,10 +25,12 @@ import com.google.mediapipe.framework.GlSyncToken;
 import com.google.mediapipe.glutil.ExternalTextureRenderer;
 import com.google.mediapipe.glutil.GlThread;
 import com.google.mediapipe.glutil.ShaderUtil;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
+import javax.annotation.Nullable;
 import javax.microedition.khronos.egl.EGLContext;
 
 /**
@@ -42,6 +44,12 @@ public class ExternalTextureConverter implements TextureFrameProducer {
   private static final int DEFAULT_NUM_BUFFERS = 2; // Number of output frames allocated.
   private static final String THREAD_NAME = "ExternalTextureConverter";
 
+  /** Interface for adjusting the timestamp of the current frame. */
+  public interface TimestampComputer {
+    /** Calculates the timestamp for the current frame. */
+    Duration computeFrameTimestamp(Duration currentFrameTimestamp);
+  }
+
   private RenderThread thread;
   private Throwable startupException = null;
 
@@ -51,7 +59,18 @@ public class ExternalTextureConverter implements TextureFrameProducer {
    * @param numBuffers the number of camera frames that can enter processing simultaneously.
    */
   public ExternalTextureConverter(EGLContext parentContext, int numBuffers) {
-    thread = makeRenderThread(parentContext, numBuffers);
+    this(parentContext, numBuffers, /* timestampComputer= */ null);
+  }
+
+  /**
+   * Creates the ExternalTextureConverter to create a working copy of each camera frame.
+   *
+   * @param numBuffers the number of camera frames that can enter processing simultaneously.
+   * @param timestampComputer defines how frame timestamp should be calculated.
+   */
+  public ExternalTextureConverter(
+      EGLContext parentContext, int numBuffers, @Nullable TimestampComputer timestampComputer) {
+    thread = makeRenderThread(parentContext, numBuffers, timestampComputer);
     thread.setName(THREAD_NAME);
 
     // Catch exceptions raised during initialization. The user has not had a chance
@@ -185,7 +204,7 @@ public class ExternalTextureConverter implements TextureFrameProducer {
   /**
    * Sets an offset that can be used to adjust the timestamps on the camera frames, for example to
    * conform to a preferred time-base or to account for a known device latency. The offset is added
-   * to each frame timetamp read by the ExternalTextureConverter.
+   * to each frame timestamp read by the ExternalTextureConverter.
    */
   public void setTimestampOffsetNanos(long offsetInNanos) {
     thread.setTimestampOffsetNanos(offsetInNanos);
@@ -284,8 +303,9 @@ public class ExternalTextureConverter implements TextureFrameProducer {
     }
   }
 
-  protected RenderThread makeRenderThread(EGLContext parentContext, int numBuffers) {
-    return new RenderThread(parentContext, numBuffers);
+  protected RenderThread makeRenderThread(
+      EGLContext parentContext, int numBuffers, TimestampComputer timestampComputer) {
+    return new RenderThread(parentContext, numBuffers, timestampComputer);
   }
 
   /** The thread used to do rendering. This is only protected for testing purposes. */
@@ -304,6 +324,7 @@ public class ExternalTextureConverter implements TextureFrameProducer {
     private int framesInUse = 0;
     private int bufferPoolSize;
     private int bufferPoolMaxSize;
+    private boolean released = false;
 
     private ExternalTextureRenderer renderer = null;
     private boolean shouldAdjustTimestamps = true;
@@ -314,6 +335,7 @@ public class ExternalTextureConverter implements TextureFrameProducer {
 
     protected int destinationWidth = 0;
     protected int destinationHeight = 0;
+    private final TimestampComputer timestampComputer;
 
     private class PoolTextureFrame extends AppTextureFrame {
       public PoolTextureFrame(int textureName, int width, int height) {
@@ -333,11 +355,18 @@ public class ExternalTextureConverter implements TextureFrameProducer {
       }
     }
 
-    public RenderThread(EGLContext parentContext, int numBuffers) {
+    public RenderThread(
+        EGLContext parentContext, int numBuffers, @Nullable TimestampComputer timestampComputer) {
       super(parentContext);
       bufferPoolSize = numBuffers;
       renderer = new ExternalTextureRenderer();
       consumers = new ArrayList<>();
+      this.timestampComputer =
+          timestampComputer == null ? getDefaultTimestampComputer() : timestampComputer;
+    }
+
+    public RenderThread(EGLContext parentContext, int numBuffers) {
+      this(parentContext, numBuffers, /* timestampComputer= */ null);
     }
 
     public void setBufferPoolSize(int bufferPoolSize) {
@@ -430,8 +459,11 @@ public class ExternalTextureConverter implements TextureFrameProducer {
     @Override
     public void releaseGl() {
       setSurfaceTexture(null, 0, 0);
-      while (!framesAvailable.isEmpty()) {
-        teardownFrame(framesAvailable.remove());
+      synchronized (this) {
+        released = true;
+        while (!framesAvailable.isEmpty()) {
+          teardownFrame(framesAvailable.remove());
+        }
       }
 
       internalSurfaceTexture.release();
@@ -495,7 +527,8 @@ public class ExternalTextureConverter implements TextureFrameProducer {
       }
     }
 
-    private static void teardownFrame(AppTextureFrame frame) {
+    private void teardownFrame(AppTextureFrame frame) {
+      waitUntilReleased(frame);
       GLES20.glDeleteTextures(1, new int[] {frame.getTextureName()}, 0);
     }
 
@@ -508,6 +541,24 @@ public class ExternalTextureConverter implements TextureFrameProducer {
               destinationTextureId, destinationWidth, destinationHeight));
       bindFramebuffer(destinationTextureId, destinationWidth, destinationHeight);
       return new PoolTextureFrame(destinationTextureId, destinationWidth, destinationHeight);
+    }
+
+    private TimestampComputer getDefaultTimestampComputer() {
+      // TODO: b/408046935 - Move necessary timestamp calculation information into the default
+      // implementation of the TimestampComputer.
+      return (currentFrameTimestamp) -> {
+        // Populate frame timestamp with surface texture timestamp after render() as renderer
+        // ensures that surface texture has the up-to-date timestamp. (Also adjust
+        // |nextFrameTimestampOffset| to ensure that timestamps increase monotonically.)
+        long textureTimestamp =
+            (currentFrameTimestamp.toNanos() + timestampOffsetNanos) / NANOS_PER_MICRO;
+        if (shouldAdjustTimestamps
+            && previousTimestampValid
+            && textureTimestamp + nextFrameTimestampOffset <= previousTimestamp) {
+          nextFrameTimestampOffset = previousTimestamp + 1 - textureTimestamp;
+        }
+        return Duration.ofNanos((textureTimestamp + nextFrameTimestampOffset) * NANOS_PER_MICRO);
+      };
     }
 
     /**
@@ -540,7 +591,6 @@ public class ExternalTextureConverter implements TextureFrameProducer {
           || outputFrame.getHeight() != destinationHeight) {
         // Create anew if size has changed.
         // TODO: waiting for the consumer sync here may not be necessary.
-        waitUntilReleased(outputFrame);
         teardownFrame(outputFrame);
         outputFrame = createFrame();
       } else {
@@ -553,12 +603,18 @@ public class ExternalTextureConverter implements TextureFrameProducer {
     }
 
     protected synchronized void poolFrameReleased(PoolTextureFrame frame) {
+      if (released) {
+        waitUntilReleased(frame, /* gpuSync= */ false);
+        return;
+      }
       framesAvailable.offer(frame);
       framesInUse--;
       int keep = max(bufferPoolSize - framesInUse, 0);
       while (framesAvailable.size() > keep) {
         PoolTextureFrame textureFrameToRemove = framesAvailable.remove();
-        handler.post(() -> teardownFrame(textureFrameToRemove));
+        if (!handler.post(() -> teardownFrame(textureFrameToRemove))) {
+          waitUntilReleased(textureFrameToRemove, /* gpuSync= */ false);
+        }
       }
     }
 
@@ -572,23 +628,20 @@ public class ExternalTextureConverter implements TextureFrameProducer {
       // Copy surface texture's pixels to output frame
       bindFramebuffer(outputFrame.getTextureName(), destinationWidth, destinationHeight);
       renderer.render(surfaceTexture);
-
-      // Populate frame timestamp with surface texture timestamp after render() as renderer
-      // ensures that surface texture has the up-to-date timestamp. (Also adjust
-      // |nextFrameTimestampOffset| to ensure that timestamps increase monotonically.)
-      long textureTimestamp =
-          (surfaceTexture.getTimestamp() + timestampOffsetNanos) / NANOS_PER_MICRO;
-      if (shouldAdjustTimestamps
-          && previousTimestampValid
-          && textureTimestamp + nextFrameTimestampOffset <= previousTimestamp) {
-        nextFrameTimestampOffset = previousTimestamp + 1 - textureTimestamp;
-      }
-      outputFrame.setTimestamp(textureTimestamp + nextFrameTimestampOffset);
+      outputFrame.setTimestamp(
+          timestampComputer
+                  .computeFrameTimestamp(Duration.ofNanos(surfaceTexture.getTimestamp()))
+                  .toNanos()
+              / NANOS_PER_MICRO);
       previousTimestamp = outputFrame.getTimestamp();
       previousTimestampValid = true;
     }
 
     private void waitUntilReleased(AppTextureFrame frame) {
+      waitUntilReleased(frame, /* gpuSync= */ true);
+    }
+
+    private void waitUntilReleased(AppTextureFrame frame, boolean gpuSync) {
       try {
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
           Log.v(
@@ -600,7 +653,11 @@ public class ExternalTextureConverter implements TextureFrameProducer {
                   frame.getHeight(),
                   frame.getTimestamp()));
         }
-        frame.waitUntilReleasedWithGpuSync();
+        if (gpuSync) {
+          frame.waitUntilReleasedWithGpuSync();
+        } else {
+          frame.waitUntilReleased();
+        }
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
           Log.v(
               TAG,

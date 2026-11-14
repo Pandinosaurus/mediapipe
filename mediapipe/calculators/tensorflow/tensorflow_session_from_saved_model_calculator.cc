@@ -15,18 +15,19 @@
 #include <algorithm>
 
 #if !defined(__ANDROID__)
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/port/file_helpers.h"
 #endif
-#include "absl/strings/str_replace.h"
+#include "absl/log/absl_log.h"         // from @com_google_absl
+#include "absl/strings/str_replace.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_saved_model_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
-#include "tensorflow/cc/saved_model/constants.h"
-#include "tensorflow/cc/saved_model/loader.h"
-#include "tensorflow/cc/saved_model/tag_constants.h"
+#include "tensorflow/cc/saved_model/constants.h"      // from @org_tensorflow
+#include "tensorflow/cc/saved_model/loader.h"         // from @org_tensorflow
+#include "tensorflow/cc/saved_model/tag_constants.h"  // from @org_tensorflow
 
 namespace mediapipe {
 
@@ -69,7 +70,7 @@ const std::string MaybeConvertSignatureToTag(
                    [](unsigned char c) { return std::toupper(c); });
     output = absl::StrReplaceAll(
         output, {{"/", "_"}, {"-", "_"}, {".", "_"}, {":", "_"}});
-    LOG(INFO) << "Renamed TAG from: " << name << " to " << output;
+    ABSL_LOG(INFO) << "Renamed TAG from: " << name << " to " << output;
     return output;
   } else {
     return name;
@@ -141,15 +142,15 @@ class TensorFlowSessionFromSavedModelCalculator : public CalculatorBase {
     tensorflow::RunOptions run_options;
     tensorflow::SessionOptions session_options;
     session_options.config = options.session_config();
-    auto saved_model = absl::make_unique<tensorflow::SavedModelBundle>();
-    ::tensorflow::Status status = tensorflow::LoadSavedModel(
+    auto saved_model = std::make_unique<tensorflow::SavedModelBundle>();
+    absl::Status status = tensorflow::LoadSavedModel(
         session_options, run_options, path, tags_set, saved_model.get());
     if (!status.ok()) {
       return absl::Status(static_cast<absl::StatusCode>(status.code()),
                           status.ToString());
     }
 
-    auto session = absl::make_unique<TensorFlowSession>();
+    auto session = std::make_unique<TensorFlowSession>();
     session->session = std::move(saved_model->session);
 
     RET_CHECK(!options.signature_name().empty());

@@ -14,11 +14,11 @@
 
 #include <fstream>
 
-#include "absl/flags/flag.h"
+#include "absl/flags/flag.h"       // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/port/file_helpers.h"
 #include "mediapipe/framework/port/singleton.h"
-#include "mediapipe/framework/port/statusor.h"
 #include "tools/cpp/runfiles/runfiles.h"
 
 ABSL_FLAG(
@@ -31,6 +31,7 @@ namespace mediapipe {
 using mediapipe::file::GetContents;
 using mediapipe::file::JoinPath;
 
+namespace internal {
 namespace {
 
 class RunfilesHolder {
@@ -54,13 +55,11 @@ class RunfilesHolder {
   std::unique_ptr<::bazel::tools::cpp::runfiles::Runfiles> runfiles_;
 };
 
-}  // namespace
-
-namespace internal {
-
 std::string PathToResourceAsFileInternal(const std::string& path) {
   return Singleton<RunfilesHolder>::get()->Rlocation(path);
 }
+
+}  // namespace
 
 absl::Status DefaultGetResourceContents(const std::string& path,
                                         std::string* output,
@@ -71,12 +70,15 @@ absl::Status DefaultGetResourceContents(const std::string& path,
 
 }  // namespace internal
 
-absl::StatusOr<std::string> PathToResourceAsFile(const std::string& path) {
-  std::string qualified_path = path;
-  if (absl::StartsWith(qualified_path, "./")) {
-    qualified_path = "mediapipe" + qualified_path.substr(1);
-  } else if (path[0] != '/') {
-    qualified_path = "mediapipe/" + qualified_path;
+absl::StatusOr<std::string> PathToResourceAsFile(absl::string_view path,
+                                                 bool /*shadow_copy*/) {
+  std::string qualified_path;
+  if (absl::StartsWith(path, "./")) {
+    qualified_path = absl::StrCat("mediapipe", path.substr(1));
+  } else if (!absl::StartsWith(path, "/")) {
+    qualified_path = absl::StrCat("mediapipe/", path);
+  } else {
+    qualified_path = std::string(path);
   }
 
   // Try to load the file from bazel-bin. If it does not exist, fall back to the

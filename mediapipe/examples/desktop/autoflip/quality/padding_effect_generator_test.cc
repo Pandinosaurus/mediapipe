@@ -14,8 +14,8 @@
 
 #include "mediapipe/examples/desktop/autoflip/quality/padding_effect_generator.h"
 
-#include "absl/flags/flag.h"
-#include "absl/strings/str_cat.h"
+#include "absl/flags/flag.h"       // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
@@ -83,7 +83,7 @@ void TestWithAspectRatio(const double aspect_ratio,
                    << "Unsupported number of channels: "
                    << decoded_mat.channels());
   }
-  std::unique_ptr<ImageFrame> test_frame = absl::make_unique<ImageFrame>(
+  std::unique_ptr<ImageFrame> test_frame = std::make_unique<ImageFrame>(
       image_format, decoded_mat.size().width, decoded_mat.size().height);
   output_mat.copyTo(formats::MatView(test_frame.get()));
 
@@ -190,14 +190,16 @@ TEST(PaddingEffectGeneratorTest, ScaleToMultipleOfTwo) {
   double target_aspect_ratio = 0.5;
   int expect_width = 14;
   int expect_height = input_height;
-  auto test_frame = absl::make_unique<ImageFrame>(/*format=*/ImageFormat::SRGB,
-                                                  input_width, input_height);
+  ImageFrame test_frame(/*format=*/ImageFormat::SRGB, input_width,
+                        input_height);
+  cv::Mat mat = formats::MatView(&test_frame);
+  mat = cv::Scalar(0, 0, 0);
 
-  PaddingEffectGenerator generator(test_frame->Width(), test_frame->Height(),
+  PaddingEffectGenerator generator(test_frame.Width(), test_frame.Height(),
                                    target_aspect_ratio,
                                    /*scale_to_multiple_of_two=*/true);
   ImageFrame result_frame;
-  MP_ASSERT_OK(generator.Process(*test_frame, 0.3, 40, 0.0, &result_frame));
+  MP_ASSERT_OK(generator.Process(test_frame, 0.3, 40, 0.0, &result_frame));
   EXPECT_EQ(result_frame.Width(), expect_width);
   EXPECT_EQ(result_frame.Height(), expect_height);
 }

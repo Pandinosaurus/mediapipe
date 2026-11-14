@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef MEDIAPIPE_TASKS_CC_VISION_GESTURE_RECOGNIZER_HADNDEDNESS_UTILS_H_
 #define MEDIAPIPE_TASKS_CC_VISION_GESTURE_RECOGNIZER_HADNDEDNESS_UTILS_H_
 
-#include "absl/status/statusor.h"
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/classification.pb.h"
 
 namespace mediapipe {
@@ -28,7 +28,7 @@ bool IsLeftHand(const mediapipe::Classification& c);
 
 bool IsRightHand(const mediapipe::Classification& c);
 
-absl::StatusOr<float> GetLeftHandScore(
+absl::StatusOr<float> GetRightHandScore(
     const mediapipe::ClassificationList& classification_list);
 
 }  // namespace gesture_recognizer

@@ -75,16 +75,8 @@ public abstract class GestureRecognizerResult implements TaskResult {
       }
     }
     for (ClassificationList handednessProto : handednessesProto) {
-      List<Category> handedness = new ArrayList<>();
-      multiHandHandednesses.add(handedness);
-      for (Classification classification : handednessProto.getClassificationList()) {
-        handedness.add(
-            Category.create(
-                classification.getScore(),
-                classification.getIndex(),
-                classification.getLabel(),
-                classification.getDisplayName()));
-      }
+      List<Category> handedness = Category.createListFromProto(handednessProto);
+      multiHandHandednesses.add(Collections.unmodifiableList(handedness));
     }
     for (ClassificationList gestureProto : gesturesProto) {
       List<Category> gestures = new ArrayList<>();
@@ -114,11 +106,29 @@ public abstract class GestureRecognizerResult implements TaskResult {
   /** Hand landmarks of detected hands. */
   public abstract List<List<NormalizedLandmark>> landmarks();
 
-  /** Hand landmarks in world coordniates of detected hands. */
+  /** Hand landmarks in world coordinates of detected hands. */
   public abstract List<List<Landmark>> worldLandmarks();
 
-  /** Handedness of detected hands. */
-  public abstract List<List<Category>> handednesses();
+  /**
+   * Handedness of detected hands.
+   *
+   * <p>Note: Left and Right handedness correspond to the subject's hands, not the viewer. Passing a
+   * horizontally mirrored image will invert these outputs.
+   *
+   * @deprecated Use {@link #handedness()} instead.
+   */
+  @Deprecated
+  public List<List<Category>> handednesses() {
+    return handedness();
+  }
+
+  /**
+   * Handedness of detected hands.
+   *
+   * <p>Note: Left and Right handedness correspond to the subject's hands, not the viewer. Passing a
+   * horizontally mirrored image will invert these outputs.
+   */
+  public abstract List<List<Category>> handedness();
 
   /**
    * Recognized hand gestures of detected hands. Note that the index of the gesture is always -1,

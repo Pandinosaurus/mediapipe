@@ -14,9 +14,12 @@
 
 #include "mediapipe/modules/objectron/calculators/box_util.h"
 
-#include <math.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <vector>
 
-#include "mediapipe/framework/port/logging.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/util/tracking/box_tracker.pb.h"
@@ -24,7 +27,7 @@
 namespace mediapipe {
 void ComputeBoundingRect(const std::vector<cv::Point2f>& points,
                          mediapipe::TimedBoxProto* box) {
-  CHECK(box != nullptr);
+  ABSL_CHECK(box != nullptr);
   float top = 1.0f;
   float bottom = 0.0f;
   float left = 1.0f;

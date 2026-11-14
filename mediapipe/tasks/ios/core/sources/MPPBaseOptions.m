@@ -20,6 +20,7 @@
   self = [super init];
   if (self) {
     self.modelAssetPath = [[NSString alloc] init];
+    self.delegate = MPPDelegateCPU;
   }
   return self;
 }

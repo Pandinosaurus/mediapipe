@@ -16,18 +16,18 @@
 
 #include <stddef.h>
 
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <vector>
 
-#include "absl/base/thread_annotations.h"
-#include "absl/memory/memory.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"             // from @com_google_absl
+#include "absl/memory/memory.h"            // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
+#include "absl/time/clock.h"               // from @com_google_absl
+#include "absl/time/time.h"                // from @com_google_absl
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/threadpool.h"
 #include "mediapipe/framework/tool/simulation_clock.h"
 
@@ -254,8 +254,8 @@ TEST_F(MonotonicClockTest, RealTime) {
   // Just out of curiousity -- did real clock go backwards?
   int clock_num_corrections;
   mono_clock->GetCorrectionMetrics(&clock_num_corrections, NULL);
-  LOG(INFO) << clock_num_corrections << " corrections in " << num_calls
-            << " calls to mono_clock->Now()";
+  ABSL_LOG(INFO) << clock_num_corrections << " corrections in " << num_calls
+                 << " calls to mono_clock->Now()";
   delete mono_clock;
 }
 
@@ -426,9 +426,9 @@ class ClockFrenzy {
 
   // Start Feed-ing threads.
   void Start(int nthreads) {
-    absl::MutexLock l(&lock_);
+    absl::MutexLock l(lock_);
     running_ = true;
-    threads_ = absl::make_unique<mediapipe::ThreadPool>("Frenzy", nthreads);
+    threads_ = std::make_unique<mediapipe::ThreadPool>("Frenzy", nthreads);
     threads_->StartWorkers();
     for (int i = 0; i < nthreads; ++i) {
       threads_->Schedule([&]() { Feed(); });
@@ -436,12 +436,12 @@ class ClockFrenzy {
   }
 
   void Stop() {
-    absl::MutexLock l(&lock_);
+    absl::MutexLock l(lock_);
     running_ = false;
   }
 
   bool Running() {
-    absl::MutexLock l(&lock_);
+    absl::MutexLock l(lock_);
     return running_;
   }
 
@@ -464,12 +464,12 @@ class ClockFrenzy {
   // Thread-safe random number generation functions for use by other class
   // member functions.
   int32_t UniformRandom(int32_t n) {
-    absl::MutexLock l(&lock_);
+    absl::MutexLock l(lock_);
     return std::uniform_int_distribution<int32_t>(0, n - 1)(*random_);
   }
 
   float RndFloatRandom() {
-    absl::MutexLock l(&lock_);
+    absl::MutexLock l(lock_);
     return std::uniform_real_distribution<float>(0.0f, 1.0f)(*random_);
   }
 };
@@ -523,13 +523,13 @@ TEST_F(MonotonicClockTest, RealFrenzy) {
   // Just out of curiousity -- did real clock go backwards?
   int clock_num_corrections;
   m1->GetCorrectionMetrics(&clock_num_corrections, NULL);
-  LOG_IF(INFO, clock_num_corrections > 0)
+  ABSL_LOG_IF(INFO, clock_num_corrections > 0)
       << clock_num_corrections << " corrections";
   m2->GetCorrectionMetrics(&clock_num_corrections, NULL);
-  LOG_IF(INFO, clock_num_corrections > 0)
+  ABSL_LOG_IF(INFO, clock_num_corrections > 0)
       << clock_num_corrections << " corrections";
   m3->GetCorrectionMetrics(&clock_num_corrections, NULL);
-  LOG_IF(INFO, clock_num_corrections > 0)
+  ABSL_LOG_IF(INFO, clock_num_corrections > 0)
       << clock_num_corrections << " corrections";
   delete m1;
   delete m2;

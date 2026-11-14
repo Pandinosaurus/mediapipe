@@ -12,14 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Placeholder for internal Python strict test compatibility macro.
-# Placeholder for internal Python strict library and test compatibility macro.
+# Placeholder for internal Python strict binary and library compatibility macro.
+# Placeholder: load py_test
 
 licenses(["notice"])
-
-package(
-    default_visibility = ["//mediapipe:__subpackages__"],
-)
 
 # TODO: Remove the unnecessary test data once the demo data are moved to an open-sourced
 # directory.
@@ -46,9 +42,10 @@ py_library(
         ":metadata_writer",
         "//mediapipe/model_maker/python/core/data:classification_dataset",
         "//mediapipe/model_maker/python/core/utils:model_util",
-        "//mediapipe/python:_framework_bindings",
         "//mediapipe/tasks/python/core:base_options",
         "//mediapipe/tasks/python/vision:hand_landmarker",
+        "//mediapipe/tasks/python/vision/core:image",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -58,6 +55,7 @@ py_test(
     srcs = ["dataset_test.py"],
     data = [":testdata"],
     tags = [
+        "not_run:arm",
         "notsan",
         "requires-net:external",
     ],
@@ -65,6 +63,8 @@ py_test(
         ":dataset",
         "//mediapipe/tasks/python/test:test_utils",
         "//mediapipe/tasks/python/vision:hand_landmarker",
+        "@model_maker_pip_deps_absl_py//:pkg",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -104,6 +104,7 @@ py_library(
         "//mediapipe/model_maker/python/core/utils:loss_functions",
         "//mediapipe/model_maker/python/core/utils:model_util",
         "//mediapipe/tasks/python/metadata/metadata_writers:metadata_writer",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -132,6 +133,7 @@ py_library(
     deps = [
         "//mediapipe/tasks/python/metadata/metadata_writers:metadata_writer",
         "//mediapipe/tasks/python/metadata/metadata_writers:model_asset_bundle_utils",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -143,6 +145,7 @@ py_test(
     data = [":testdata"],
     shard_count = 2,
     tags = [
+        "not_run:arm",
         "notsan",
         "requires-net:external",
     ],
@@ -152,6 +155,7 @@ py_test(
         ":model_options",
         "//mediapipe/model_maker/python/core/utils:test_util",
         "//mediapipe/tasks/python/test:test_utils",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -163,6 +167,7 @@ py_test(
         ":metadata_writer",
         "//mediapipe/tasks/python/metadata/metadata_writers:metadata_writer",
         "//mediapipe/tasks/python/test:test_utils",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -170,7 +175,9 @@ py_binary(
     name = "gesture_recognizer_demo",
     srcs = ["gesture_recognizer_demo.py"],
     data = [":testdata"],
-    python_version = "PY3",
     tags = ["requires-net:external"],
-    deps = [":gesture_recognizer_import"],
+    deps = [
+        ":gesture_recognizer_import",
+        "@model_maker_pip_deps_absl_py//:pkg",
+    ],
 )

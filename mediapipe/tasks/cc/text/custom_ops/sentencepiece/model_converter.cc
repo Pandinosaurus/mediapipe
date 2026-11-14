@@ -15,12 +15,12 @@ limitations under the License.
 
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/model_converter.h"
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/double_array_trie_builder.h"
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/encoder_config_generated.h"
 #include "mediapipe/tasks/cc/text/custom_ops/sentencepiece/sentencepiece_constants.h"
-#include "src/sentencepiece_model.pb.h"
+#include "sentencepiece/src/sentencepiece_model.pb.h"  // from @com_google_sentencepiece
 
 namespace mediapipe::tflite_operations::sentencepiece {
 

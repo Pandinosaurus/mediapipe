@@ -1,11 +1,16 @@
 """Provides BUILD macros for MediaPipe proto-buffers.
 """
 
+# buildifier: disable=out-of-order-load
 load("//mediapipe/framework/tool:mediapipe_graph.bzl", "mediapipe_options_library")
 load("//mediapipe/framework/tool:mediapipe_proto_allowlist.bzl", "rewrite_target_list")
-load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library", "py_proto_library")
-load("@rules_proto//proto:defs.bzl", "proto_library")
-load("@rules_proto_grpc//js:defs.bzl", "js_proto_library")
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_proto//proto:defs.bzl", _proto_library = "proto_library")
+load("@rules_proto_grpc_js//:defs.bzl", "js_proto_library")
+
+java_proto_library = native.java_proto_library
+java_lite_proto_library = native.java_lite_proto_library
 
 def provided_args(**kwargs):
     """Returns the keyword arguments omitting None arguments."""
@@ -41,6 +46,7 @@ def mediapipe_proto_library_impl(
         name,
         srcs,
         deps = [],
+        option_deps = [],
         exports = None,
         visibility = None,
         testonly = None,
@@ -50,10 +56,12 @@ def mediapipe_proto_library_impl(
         def_cc_proto = True,
         def_py_proto = True,
         def_java_lite_proto = True,
+        def_kt_lite_proto = True,
         def_objc_proto = True,
         def_java_proto = True,
         def_jspb_proto = True,
         def_go_proto = True,
+        def_dart_proto = True,
         def_options_lib = True):
     """Defines the proto_library targets needed for all mediapipe platforms.
 
@@ -61,6 +69,7 @@ def mediapipe_proto_library_impl(
       name: the new proto_library target name.
       srcs: the ".proto" source files to compile.
       deps: the proto_library targets for all referenced protobufs.
+      option_deps: the proto_library option dependencies for all referenced protobufs (Bazel 8+).
       exports: deps that are published with "import public".
       visibility: visibility of this target.
       testonly: true means the proto can be used for testing only.
@@ -71,10 +80,12 @@ def mediapipe_proto_library_impl(
       def_cc_proto: define the cc_proto_library target
       def_py_proto: define the py_proto_library target
       def_java_lite_proto: define the java_lite_proto_library target
+      def_kt_lite_proto: define the kt_lite_proto_library target
       def_objc_proto: define the objc_proto_library target
       def_java_proto: define the java_proto_library target
       def_jspb_proto: define the jspb_proto_library target
       def_go_proto: define the go_proto_library target
+      def_dart_proto: define the dart_proto_library target
       def_options_lib: define the mediapipe_options_library target
     """
 
@@ -82,7 +93,7 @@ def mediapipe_proto_library_impl(
     proto_deps = [":" + name]
 
     if def_proto:
-        native.proto_library(**provided_args(
+        _proto_library(**provided_args(
             name = name,
             srcs = srcs,
             deps = deps,
@@ -118,7 +129,7 @@ def mediapipe_proto_library_impl(
         ))
 
     if def_java_lite_proto:
-        native.java_lite_proto_library(**provided_args(
+        java_lite_proto_library(**provided_args(
             name = replace_suffix(name, "_proto", "_java_proto_lite"),
             deps = proto_deps,
             visibility = visibility,
@@ -127,7 +138,7 @@ def mediapipe_proto_library_impl(
         ))
 
     if def_java_proto:
-        native.java_proto_library(**provided_args(
+        java_proto_library(**provided_args(
             name = replace_suffix(name, "_proto", "_java_proto"),
             deps = proto_deps,
             visibility = visibility,
@@ -244,6 +255,7 @@ def mediapipe_proto_library(
         name,
         srcs,
         deps = [],
+        option_deps = [],
         exports = None,
         visibility = None,
         testonly = None,
@@ -253,13 +265,15 @@ def mediapipe_proto_library(
         def_cc_proto = True,
         def_py_proto = True,
         def_java_lite_proto = True,
+        def_kt_lite_proto = True,
         def_portable_proto = True,  # @unused
         def_objc_proto = True,
         def_java_proto = True,
         def_jspb_proto = True,
         def_go_proto = True,
+        def_dart_proto = True,
         def_options_lib = True,
-        def_rewrite = True,
+        def_rewrite = False,
         portable_deps = None):  # @unused
     """Defines the proto_library targets needed for all mediapipe platforms.
 
@@ -267,6 +281,7 @@ def mediapipe_proto_library(
       name: the new proto_library target name.
       srcs: the ".proto" source files to compile.
       deps: the proto_library targets for all referenced protobufs.
+      option_deps: the proto_library option dependencies for all referenced protobufs (Bazel 8+).
       exports: deps that are published with "import public".
       portable_deps: ignored since portable protos are gone.
       visibility: visibility of this target.
@@ -278,11 +293,13 @@ def mediapipe_proto_library(
       def_cc_proto: define the cc_proto_library target
       def_py_proto: define the py_proto_library target
       def_java_lite_proto: define the java_lite_proto_library target
+      def_kt_lite_proto: define the kt_lite_proto_library target
       def_portable_proto: ignored since portable protos are gone
       def_objc_proto: define the objc_proto_library target
       def_java_proto: define the java_proto_library target
       def_jspb_proto: define the jspb_proto_library target
       def_go_proto: define the go_proto_library target
+      def_dart_proto: define the dart_proto_library target
       def_options_lib: define the mediapipe_options_library target
       def_rewrite: define a sibling mediapipe_proto_library with package "mediapipe"
     """
@@ -291,6 +308,7 @@ def mediapipe_proto_library(
         name = name,
         srcs = srcs,
         deps = deps,
+        option_deps = option_deps,
         exports = exports,
         visibility = visibility,
         testonly = testonly,
@@ -300,10 +318,12 @@ def mediapipe_proto_library(
         def_cc_proto = def_cc_proto,
         def_py_proto = def_py_proto,
         def_java_lite_proto = def_java_lite_proto,
+        def_kt_lite_proto = def_kt_lite_proto,
         def_objc_proto = def_objc_proto,
         def_java_proto = def_java_proto,
         def_jspb_proto = def_jspb_proto,
         def_go_proto = def_go_proto,
+        def_dart_proto = def_dart_proto,
         def_options_lib = def_options_lib,
     )
 
@@ -320,6 +340,7 @@ def mediapipe_proto_library(
             name = mediapipe_proto_path(name),
             srcs = [rewrite_proto],
             deps = mediapipe_proto_paths(deps),
+            option_deps = mediapipe_proto_paths(option_deps),
             exports = mediapipe_proto_paths(exports),
             visibility = visibility,
             testonly = testonly,
@@ -329,23 +350,26 @@ def mediapipe_proto_library(
             def_cc_proto = def_cc_proto,
             def_py_proto = def_py_proto,
             def_java_lite_proto = def_java_lite_proto,
+            def_kt_lite_proto = def_kt_lite_proto,
             def_objc_proto = def_objc_proto,
             def_java_proto = def_java_proto,
             def_jspb_proto = def_jspb_proto,
             def_go_proto = def_go_proto,
+            def_dart_proto = def_dart_proto,
             # A clone of mediapipe_options_library() will redefine some classes.
             def_options_lib = False,
         )
 
-def mediapipe_py_proto_library_oss(
+def mediapipe_py_proto_library(
         name,
         srcs,
         visibility = None,
         py_proto_deps = [],
         proto_deps = None,
         api_version = None,
-        testonly = 0):
-    """Generate py_proto_library for mediapipe open source version.
+        testonly = 0,
+        compatible_with = None):
+    """Generate py_proto_library.
 
     Args:
       name: the name of the py_proto_library.
@@ -355,46 +379,57 @@ def mediapipe_py_proto_library_oss(
       py_proto_deps: a list of dependency labels for Bazel use; must be py_proto_library.
       proto_deps: a list of dependency labels for bazel use.
       testonly: test only proto or not.
+      compatible_with: a list of environments the rule is compatible with.
     """
-    _ignore = [api_version, proto_deps]
-    py_proto_library(**provided_args(
-        name = name,
-        srcs = srcs,
-        visibility = visibility,
-        default_runtime = "@com_google_protobuf//:protobuf_python",
-        protoc = "@com_google_protobuf//:protoc",
-        deps = py_proto_deps + ["@com_google_protobuf//:protobuf_python"],
-        testonly = testonly,
-    ))
+    _ignore = [api_version, srcs]
 
-def mediapipe_cc_proto_library_oss(
+    # py_proto_library requires extra py_library to combine the generated Python code with the
+    # Protobuf runtime library to bring PyInfo or CcInfo.
+    temp_name = replace_suffix(name, "_py_pb2", "_py")
+    py_proto_library(
+        name = temp_name,
+        deps = proto_deps,
+        visibility = visibility,
+        testonly = testonly,
+        compatible_with = compatible_with,
+    )
+
+    native.py_library(
+        name = name,
+        srcs = [temp_name],
+        deps = ["@com_google_protobuf//:protobuf_python"],  # add protobuf python runtime
+        visibility = visibility,
+        testonly = testonly,
+        compatible_with = compatible_with,
+    )
+
+def mediapipe_cc_proto_library(
         name,
         srcs,
         visibility = None,
         deps = [],
         cc_deps = [],
-        testonly = 0):
-    """Generate cc_proto_library for mediapipe open source version.
+        testonly = 0,
+        compatible_with = None):
+    """Generate cc_proto_library.
 
-      Args:
-        name: the name of the cc_proto_library.
-        srcs: the .proto files of the cc_proto_library for Bazel use.
-        visibility: visibility of this target.
-        deps: a list of dependency labels for Bazel use; must be cc_proto_library.
-        testonly: test only proto or not.
+    Args:
+      name: the name of the cc_proto_library.
+      srcs: the .proto files of the cc_proto_library for Bazel use.
+      cc_deps: a list of dependency labels for Bazel use; must be cc_proto_library.
+      visibility: visibility of this target.
+      deps: a list of dependency labels for Bazel use; must be proto_library.
+      testonly: test only proto or not.
+      compatible_with: a list of environments the rule is compatible with.
     """
-    _ignore = [deps]
+    _ignore = [srcs, cc_deps]
 
     cc_proto_library(**provided_args(
         name = name,
-        srcs = srcs,
         visibility = visibility,
-        deps = cc_deps,
+        deps = deps,
         testonly = testonly,
-        cc_libs = ["@com_google_protobuf//:protobuf"],
-        protoc = "@com_google_protobuf//:protoc",
-        default_runtime = "@com_google_protobuf//:protobuf",
-        alwayslink = 1,
+        compatible_with = compatible_with,
     ))
 
 def mediapipe_js_proto_library_oss(
@@ -419,7 +454,8 @@ def mediapipe_js_proto_library_oss(
     _ignore = [deps, testonly, compatible_with]
 
     js_deps = replace_deps(lib_proto_deps, "_proto", "_jspb_proto", False)
-    proto_library(
+    js_deps = [d for d in js_deps if not d.endswith("cc_wkt_protos")]
+    _proto_library(
         name = replace_suffix(name, "_jspb_proto", "_lib_proto"),
         srcs = srcs,
         deps = lib_proto_deps,
@@ -435,12 +471,6 @@ def mediapipe_js_proto_library_oss(
         deps = js_deps,
         visibility = visibility,
     )
-
-def mediapipe_py_proto_library(**kwargs):
-    mediapipe_py_proto_library_oss(**kwargs)
-
-def mediapipe_cc_proto_library(**kwargs):
-    mediapipe_cc_proto_library_oss(**kwargs)
 
 def mediapipe_js_proto_library(**kwargs):
     mediapipe_js_proto_library_oss(**kwargs)

@@ -19,7 +19,8 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 
-#include "absl/flags/flag.h"
+#include "absl/flags/flag.h"     // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/image_frame.h"
@@ -30,6 +31,7 @@ limitations under the License.
 #include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/status_matchers.h"
+#include "mediapipe/framework/tool/test_util.h"
 #include "mediapipe/tasks/cc/components/containers/rect.h"
 #include "mediapipe/tasks/cc/core/base_options.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
@@ -39,9 +41,9 @@ limitations under the License.
 #include "mediapipe/tasks/cc/vision/image_segmenter/image_segmenter_result.h"
 #include "mediapipe/tasks/cc/vision/image_segmenter/proto/image_segmenter_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
-#include "tensorflow/lite/kernels/builtin_op_kernels.h"
-#include "tensorflow/lite/mutable_op_resolver.h"
-#include "tensorflow/lite/test_util.h"
+#include "tflite/kernels/builtin_op_kernels.h"  // from @litert
+#include "tflite/mutable_op_resolver.h"         // from @litert
+#include "tflite/test_util.h"                   // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -196,7 +198,7 @@ TEST_F(CreateFromOptionsTest, SucceedsWithSelectiveOpResolver) {
   auto options = std::make_unique<ImageSegmenterOptions>();
   options->base_options.model_asset_path =
       JoinPath("./", kTestDataDirectory, kDeeplabV3WithMetadata);
-  options->base_options.op_resolver = absl::make_unique<DeepLabOpResolver>();
+  options->base_options.op_resolver = std::make_unique<DeepLabOpResolver>();
   MP_ASSERT_OK(ImageSegmenter::Create(std::move(options)));
 }
 
@@ -205,7 +207,7 @@ TEST_F(CreateFromOptionsTest, FailsWithSelectiveOpResolverMissingOps) {
   options->base_options.model_asset_path =
       JoinPath("./", kTestDataDirectory, kDeeplabV3WithMetadata);
   options->base_options.op_resolver =
-      absl::make_unique<DeepLabOpResolverMissingOps>();
+      std::make_unique<DeepLabOpResolverMissingOps>();
   auto segmenter_or = ImageSegmenter::Create(std::move(options));
   // TODO: Make MediaPipe InferenceCalculator report the detailed
   // interpreter errors (e.g., "Encountered unresolved custom op").
@@ -425,6 +427,28 @@ TEST_F(ImageModeTest, SucceedsSelfie144x256Segmentations) {
               SimilarToFloatMask(expected_mask_float, kGoldenMaskSimilarity));
 }
 
+TEST_F(ImageModeTest, SucceedsSelfieSegmentationSingleLabel) {
+  auto options = std::make_unique<ImageSegmenterOptions>();
+  options->base_options.model_asset_path =
+      JoinPath("./", kTestDataDirectory, kSelfieSegmentation);
+  MP_ASSERT_OK_AND_ASSIGN(std::unique_ptr<ImageSegmenter> segmenter,
+                          ImageSegmenter::Create(std::move(options)));
+  ASSERT_EQ(segmenter->GetLabels().size(), 1);
+  EXPECT_EQ(segmenter->GetLabels()[0], "selfie");
+  MP_ASSERT_OK(segmenter->Close());
+}
+
+TEST_F(ImageModeTest, SucceedsSelfieSegmentationLandscapeSingleLabel) {
+  auto options = std::make_unique<ImageSegmenterOptions>();
+  options->base_options.model_asset_path =
+      JoinPath("./", kTestDataDirectory, kSelfieSegmentationLandscape);
+  MP_ASSERT_OK_AND_ASSIGN(std::unique_ptr<ImageSegmenter> segmenter,
+                          ImageSegmenter::Create(std::move(options)));
+  ASSERT_EQ(segmenter->GetLabels().size(), 1);
+  EXPECT_EQ(segmenter->GetLabels()[0], "selfie");
+  MP_ASSERT_OK(segmenter->Close());
+}
+
 TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationConfidenceMask) {
   Image image =
       GetSRGBImage(JoinPath("./", kTestDataDirectory, "portrait.jpg"));
@@ -464,6 +488,9 @@ TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationCategoryMask) {
   EXPECT_TRUE(result.category_mask.has_value());
   MP_ASSERT_OK(segmenter->Close());
 
+  MP_EXPECT_OK(
+      SavePngTestOutput(*result.category_mask->GetImageFrameSharedPtr(),
+                        "portrait_selfie_segmentation_expected_category_mask"));
   cv::Mat selfie_mask = mediapipe::formats::MatView(
       result.category_mask->GetImageFrameSharedPtr().get());
   cv::Mat expected_mask = cv::imread(
@@ -471,7 +498,7 @@ TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationCategoryMask) {
                "portrait_selfie_segmentation_expected_category_mask.jpg"),
       cv::IMREAD_GRAYSCALE);
   EXPECT_THAT(selfie_mask,
-              SimilarToUint8Mask(expected_mask, kGoldenMaskSimilarity, 255));
+              SimilarToUint8Mask(expected_mask, kGoldenMaskSimilarity, 1));
 }
 
 TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationLandscapeCategoryMask) {
@@ -487,6 +514,9 @@ TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationLandscapeCategoryMask) {
   EXPECT_TRUE(result.category_mask.has_value());
   MP_ASSERT_OK(segmenter->Close());
 
+  MP_EXPECT_OK(SavePngTestOutput(
+      *result.category_mask->GetImageFrameSharedPtr(),
+      "portrait_selfie_segmentation_landscape_expected_category_mask"));
   cv::Mat selfie_mask = mediapipe::formats::MatView(
       result.category_mask->GetImageFrameSharedPtr().get());
   cv::Mat expected_mask = cv::imread(
@@ -495,7 +525,7 @@ TEST_F(ImageModeTest, SucceedsPortraitSelfieSegmentationLandscapeCategoryMask) {
           "portrait_selfie_segmentation_landscape_expected_category_mask.jpg"),
       cv::IMREAD_GRAYSCALE);
   EXPECT_THAT(selfie_mask,
-              SimilarToUint8Mask(expected_mask, kGoldenMaskSimilarity, 255));
+              SimilarToUint8Mask(expected_mask, kGoldenMaskSimilarity, 1));
 }
 
 TEST_F(ImageModeTest, SucceedsHairSegmentation) {

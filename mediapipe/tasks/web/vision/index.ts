@@ -17,50 +17,37 @@
 import {FilesetResolver as FilesetResolverImpl} from '../../../tasks/web/core/fileset_resolver';
 import {DrawingUtils as DrawingUtilsImpl} from '../../../tasks/web/vision/core/drawing_utils';
 import {MPImage as MPImageImpl} from '../../../tasks/web/vision/core/image';
+import {MPMask as MPMaskImpl} from '../../../tasks/web/vision/core/mask';
 import {FaceDetector as FaceDetectorImpl} from '../../../tasks/web/vision/face_detector/face_detector';
-import {FaceLandmarker as FaceLandmarkerImpl, FaceLandmarksConnections as FaceLandmarksConnectionsImpl} from '../../../tasks/web/vision/face_landmarker/face_landmarker';
-import {FaceStylizer as FaceStylizerImpl} from '../../../tasks/web/vision/face_stylizer/face_stylizer';
+import {FaceLandmarker as FaceLandmarkerImpl} from '../../../tasks/web/vision/face_landmarker/face_landmarker';
 import {GestureRecognizer as GestureRecognizerImpl} from '../../../tasks/web/vision/gesture_recognizer/gesture_recognizer';
 import {HandLandmarker as HandLandmarkerImpl} from '../../../tasks/web/vision/hand_landmarker/hand_landmarker';
+import {HolisticLandmarker as HolisticLandmarkerImpl} from '../../../tasks/web/vision/holistic_landmarker/holistic_landmarker';
 import {ImageClassifier as ImageClassifierImpl} from '../../../tasks/web/vision/image_classifier/image_classifier';
 import {ImageEmbedder as ImageEmbedderImpl} from '../../../tasks/web/vision/image_embedder/image_embedder';
 import {ImageSegmenter as ImageSegementerImpl} from '../../../tasks/web/vision/image_segmenter/image_segmenter';
 import {InteractiveSegmenter as InteractiveSegmenterImpl} from '../../../tasks/web/vision/interactive_segmenter/interactive_segmenter';
+import {InteractiveSegmenterLegacy as InteractiveSegmenterLegacyImpl} from '../../../tasks/web/vision/interactive_segmenter_legacy/interactive_segmenter_legacy';
 import {ObjectDetector as ObjectDetectorImpl} from '../../../tasks/web/vision/object_detector/object_detector';
 import {PoseLandmarker as PoseLandmarkerImpl} from '../../../tasks/web/vision/pose_landmarker/pose_landmarker';
 
-// Declare the variables locally so that Rollup in OSS includes them explicitly
-// as exports.
-const DrawingUtils = DrawingUtilsImpl;
-const FilesetResolver = FilesetResolverImpl;
-const MPImage = MPImageImpl;
-const FaceDetector = FaceDetectorImpl;
-const FaceLandmarker = FaceLandmarkerImpl;
-const FaceLandmarksConnections = FaceLandmarksConnectionsImpl;
-const FaceStylizer = FaceStylizerImpl;
-const GestureRecognizer = GestureRecognizerImpl;
-const HandLandmarker = HandLandmarkerImpl;
-const ImageClassifier = ImageClassifierImpl;
-const ImageEmbedder = ImageEmbedderImpl;
-const ImageSegmenter = ImageSegementerImpl;
-const InteractiveSegmenter = InteractiveSegmenterImpl;
-const ObjectDetector = ObjectDetectorImpl;
-const PoseLandmarker = PoseLandmarkerImpl;
+// tslint:disable:enforce-comments-on-exported-symbols
 
-export {
-  DrawingUtils,
-  FilesetResolver,
-  MPImage,
-  FaceDetector,
-  FaceLandmarker,
-  FaceLandmarksConnections,
-  FaceStylizer,
-  GestureRecognizer,
-  HandLandmarker,
-  ImageClassifier,
-  ImageEmbedder,
-  ImageSegmenter,
-  InteractiveSegmenter,
-  ObjectDetector,
-  PoseLandmarker
-};
+// Declare and export the variables inline so that Rollup in OSS
+// explicitly retains the bindings and avoids dead-code elimination bugs.
+export const DrawingUtils = DrawingUtilsImpl;
+export const FilesetResolver = FilesetResolverImpl;
+export const MPImage = MPImageImpl;
+export const MPMask = MPMaskImpl;
+export const FaceDetector = FaceDetectorImpl;
+export const FaceLandmarker = FaceLandmarkerImpl;
+export const GestureRecognizer = GestureRecognizerImpl;
+export const HandLandmarker = HandLandmarkerImpl;
+export const HolisticLandmarker = HolisticLandmarkerImpl;
+export const ImageClassifier = ImageClassifierImpl;
+export const ImageEmbedder = ImageEmbedderImpl;
+export const ImageSegmenter = ImageSegementerImpl;
+export const InteractiveSegmenterLegacy = InteractiveSegmenterLegacyImpl;
+export const InteractiveSegmenter = InteractiveSegmenterImpl;
+export const ObjectDetector = ObjectDetectorImpl;
+export const PoseLandmarker = PoseLandmarkerImpl;

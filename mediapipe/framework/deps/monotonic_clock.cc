@@ -14,11 +14,12 @@
 
 #include "mediapipe/framework/deps/monotonic_clock.h"
 
-#include "absl/base/macros.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/time.h"
-#include "mediapipe/framework/port/logging.h"
+#include "absl/base/macros.h"              // from @com_google_absl
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"           // from @com_google_absl
+#include "absl/log/absl_log.h"             // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
+#include "absl/time/time.h"                // from @com_google_absl
 
 namespace mediapipe {
 
@@ -60,7 +61,7 @@ class MonotonicClockImpl : public MonotonicClock {
 
   // Absolve this object of responsibility for state_.
   void ReleaseState() {
-    CHECK(state_owned_);
+    ABSL_CHECK(state_owned_);
     state_owned_ = false;
   }
 
@@ -77,10 +78,10 @@ class MonotonicClockImpl : public MonotonicClock {
 
     // As there are several early exits from this function, use absl::MutexLock.
     {
-      absl::MutexLock m(&state_->lock);
+      absl::MutexLock m(state_->lock);
 
       // Check consistency of internal data with state_.
-      CHECK_LE(last_raw_time_, state_->max_time)
+      ABSL_CHECK_LE(last_raw_time_, state_->max_time)
           << "non-monotonic behavior: last_raw_time_=" << last_raw_time_
           << ", max_time=" << state_->max_time;
 
@@ -107,7 +108,7 @@ class MonotonicClockImpl : public MonotonicClock {
       // First, update correction metrics.
       ++correction_count_;
       absl::Duration delta = state_->max_time - raw_time;
-      CHECK_LT(absl::ZeroDuration(), delta);
+      ABSL_CHECK_LT(absl::ZeroDuration(), delta);
       if (delta > max_correction_) {
         max_correction_ = delta;
       }
@@ -149,7 +150,7 @@ class MonotonicClockImpl : public MonotonicClock {
   // Get metrics about time corrections.
   virtual void GetCorrectionMetrics(int* correction_count,
                                     double* max_correction) {
-    absl::MutexLock l(&state_->lock);
+    absl::MutexLock l(state_->lock);
     if (correction_count != nullptr) *correction_count = correction_count_;
     if (max_correction != nullptr)
       *max_correction = absl::FDivDuration(max_correction_, absl::Seconds(1));
@@ -157,7 +158,7 @@ class MonotonicClockImpl : public MonotonicClock {
 
   // Reset values returned by GetCorrectionMetrics().
   virtual void ResetCorrectionMetrics() {
-    absl::MutexLock l(&state_->lock);
+    absl::MutexLock l(state_->lock);
     correction_count_ = 0;
     max_correction_ = absl::ZeroDuration();
   }
@@ -205,9 +206,9 @@ MonotonicClock* MonotonicClock::CreateSynchronizedMonotonicClock() {
 
 // Test access methods.
 void MonotonicClockAccess::SynchronizedMonotonicClockReset() {
-  LOG(INFO) << "Resetting SynchronizedMonotonicClock";
+  ABSL_LOG(INFO) << "Resetting SynchronizedMonotonicClock";
   State* sync_state = GlobalSyncState();
-  absl::MutexLock m(&sync_state->lock);
+  absl::MutexLock m(sync_state->lock);
   sync_state->max_time = absl::UnixEpoch();
 }
 

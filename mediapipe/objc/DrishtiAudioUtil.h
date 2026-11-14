@@ -19,17 +19,16 @@
 
 #include <memory>
 
-#include "absl/status/statusor.h"
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/matrix.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 // Converts an audio sample buffer list into a `mediapipe::Matrix`.
 // Returns an error status on failure.
-absl::StatusOr<std::unique_ptr<mediapipe::Matrix>>
-MediaPipeConvertAudioBufferListToAudioMatrix(
-    const AudioBufferList* audioBufferList,
-    const AudioStreamBasicDescription* streamHeader, CMItemCount numFrames);
+absl::StatusOr<std::unique_ptr<mediapipe::Matrix>> MediaPipeConvertAudioBufferListToAudioMatrix(
+    const AudioBufferList* audioBufferList, const AudioStreamBasicDescription* streamHeader,
+    CMItemCount numFrames);
 
 NS_ASSUME_NONNULL_END
 

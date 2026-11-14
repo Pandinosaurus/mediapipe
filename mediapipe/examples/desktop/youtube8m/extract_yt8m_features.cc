@@ -16,16 +16,21 @@
 // from files provided via the command line and output side packets are written
 // to disk.
 #include <cstdlib>
+#include <map>
+#include <string>
+#include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
-#include "absl/strings/str_split.h"
+#include "absl/flags/flag.h"            // from @com_google_absl
+#include "absl/flags/parse.h"           // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_split.h"     // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/map_util.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
-#include "mediapipe/framework/port/status.h"
+#include "mediapipe/framework/port/ret_check.h"
 
 ABSL_FLAG(std::string, calculator_graph_config_file, "",
           "Name of file containing text format CalculatorGraphConfig proto.");
@@ -41,11 +46,11 @@ ABSL_FLAG(std::string, output_side_packets, "",
 
 absl::Status RunMPPGraph() {
   std::string calculator_graph_config_contents;
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       absl::GetFlag(FLAGS_calculator_graph_config_file),
       &calculator_graph_config_contents));
-  LOG(INFO) << "Get calculator graph config contents: "
-            << calculator_graph_config_contents;
+  ABSL_LOG(INFO) << "Get calculator graph config contents: "
+                 << calculator_graph_config_contents;
   mediapipe::CalculatorGraphConfig config =
       mediapipe::ParseTextProtoOrDie<mediapipe::CalculatorGraphConfig>(
           calculator_graph_config_contents);
@@ -55,9 +60,9 @@ absl::Status RunMPPGraph() {
   for (const std::string& kv_pair : kv_pairs) {
     std::vector<std::string> name_and_value = absl::StrSplit(kv_pair, '=');
     RET_CHECK(name_and_value.size() == 2);
-    RET_CHECK(!mediapipe::ContainsKey(input_side_packets, name_and_value[0]));
+    RET_CHECK(!input_side_packets.contains(name_and_value[0]));
     std::string input_side_packet_contents;
-    MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+    ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
         name_and_value[1], &input_side_packet_contents));
     input_side_packets[name_and_value[0]] =
         mediapipe::MakePacket<std::string>(input_side_packet_contents);
@@ -70,7 +75,7 @@ absl::Status RunMPPGraph() {
       vggish_pca_mean_matrix, vggish_pca_projection_matrix;
 
   std::string content;
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       "/tmp/mediapipe/inception3_mean_matrix_data.pb", &content));
   inc3_pca_mean_matrix_data.ParseFromString(content);
   mediapipe::MatrixFromMatrixDataProto(inc3_pca_mean_matrix_data,
@@ -78,7 +83,7 @@ absl::Status RunMPPGraph() {
   input_side_packets["inception3_pca_mean_matrix"] =
       mediapipe::MakePacket<mediapipe::Matrix>(inc3_pca_mean_matrix);
 
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       "/tmp/mediapipe/inception3_projection_matrix_data.pb", &content));
   inc3_pca_projection_matrix_data.ParseFromString(content);
   mediapipe::MatrixFromMatrixDataProto(inc3_pca_projection_matrix_data,
@@ -86,7 +91,7 @@ absl::Status RunMPPGraph() {
   input_side_packets["inception3_pca_projection_matrix"] =
       mediapipe::MakePacket<mediapipe::Matrix>(inc3_pca_projection_matrix);
 
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       "/tmp/mediapipe/vggish_mean_matrix_data.pb", &content));
   vggish_pca_mean_matrix_data.ParseFromString(content);
   mediapipe::MatrixFromMatrixDataProto(vggish_pca_mean_matrix_data,
@@ -94,7 +99,7 @@ absl::Status RunMPPGraph() {
   input_side_packets["vggish_pca_mean_matrix"] =
       mediapipe::MakePacket<mediapipe::Matrix>(vggish_pca_mean_matrix);
 
-  MP_RETURN_IF_ERROR(mediapipe::file::GetContents(
+  ABSL_RETURN_IF_ERROR(mediapipe::file::GetContents(
       "/tmp/mediapipe/vggish_projection_matrix_data.pb", &content));
   vggish_pca_projection_matrix_data.ParseFromString(content);
   mediapipe::MatrixFromMatrixDataProto(vggish_pca_projection_matrix_data,
@@ -102,12 +107,12 @@ absl::Status RunMPPGraph() {
   input_side_packets["vggish_pca_projection_matrix"] =
       mediapipe::MakePacket<mediapipe::Matrix>(vggish_pca_projection_matrix);
 
-  LOG(INFO) << "Initialize the calculator graph.";
+  ABSL_LOG(INFO) << "Initialize the calculator graph.";
   mediapipe::CalculatorGraph graph;
-  MP_RETURN_IF_ERROR(graph.Initialize(config, input_side_packets));
-  LOG(INFO) << "Start running the calculator graph.";
-  MP_RETURN_IF_ERROR(graph.Run());
-  LOG(INFO) << "Gathering output side packets.";
+  ABSL_RETURN_IF_ERROR(graph.Initialize(config, input_side_packets));
+  ABSL_LOG(INFO) << "Start running the calculator graph.";
+  ABSL_RETURN_IF_ERROR(graph.Run());
+  ABSL_LOG(INFO) << "Gathering output side packets.";
   kv_pairs = absl::StrSplit(absl::GetFlag(FLAGS_output_side_packets), ',');
   for (const std::string& kv_pair : kv_pairs) {
     std::vector<std::string> name_and_value = absl::StrSplit(kv_pair, '=');
@@ -118,7 +123,7 @@ absl::Status RunMPPGraph() {
         << "Packet " << name_and_value[0] << " was not available.";
     const std::string& serialized_string =
         output_packet.value().Get<std::string>();
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         mediapipe::file::SetContents(name_and_value[1], serialized_string));
   }
   return absl::OkStatus();
@@ -129,10 +134,10 @@ int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   absl::Status run_status = RunMPPGraph();
   if (!run_status.ok()) {
-    LOG(ERROR) << "Failed to run the graph: " << run_status.message();
+    ABSL_LOG(ERROR) << "Failed to run the graph: " << run_status.message();
     return EXIT_FAILURE;
   } else {
-    LOG(INFO) << "Success!";
+    ABSL_LOG(INFO) << "Success!";
   }
   return EXIT_SUCCESS;
 }

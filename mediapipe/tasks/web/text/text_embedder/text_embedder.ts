@@ -23,16 +23,27 @@ import {Embedding} from '../../../../tasks/web/components/containers/embedding_r
 import {convertEmbedderOptionsToProto} from '../../../../tasks/web/components/processors/embedder_options';
 import {convertFromEmbeddingResultProto} from '../../../../tasks/web/components/processors/embedder_result';
 import {computeCosineSimilarity} from '../../../../tasks/web/components/utils/cosine_similarity';
-import {CachedGraphRunner, TaskRunner} from '../../../../tasks/web/core/task_runner';
+import {
+  CachedGraphRunner,
+  TaskRunner,
+} from '../../../../tasks/web/core/task_runner';
 import {WasmFileset} from '../../../../tasks/web/core/wasm_fileset';
 import {WasmModule} from '../../../../web/graph_runner/graph_runner';
 // Placeholder for internal dependency on trusted resource url
+import type {
+  TextEmbedderOptions,
+  TextEmbeddingType,
+  TextFormatOptions,
+} from './text_embedder_options';
+import type {TextEmbedderResult} from './text_embedder_result';
 
-import {TextEmbedderOptions} from './text_embedder_options';
-import {TextEmbedderResult} from './text_embedder_result';
-
-export * from './text_embedder_options';
-export * from './text_embedder_result';
+export type {
+  TextEmbedderOptions,
+  TextEmbeddingType,
+  TextFormatOptions,
+  TextRole,
+} from './text_embedder_options';
+export type {Embedding, TextEmbedderResult} from './text_embedder_result';
 
 // The OSS JS API does not support the builder pattern.
 // tslint:disable:jspb-use-builder-pattern
@@ -40,7 +51,7 @@ export * from './text_embedder_result';
 const INPUT_STREAM = 'text_in';
 const EMBEDDINGS_STREAM = 'embeddings_out';
 const TEXT_EMBEDDER_CALCULATOR =
-    'mediapipe.tasks.text.text_embedder.TextEmbedderGraph';
+  'mediapipe.tasks.text.text_embedder.TextEmbedderGraph';
 
 /**
  * Performs embedding extraction on text.
@@ -52,6 +63,7 @@ export class TextEmbedder extends TaskRunner {
   /**
    * Initializes the Wasm runtime and creates a new text embedder from the
    * provided options.
+   * @export
    * @param wasmFileset A configuration object that provides the location of the
    *     Wasm binary and its loader.
    * @param textEmbedderOptions The options for the text embedder. Note that
@@ -59,48 +71,69 @@ export class TextEmbedder extends TaskRunner {
    *     provided (via `baseOptions`).
    */
   static createFromOptions(
-      wasmFileset: WasmFileset,
-      textEmbedderOptions: TextEmbedderOptions): Promise<TextEmbedder> {
+    wasmFileset: WasmFileset,
+    textEmbedderOptions: TextEmbedderOptions,
+  ): Promise<TextEmbedder> {
     return TaskRunner.createInstance(
-        TextEmbedder, /* canvas= */ null, wasmFileset, textEmbedderOptions);
+      TextEmbedder,
+      /* canvas= */ null,
+      wasmFileset,
+      textEmbedderOptions,
+    );
   }
 
   /**
    * Initializes the Wasm runtime and creates a new text embedder based on the
    * provided model asset buffer.
+   * @export
    * @param wasmFileset A configuration object that provides the location of the
    *     Wasm binary and its loader.
-   * @param modelAssetBuffer A binary representation of the TFLite model.
+   * @param modelAssetBuffer An array or a stream containing a binary
+   *    representation of the model.
    */
   static createFromModelBuffer(
-      wasmFileset: WasmFileset,
-      modelAssetBuffer: Uint8Array): Promise<TextEmbedder> {
+    wasmFileset: WasmFileset,
+    modelAssetBuffer: Uint8Array | ReadableStreamDefaultReader,
+  ): Promise<TextEmbedder> {
     return TaskRunner.createInstance(
-        TextEmbedder, /* canvas= */ null, wasmFileset,
-        {baseOptions: {modelAssetBuffer}});
+      TextEmbedder,
+      /* canvas= */ null,
+      wasmFileset,
+      {baseOptions: {modelAssetBuffer}},
+    );
   }
 
   /**
    * Initializes the Wasm runtime and creates a new text embedder based on the
    * path to the model asset.
+   * @export
    * @param wasmFileset A configuration object that provides the location of the
    *     Wasm binary and its loader.
    * @param modelAssetPath The path to the TFLite model.
    */
   static createFromModelPath(
-      wasmFileset: WasmFileset,
-      modelAssetPath: string): Promise<TextEmbedder> {
+    wasmFileset: WasmFileset,
+    modelAssetPath: string,
+  ): Promise<TextEmbedder> {
     return TaskRunner.createInstance(
-        TextEmbedder, /* canvas= */ null, wasmFileset,
-        {baseOptions: {modelAssetPath}});
+      TextEmbedder,
+      /* canvas= */ null,
+      wasmFileset,
+      {baseOptions: {modelAssetPath}},
+    );
   }
 
   /** @hideconstructor */
   constructor(
-      wasmModule: WasmModule,
-      glCanvas?: HTMLCanvasElement|OffscreenCanvas|null) {
+    wasmModule: WasmModule,
+    glCanvas?: HTMLCanvasElement | OffscreenCanvas | null,
+  ) {
     super(new CachedGraphRunner(wasmModule, glCanvas));
     this.options.setBaseOptions(new BaseOptionsProto());
+  }
+
+  protected override getTaskName(): string {
+    return 'TextEmbedder';
   }
 
   /**
@@ -110,11 +143,13 @@ export class TextEmbedder extends TaskRunner {
    * You can reset an option back to its default value by explicitly setting it
    * to `undefined`.
    *
+   * @export
    * @param options The options for the text embedder.
    */
   override setOptions(options: TextEmbedderOptions): Promise<void> {
-    this.options.setEmbedderOptions(convertEmbedderOptionsToProto(
-        options, this.options.getEmbedderOptions()));
+    this.options.setEmbedderOptions(
+      convertEmbedderOptionsToProto(options, this.options.getEmbedderOptions()),
+    );
     return this.applyOptions(options);
   }
 
@@ -130,14 +165,65 @@ export class TextEmbedder extends TaskRunner {
    * Performs embeding extraction on the provided text and waits synchronously
    * for the response.
    *
+   * @export
    * @param text The text to process.
-   * @return The embedding resuls of the text
+   * @param formatOptions The formatting to apply to the input text.
+   * @return The embedding results of the text
    */
-  embed(text: string): TextEmbedderResult {
-    this.graphRunner.addStringToStream(
-        text, INPUT_STREAM, this.getSynctheticTimestamp());
-    this.finishProcessing();
+  embed(text: string, formatOptions?: TextFormatOptions): TextEmbedderResult {
+    const timestamp = this.getSyntheticTimestamp();
+    this.startProcessing(timestamp);
+    const inputText = formatOptions
+      ? this.formatText(text, formatOptions)
+      : text;
+    this.graphRunner.addStringToStream(inputText, INPUT_STREAM, timestamp);
+    this.finishProcessing(timestamp);
     return this.embeddingResult;
+  }
+
+  private formatText(text: string, options: TextFormatOptions): string {
+    const type = options.type;
+    const title =
+      options.title && options.title.length > 0 ? options.title : 'none';
+    const isQuery = options.textRole !== 'DOCUMENT';
+
+    switch (type) {
+      case 'RETRIEVAL_DOCUMENT':
+        return `title: ${title} | text: ${text}`;
+      case 'RETRIEVAL_QUERY':
+        return `task: ${this.getTypeString(type)} | query: ${text}`;
+      case 'QUESTION_ANSWERING':
+      case 'FACT_CHECKING':
+      case 'CODE_RETRIEVAL':
+        if (isQuery) {
+          return `task: ${this.getTypeString(type)} | query: ${text}`;
+        } else {
+          return `title: ${title} | text: ${text}`;
+        }
+      default:
+        return `task: ${this.getTypeString(type)} | query: ${text}`;
+    }
+  }
+
+  private getTypeString(type: TextEmbeddingType): string {
+    switch (type) {
+      case 'RETRIEVAL_QUERY':
+        return 'search result';
+      case 'SEMANTIC_SIMILARITY':
+        return 'sentence similarity';
+      case 'CLASSIFICATION':
+        return 'classification';
+      case 'CLUSTERING':
+        return 'clustering';
+      case 'QUESTION_ANSWERING':
+        return 'question answering';
+      case 'FACT_CHECKING':
+        return 'fact checking';
+      case 'CODE_RETRIEVAL':
+        return 'code retrieval';
+      default:
+        return 'search result';
+    }
   }
 
   /**
@@ -146,6 +232,7 @@ export class TextEmbedder extends TaskRunner {
    *
    * [1]: https://en.wikipedia.org/wiki/Cosine_similarity
    *
+   * @export
    * @throws if the embeddings are of different types(float vs. quantized), have
    *     different sizes, or have an L2-norm of 0.
    */
@@ -161,7 +248,9 @@ export class TextEmbedder extends TaskRunner {
 
     const calculatorOptions = new CalculatorOptions();
     calculatorOptions.setExtension(
-        TextEmbedderGraphOptionsProto.ext, this.options);
+      TextEmbedderGraphOptionsProto.ext,
+      this.options,
+    );
 
     const embedderNode = new CalculatorGraphConfig.Node();
     embedderNode.setCalculator(TEXT_EMBEDDER_CALCULATOR);
@@ -172,21 +261,23 @@ export class TextEmbedder extends TaskRunner {
     graphConfig.addNode(embedderNode);
 
     this.graphRunner.attachProtoListener(
-        EMBEDDINGS_STREAM, (binaryProto, timestamp) => {
-          const embeddingResult =
-              EmbeddingResult.deserializeBinary(binaryProto);
-          this.embeddingResult =
-              convertFromEmbeddingResultProto(embeddingResult);
-          this.setLatestOutputTimestamp(timestamp);
-        });
-    this.graphRunner.attachEmptyPacketListener(EMBEDDINGS_STREAM, timestamp => {
-      this.setLatestOutputTimestamp(timestamp);
-    });
+      EMBEDDINGS_STREAM,
+      (binaryProto, timestamp) => {
+        const embeddingResult = EmbeddingResult.deserializeBinary(binaryProto);
+        this.embeddingResult = convertFromEmbeddingResultProto(embeddingResult);
+        this.setLatestOutputTimestamp(timestamp);
+      },
+    );
+    this.graphRunner.attachEmptyPacketListener(
+      EMBEDDINGS_STREAM,
+      (timestamp) => {
+        this.setLatestOutputTimestamp(timestamp);
+      },
+    );
 
     const binaryGraph = graphConfig.serializeBinary();
     this.setGraph(new Uint8Array(binaryGraph), /* isBinary= */ true);
   }
 }
-
 
 

@@ -13,15 +13,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <iostream>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
+#include "absl/flags/flag.h"           // from @com_google_absl
+#include "absl/status/statusor.h"      // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -30,17 +29,17 @@ limitations under the License.
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/landmark.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
-#include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/port/file_helpers.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/hand_landmarker/proto/hand_landmarks_detector_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
+#include "tflite/kernels/register.h"  // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -145,8 +144,11 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateSingleHandTaskRunner(
       graph[Output<NormalizedRect>(kHandRectNextFrameTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(),
-      absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = "hand_landmarks_detector_test",
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver =
+           std::make_unique<tflite::ops::builtin::BuiltinOpResolver>()});
 }
 
 // Helper function to create a Multi Hand Landmark TaskRunner.
@@ -187,8 +189,11 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateMultiHandTaskRunner(
       graph[Output<std::vector<NormalizedRect>>(kHandRectNextFrameTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(),
-      absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = "hand_landmarks_detector_test",
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver =
+           std::make_unique<tflite::ops::builtin::BuiltinOpResolver>()});
 }
 
 NormalizedLandmarkList GetExpectedLandmarkList(absl::string_view filename) {
@@ -319,15 +324,15 @@ TEST_P(MultiHandLandmarkerTest, Succeeds) {
 
   const std::vector<bool>& presences =
       (*output_packets)[kPresenceName].Get<std::vector<bool>>();
-  const std::vector<ClassificationList>& handednesses =
+  const std::vector<ClassificationList>& handedness =
       (*output_packets)[kHandednessName].Get<std::vector<ClassificationList>>();
   const std::vector<NormalizedLandmarkList>& landmark_lists =
       (*output_packets)[kLandmarksName]
           .Get<std::vector<NormalizedLandmarkList>>();
 
   EXPECT_THAT(presences, ElementsAreArray(GetParam().expected_presences));
-  EXPECT_THAT(handednesses, Pointwise(Partially(EqualsProto()),
-                                      GetParam().expected_handedness));
+  EXPECT_THAT(handedness, Pointwise(Partially(EqualsProto()),
+                                    GetParam().expected_handedness));
   EXPECT_THAT(
       landmark_lists,
       Pointwise(Approximately(Partially(EqualsProto()), /*margin=*/kAbsMargin,
@@ -342,7 +347,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerLiteModelRightUpHand",
             .input_model_name = kHandLandmarkerLiteModel,
             .test_image_name = kRightHandsImage,
-            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
+            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedRightUpHandLandmarksFilename),
@@ -352,7 +357,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerLiteModelRightDownHand",
             .input_model_name = kHandLandmarkerLiteModel,
             .test_image_name = kRightHandsImage,
-            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
+            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
             .expected_presence = true,
             .expected_landmarks = GetExpectedLandmarkList(
                 kExpectedRightDownHandLandmarksFilename),
@@ -362,7 +367,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerFullModelRightUpHand",
             .input_model_name = kHandLandmarkerFullModel,
             .test_image_name = kRightHandsImage,
-            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
+            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedRightUpHandLandmarksFilename),
@@ -372,7 +377,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerFullModelRightDownHand",
             .input_model_name = kHandLandmarkerFullModel,
             .test_image_name = kRightHandsImage,
-            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
+            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
             .expected_presence = true,
             .expected_landmarks = GetExpectedLandmarkList(
                 kExpectedRightDownHandLandmarksFilename),
@@ -382,7 +387,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerLiteModelLeftUpHand",
             .input_model_name = kHandLandmarkerLiteModel,
             .test_image_name = kLeftHandsImage,
-            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
+            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedLeftUpHandLandmarksFilename),
@@ -392,7 +397,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerLiteModelLeftDownHand",
             .input_model_name = kHandLandmarkerLiteModel,
             .test_image_name = kLeftHandsImage,
-            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
+            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedLeftDownHandLandmarksFilename),
@@ -402,7 +407,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerFullModelLeftUpHand",
             .input_model_name = kHandLandmarkerFullModel,
             .test_image_name = kLeftHandsImage,
-            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
+            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedLeftUpHandLandmarksFilename),
@@ -412,7 +417,7 @@ INSTANTIATE_TEST_SUITE_P(
             .test_name = "HandLandmarkerFullModelLeftDownHand",
             .input_model_name = kHandLandmarkerFullModel,
             .test_image_name = kLeftHandsImage,
-            .hand_rect = MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
+            .hand_rect = MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
             .expected_presence = true,
             .expected_landmarks =
                 GetExpectedLandmarkList(kExpectedLeftDownHandLandmarksFilename),
@@ -431,8 +436,8 @@ INSTANTIATE_TEST_SUITE_P(
             .test_image_name = kRightHandsImage,
             .hand_rects =
                 {
-                    MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
-                    MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
+                    MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
+                    MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
                 },
             .expected_presences = {true, true},
             .expected_landmark_lists =
@@ -449,8 +454,8 @@ INSTANTIATE_TEST_SUITE_P(
             .test_image_name = kLeftHandsImage,
             .hand_rects =
                 {
-                    MakeHandRect(0.75, 0.5, 0.5, 1.0, 0),
-                    MakeHandRect(0.25, 0.5, 0.5, 1.0, M_PI),
+                    MakeHandRect(0.25, 0.5, 0.5, 1.0, 0),
+                    MakeHandRect(0.75, 0.5, 0.5, 1.0, M_PI),
                 },
             .expected_presences = {true, true},
             .expected_landmark_lists =

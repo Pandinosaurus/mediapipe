@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
 licenses(["notice"])
@@ -25,12 +26,11 @@ cc_library(
         "//mediapipe/calculators/util:detections_to_rects_calculator",
         "//mediapipe/calculators/util:detections_to_rects_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
-        "//mediapipe/framework:calculator_options_cc_proto",
         "//mediapipe/framework/formats:detection_cc_proto",
         "//mediapipe/framework/formats:location_data_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -54,6 +54,7 @@ cc_library(
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:rectangle",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
     ],
     alwayslink = 1,

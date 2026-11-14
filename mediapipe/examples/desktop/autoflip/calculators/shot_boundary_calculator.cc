@@ -18,13 +18,14 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/examples/desktop/autoflip/calculators/shot_boundary_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/timestamp.h"
 
 using mediapipe::ImageFrame;
@@ -112,8 +113,8 @@ void ShotBoundaryCalculator::Transmit(mediapipe::CalculatorContext* cc,
     is_shot_change = false;
   }
   if (is_shot_change) {
-    LOG(INFO) << "Shot change at: " << cc->InputTimestamp().Seconds()
-              << " seconds.";
+    ABSL_LOG(INFO) << "Shot change at: " << cc->InputTimestamp().Seconds()
+                   << " seconds.";
     cc->Outputs()
         .Tag(kShotChangeTag)
         .AddPacket(Adopt(std::make_unique<bool>(true).release())
@@ -144,7 +145,8 @@ absl::Status ShotBoundaryCalculator::Process(mediapipe::CalculatorContext* cc) {
   }
 
   double current_motion_estimate =
-      1 - cv::compareHist(current_histogram, last_histogram_, CV_COMP_CORREL);
+      1 -
+      cv::compareHist(current_histogram, last_histogram_, cv::HISTCMP_CORREL);
   last_histogram_ = current_histogram;
   motion_history_.push_front(current_motion_estimate);
 

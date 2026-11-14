@@ -14,12 +14,18 @@
 
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph_texture_frame_jni.h"
 
+#include "absl/log/absl_log.h"        // from @com_google_absl
+#include "absl/strings/str_format.h"  // from @com_google_absl
 #include "mediapipe/gpu/gl_calculator_helper.h"
 #include "mediapipe/gpu/gl_context.h"
 #include "mediapipe/gpu/gl_texture_buffer.h"
+#include "mediapipe/gpu/gpu_buffer_format.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/jni_util.h"
 
-using mediapipe::GlTextureBufferSharedPtr;
+using ::mediapipe::GlTextureBufferSharedPtr;
+using ::mediapipe::GlTextureInfoForGpuBufferFormat;
+using ::mediapipe::GlVersion;
+using ::mediapipe::GpuBufferFormat;
 
 JNIEXPORT void JNICALL GRAPH_TEXTURE_FRAME_METHOD(nativeReleaseBuffer)(
     JNIEnv* env, jobject thiz, jlong nativeHandle) {
@@ -56,6 +62,15 @@ JNIEXPORT jint JNICALL GRAPH_TEXTURE_FRAME_METHOD(nativeGetHeight)(
   return (*buffer)->height();
 }
 
+JNIEXPORT jint JNICALL GRAPH_TEXTURE_FRAME_METHOD(nativeGetFormat)(
+    JNIEnv* env, jobject thiz, jlong nativeHandle) {
+  GlTextureBufferSharedPtr* buffer =
+      reinterpret_cast<GlTextureBufferSharedPtr*>(nativeHandle);
+  GpuBufferFormat format = (*buffer)->format();
+  return GlTextureInfoForGpuBufferFormat(format, /*plane=*/0, GlVersion::kGLES3)
+      .gl_format;
+}
+
 JNIEXPORT jlong JNICALL GRAPH_TEXTURE_FRAME_METHOD(
     nativeCreateSyncTokenForCurrentExternalContext)(JNIEnv* env, jobject thiz,
                                                     jlong nativeHandle) {
@@ -89,9 +104,20 @@ JNIEXPORT jlong JNICALL GRAPH_TEXTURE_FRAME_METHOD(
 
 JNIEXPORT void JNICALL GRAPH_TEXTURE_FRAME_METHOD(nativeDidRead)(
     JNIEnv* env, jobject thiz, jlong nativeHandle, jlong consumerSyncToken) {
+  if (!consumerSyncToken) return;
+
   GlTextureBufferSharedPtr* buffer =
       reinterpret_cast<GlTextureBufferSharedPtr*>(nativeHandle);
   mediapipe::GlSyncToken& token =
       *reinterpret_cast<mediapipe::GlSyncToken*>(consumerSyncToken);
+  // The below check attempts to detect when an invalid or already deleted
+  // `consumerSyncToken` is passed. (That results in undefined behavior.
+  // However, `DidRead` may succeed resulting in a later crash and masking the
+  // actual problem.)
+  if (token.use_count() == 0) {
+    ABSL_LOG_FIRST_N(ERROR, 5)
+        << absl::StrFormat("invalid sync token ref: %d", consumerSyncToken);
+    return;
+  }
   (*buffer)->DidRead(token);
 }

@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//mediapipe/tasks:internal",
-])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -24,14 +25,14 @@ cc_library(
     name = "gesture_recognizer",
     srcs = ["gesture_recognizer.cc"],
     hdrs = ["gesture_recognizer.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":gesture_recognizer_graph",
         ":gesture_recognizer_result",
         ":hand_gesture_recognizer_graph",
+        "//mediapipe/calculators/tensor:inference_calculator_litert",  # buildcleaner: keep
+        "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:packet",
         "//mediapipe/framework/api2:builder",
-        "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
@@ -40,11 +41,8 @@ cc_library(
         "//mediapipe/tasks/cc/components/processors:classifier_options",
         "//mediapipe/tasks/cc/components/processors/proto:classifier_options_cc_proto",
         "//mediapipe/tasks/cc/core:base_options",
-        "//mediapipe/tasks/cc/core:base_task_api",
-        "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core:task_runner",
         "//mediapipe/tasks/cc/core:utils",
-        "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
         "//mediapipe/tasks/cc/vision/core:base_vision_task_api",
         "//mediapipe/tasks/cc/vision/core:image_processing_options",
         "//mediapipe/tasks/cc/vision/core:running_mode",
@@ -55,11 +53,11 @@ cc_library(
         "//mediapipe/tasks/cc/vision/hand_detector/proto:hand_detector_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarks_detector_graph_options_cc_proto",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@org_tensorflow//tensorflow/lite/core/api:op_resolver",
-        "@org_tensorflow//tensorflow/lite/kernels:builtin_ops",
+        "@com_google_absl//absl/strings",
+        "@litert//tflite/kernels:builtin_ops",
     ],
 )
 
@@ -124,7 +122,9 @@ cc_library(
         "//mediapipe/tasks/cc/vision/gesture_recognizer/proto:hand_gesture_recognizer_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker:hand_landmarks_detector_graph",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,
@@ -144,7 +144,6 @@ cc_library(
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/processors/proto:classifier_options_cc_proto",
         "//mediapipe/tasks/cc/core:model_asset_bundle_resources",
@@ -161,7 +160,9 @@ cc_library(
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/hand_landmarker/proto:hand_landmarks_detector_graph_options_cc_proto",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,
@@ -170,7 +171,6 @@ cc_library(
 cc_library(
     name = "gesture_recognizer_result",
     hdrs = ["gesture_recognizer_result.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/formats:classification_cc_proto",
         "//mediapipe/framework/formats:landmark_cc_proto",

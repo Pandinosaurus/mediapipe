@@ -11,9 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include <cmath>
 
-#include "Eigen/Core"
+#include <cmath>
+#include <cstdint>
+
+#include "Eigen/Core"  // from @eigen
 #include "mediapipe/calculators/audio/stabilized_log_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
@@ -21,7 +23,6 @@
 #include "mediapipe/framework/formats/time_series_header.pb.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/util/time_series_test_util.h"
 

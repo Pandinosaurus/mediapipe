@@ -12,14 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mediapipe/framework/formats/classification.pb.h"
 #import "mediapipe/tasks/ios/components/containers/sources/MPPCategory.h"
+
+struct MpCategory;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface MPPCategory (Helpers)
 
-+ (MPPCategory *)categoryWithProto:(const ::mediapipe::Classification &)classificationProto;
+/**
+ * Creates an `MPPCategory` with the given C API `MpCategory` struct.
+ *
+ * @param cCategory A MediaPipe C API `MpCategory` struct.
+ * @return An `MPPCategory` object.
+ */
++ (MPPCategory *)categoryWithCCategory:(const struct MpCategory &)cCategory;
 
 @end
 

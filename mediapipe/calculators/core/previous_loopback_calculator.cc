@@ -14,10 +14,10 @@
 
 #include <deque>
 
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/timestamp.h"
 
 namespace mediapipe {
@@ -123,7 +123,10 @@ class PreviousLoopbackCalculator : public Node {
           // However, LOOP packet is empty.
           kPrevLoop(cc).SetNextTimestampBound(main_spec.timestamp + 1);
         } else {
-          kPrevLoop(cc).Send(loop_candidate.At(main_spec.timestamp));
+          // Avoids sending leftovers to a stream that's already closed.
+          if (!kPrevLoop(cc).IsClosed()) {
+            kPrevLoop(cc).Send(loop_candidate.At(main_spec.timestamp));
+          }
         }
         loop_packets_.pop_front();
         main_packet_specs_.pop_front();

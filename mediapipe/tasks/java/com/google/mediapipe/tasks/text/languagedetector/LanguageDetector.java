@@ -80,7 +80,7 @@ public final class LanguageDetector implements AutoCloseable {
   private final TaskRunner runner;
 
   static {
-    System.loadLibrary("mediapipe_tasks_text_jni");
+    System.loadLibrary("mediapipe_tasks_jni");
     ProtoUtil.registerTypeName(
         ClassificationsProto.ClassificationResult.class,
         "mediapipe.tasks.components.containers.proto.ClassificationResult");
@@ -170,7 +170,7 @@ public final class LanguageDetector implements AutoCloseable {
         TaskRunner.create(
             context,
             TaskInfo.<LanguageDetectorOptions>builder()
-                .setTaskName(LanguageDetector.class.getSimpleName())
+                .setTaskName("LanguageDetector")
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(inputStreams)
                 .setOutputStreams(outputStreams)

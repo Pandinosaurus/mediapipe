@@ -14,6 +14,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "mediapipe/tasks/ios/core/sources/MPPCoreRunningMode.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 /**
@@ -38,17 +40,30 @@ typedef NS_ENUM(NSUInteger, MPPRunningMode) {
 
 } NS_SWIFT_NAME(RunningMode);
 
-NS_INLINE NSString *MPPRunningModeDisplayName(MPPRunningMode runningMode) {
-  if (runningMode > MPPRunningModeLiveStream) {
-    return nil;
+NS_INLINE NSString *_Nullable MPPRunningModeDisplayName(MPPRunningMode runningMode) {
+  switch (runningMode) {
+    case MPPRunningModeImage:
+      return @"Image";
+    case MPPRunningModeVideo:
+      return @"Video";
+    case MPPRunningModeLiveStream:
+      return @"Live Stream";
+    default:
+      return nil;
   }
+}
 
-  NSString *displayNameMap[MPPRunningModeLiveStream + 1] = {
-      [MPPRunningModeImage] = @"Image",
-      [MPPRunningModeVideo] = @"Video",
-      [MPPRunningModeLiveStream] = @"Live Stream"};
-
-  return displayNameMap[runningMode];
+NS_INLINE MPPCoreRunningMode MPPCoreRunningModeFromVisionRunningMode(MPPRunningMode runningMode) {
+  switch (runningMode) {
+    case MPPRunningModeImage:
+      return MPPCoreRunningModeImage;
+    case MPPRunningModeVideo:
+      return MPPCoreRunningModeVideo;
+    case MPPRunningModeLiveStream:
+      return MPPCoreRunningModeLiveStream;
+    default:
+      return MPPCoreRunningModeUnspecified;
+  }
 }
 
 NS_ASSUME_NONNULL_END

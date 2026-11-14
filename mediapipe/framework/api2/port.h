@@ -20,8 +20,11 @@
 #include <type_traits>
 #include <utility>
 
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/strings/string_view.h"   // from @com_google_absl
 #include "mediapipe/framework/api2/const_str.h"
 #include "mediapipe/framework/api2/packet.h"
 #include "mediapipe/framework/calculator_context.h"
@@ -230,22 +233,24 @@ auto AccessPort(std::false_type, const PortT& port, CC* cc) {
       cc, internal::GetOrNull(collection, port.Tag(), 0));
 }
 
-template <typename ValueT, typename X, class CC>
+template <typename ValueT, typename X, typename CollectionT, class CC>
 class MultiplePortAccess {
  public:
   using AccessT = decltype(SinglePortAccess<ValueT>(std::declval<CC*>(),
                                                     std::declval<X*>()));
 
-  MultiplePortAccess(CC* cc, X* first, int count)
-      : cc_(cc), first_(first), count_(count) {}
+  MultiplePortAccess(CC* cc, CollectionT* collection, const char* tag,
+                     int count)
+      : cc_(cc), collection_(collection), tag_(tag), count_(count) {}
 
   // TODO: maybe this should be size(), like in a standard C++
   // container?
-  int Count() { return count_; }
-  AccessT operator[](int pos) {
-    CHECK_GE(pos, 0);
-    CHECK_LT(pos, count_);
-    return SinglePortAccess<ValueT>(cc_, &first_[pos]);
+  int Count() const { return count_; }
+  AccessT operator[](int pos) const {
+    ABSL_CHECK_GE(pos, 0);
+    ABSL_CHECK_LT(pos, count_);
+    return SinglePortAccess<ValueT>(
+        cc_, internal::GetOrNull(*collection_, tag_, pos));
   }
 
   class Iterator {
@@ -256,9 +261,10 @@ class MultiplePortAccess {
     using pointer = AccessT*;
     using reference = AccessT;  // allowed; see e.g. std::istreambuf_iterator
 
-    Iterator(CC* cc, X* p) : cc_(cc), p_(p) {}
+    Iterator(CC* cc, CollectionT* collection, const char* tag, int pos)
+        : cc_(cc), collection_(collection), tag_(tag), pos_(pos) {}
     Iterator& operator++() {
-      ++p_;
+      ++pos_;
       return *this;
     }
     Iterator operator++(int) {
@@ -266,21 +272,27 @@ class MultiplePortAccess {
       ++(*this);
       return res;
     }
-    bool operator==(const Iterator& other) const { return p_ == other.p_; }
+    bool operator==(const Iterator& other) const { return pos_ == other.pos_; }
     bool operator!=(const Iterator& other) const { return !(*this == other); }
-    AccessT operator*() const { return SinglePortAccess<ValueT>(cc_, p_); }
+    AccessT operator*() const {
+      return SinglePortAccess<ValueT>(
+          cc_, internal::GetOrNull(*collection_, tag_, pos_));
+    }
 
    private:
     CC* cc_;
-    X* p_;
+    CollectionT* collection_;
+    const char* tag_;
+    int pos_ = 0;
   };
 
-  Iterator begin() { return Iterator(cc_, first_); }
-  Iterator end() { return Iterator(cc_, first_ + count_); }
+  Iterator begin() const { return Iterator(cc_, collection_, tag_, 0); }
+  Iterator end() const { return Iterator(cc_, collection_, tag_, count_); }
 
  private:
   CC* cc_;
-  X* first_;
+  CollectionT* collection_;
+  const char* tag_;
   int count_;
 };
 
@@ -288,9 +300,11 @@ template <typename ValueT, typename PortT, class CC>
 auto AccessPort(std::true_type, const PortT& port, CC* cc) {
   auto& collection = GetCollection(cc, port);
   auto* first = internal::GetOrNull(collection, port.Tag(), 0);
-  using EntryT = typename std::remove_pointer<decltype(first)>::type;
-  return MultiplePortAccess<ValueT, EntryT, CC>(
-      cc, first, collection.NumEntries(port.Tag()));
+  using EntryT = typename std::remove_pointer_t<decltype(first)>;
+  using CollectionT = typename std::remove_reference_t<
+      std::remove_const_t<decltype(collection)>>;
+  return MultiplePortAccess<ValueT, EntryT, CollectionT, CC>(
+      cc, &collection, port.Tag(), collection.NumEntries(port.Tag()));
 }
 
 template <class Base>
@@ -439,8 +453,8 @@ class SideFallbackT : public Base {
 
  protected:
   absl::Status AddToContract(CalculatorContract* cc) const {
-    stream_port.AddToContract(cc);
-    side_port.AddToContract(cc);
+    ABSL_RETURN_IF_ERROR(stream_port.AddToContract(cc));
+    ABSL_RETURN_IF_ERROR(side_port.AddToContract(cc));
     int connected_count =
         stream_port(cc).IsConnected() + side_port(cc).IsConnected();
     if (connected_count > 1)
@@ -576,8 +590,10 @@ class OutputSidePacketAccess {
   void Set(const T& payload) { Set(api2::MakePacket<T>(payload)); }
   void Set(T&& payload) { Set(api2::MakePacket<T>(std::move(payload))); }
 
+  bool IsConnected() const { return output_ != nullptr; }
+
  private:
-  OutputSidePacketAccess(OutputSidePacket* output) : output_(output) {}
+  explicit OutputSidePacketAccess(OutputSidePacket* output) : output_(output) {}
   OutputSidePacket* output_;
 
   friend OutputSidePacketAccess<T> internal::SinglePortAccess<T>(
@@ -660,7 +676,7 @@ class InputSidePacketAccess : public Packet<T> {
       : Packet<T>(packet ? FromOldPacket(*packet).template As<T>()
                          : Packet<T>()),
         connected_(packet != nullptr) {}
-  bool connected_;
+  const bool connected_;
 
   friend InputSidePacketAccess<T> internal::SinglePortAccess<T>(
       mediapipe::CalculatorContext*, const mediapipe::Packet*);

@@ -29,6 +29,68 @@ from official.modeling import tf_utils
 _VGG_IMAGENET_PERCEPTUAL_MODEL_URL = 'https://storage.googleapis.com/mediapipe-assets/vgg_feature_extractor.tar.gz'
 
 
+class MaskedBinaryCrossentropy(tf.keras.losses.BinaryCrossentropy):
+  """Modified BinaryCrossentropy that uses sample_weights as a mask.
+
+  This loss is similar to BinaryCrossentropy, but it allows for the
+  specification of sample_weights as a mask for each item of y_pred.
+  Typical usage of BinaryCrossentropy expects sample_weights to specify a single
+  scalar per example which does not provide granularity to mask each element of
+  y_pred.
+
+  This loss differs from BinaryCrossentropy in that it does not AVG loss per
+  example and SUM over batch. Instead, it SUMs loss per example and batch.
+  """
+
+  def __init__(
+      self, *args, class_weights: Optional[Sequence[float]] = None, **kwargs
+  ):
+    """Initializes MaskedBinaryCrossentropy and sets class_weights.
+
+    Args:
+      *args: Args to pass to the base class.
+      class_weights: Optional class weights. If provided, the loss will be
+        weighted by the class weights. Expected to be in shape [num_classes].
+      **kwargs: Kwargs to pass to the base class.
+    """
+    super().__init__(*args, **kwargs)
+    self._class_weights = (
+        tf.expand_dims(tf.convert_to_tensor(class_weights), axis=0)
+        if class_weights is not None
+        else None
+    )
+
+  def __call__(self, y_true, y_pred, sample_weight=None):
+    """Override the __call__ method to apply the sample_weight as a mask.
+
+    Args:
+      y_true: The ground truth values. Expected to be in shape [batch_size,
+        num_classes]
+      y_pred: The predicted values. Expected to be in shape [batch_size,
+        num_classes]
+      sample_weight: Optional weighting of each example. Defaults to 1.0.
+        Expected to be in shape [batch_size, num_classes]
+
+    Returns:
+      The loss.
+    """
+    if self._class_weights is not None:
+      if sample_weight is not None:
+        sample_weight = sample_weight * self._class_weights
+      else:
+        sample_weight = tf.repeat(
+            self._class_weights, repeats=y_true.shape[0], axis=0
+        )
+
+    return super().__call__(  # pytype: disable=attribute-error
+        tf.reshape(y_true, [-1, 1]),
+        tf.reshape(y_pred, [-1, 1]),
+        tf.reshape(sample_weight, [-1, 1])
+        if sample_weight is not None
+        else None,
+    )
+
+
 class FocalLoss(tf.keras.losses.Loss):
   """Implementation of focal loss (https://arxiv.org/pdf/1708.02002.pdf).
 
@@ -59,7 +121,7 @@ class FocalLoss(tf.keras.losses.Loss):
   """
 
   def __init__(self, gamma, class_weight: Optional[Sequence[float]] = None):
-    """Constructor.
+    """Initializes FocalLoss.
 
     Args:
       gamma: Focal loss gamma, as described in class docs.
@@ -103,7 +165,7 @@ class FocalLoss(tf.keras.losses.Loss):
     y_pred_rank = y_pred.shape.ndims
     if y_pred_rank - weight_rank == 1:
       sample_weight = tf.expand_dims(sample_weight, [-1])
-    elif weight_rank != 0:
+    elif weight_rank != 0 and y_pred_rank != weight_rank:
       raise ValueError(f'Unexpected sample_weights, should be either a scalar'
                        f'or a vector of batch_size:{batch_size.numpy()}')
     ce = -tf.math.log(y_pred)
@@ -113,6 +175,51 @@ class FocalLoss(tf.keras.losses.Loss):
     # By default, this function uses "sum_over_batch_size" reduction for the
     # loss per batch.
     return tf.reduce_sum(losses) / batch_size
+
+
+class SparseFocalLoss(FocalLoss):
+  """Sparse implementation of Focal Loss.
+
+  This is the same as FocalLoss, except the labels are expected to be class ids
+  instead of 1-hot encoded vectors. See FocalLoss class documentation defined
+  in this same file for more details.
+
+  Example usage:
+  >>> y_true = [1, 2]
+  >>> y_pred = [[0.05, 0.95, 0], [0.1, 0.8, 0.1]]
+  >>> gamma = 2
+  >>> focal_loss = SparseFocalLoss(gamma, 3)
+  >>> focal_loss(y_true, y_pred).numpy()
+  0.9326
+
+  >>> # Calling with 'sample_weight'.
+  >>> focal_loss(y_true, y_pred, sample_weight=tf.constant([0.3, 0.7])).numpy()
+  0.6528
+  """
+
+  def __init__(
+      self, gamma, num_classes, class_weight: Optional[Sequence[float]] = None
+  ):
+    """Initializes SparseFocalLoss.
+
+    Args:
+      gamma: Focal loss gamma, as described in class docs.
+      num_classes: Number of classes.
+      class_weight: A weight to apply to the loss, one for each class. The
+        weight is applied for each input where the ground truth label matches.
+    """
+    super().__init__(gamma, class_weight=class_weight)
+    self._num_classes = num_classes
+
+  def __call__(
+      self,
+      y_true: tf.Tensor,
+      y_pred: tf.Tensor,
+      sample_weight: Optional[tf.Tensor] = None,
+  ) -> tf.Tensor:
+    y_true = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+    y_true_one_hot = tf.one_hot(y_true, self._num_classes)
+    return super().__call__(y_true_one_hot, y_pred, sample_weight=sample_weight)
 
 
 @dataclasses.dataclass
@@ -187,7 +294,7 @@ class PerceptualLoss(tf.keras.Model, metaclass=abc.ABCMeta):
     """Instantiates perceptual loss.
 
     Args:
-      feature_weight: The weight coeffcients of multiple model extracted
+      feature_weight: The weight coefficients of multiple model extracted
         features used for calculating the perceptual loss.
       loss_weight: The weight coefficients between `style_loss` and
         `content_loss`.
@@ -237,12 +344,12 @@ class PerceptualLoss(tf.keras.Model, metaclass=abc.ABCMeta):
 
     if self._loss_weight.style > 0.0:
       self._loss_style = tf_utils.safe_mean(
-          self._loss_weight.style
+          self._loss_weight.style  # pyrefly: ignore[unsupported-operation]
           * self._get_style_loss(x_feats=x_features, y_feats=y_features)
       )
     if self._loss_weight.content > 0.0:
       self._loss_content = tf_utils.safe_mean(
-          self._loss_weight.content
+          self._loss_weight.content  # pyrefly: ignore[unsupported-operation]
           * self._get_content_loss(x_feats=x_features, y_feats=y_features)
       )
 
@@ -272,7 +379,7 @@ class PerceptualLoss(tf.keras.Model, metaclass=abc.ABCMeta):
       A scalar tensor for the content loss.
     """
     content_losses = []
-    for coef, x_feat, y_feat in zip(self._feature_weight, x_feats, y_feats):
+    for coef, x_feat, y_feat in zip(self._feature_weight, x_feats, y_feats):  # pyrefly: ignore[bad-argument-type]
       content_loss = self._loss_op(x_feat, y_feat) * coef
       content_losses.append(content_loss)
     return tf.math.reduce_sum(content_losses)
@@ -291,14 +398,14 @@ class PerceptualLoss(tf.keras.Model, metaclass=abc.ABCMeta):
     """
     style_losses = []
     i = 0
-    for coef, x_feat, y_feat in zip(self._feature_weight, x_feats, y_feats):
+    for coef, x_feat, y_feat in zip(self._feature_weight, x_feats, y_feats):  # pyrefly: ignore[bad-argument-type]
       x_feat_g = _compute_gram_matrix(x_feat)
       y_feat_g = _compute_gram_matrix(y_feat)
       style_loss = self._loss_op(x_feat_g, y_feat_g) * coef
       style_losses.append(style_loss)
       i = i + 1
 
-    return tf.math.reduce_sum(style_loss)
+    return tf.math.reduce_sum(style_loss)  # pyrefly: ignore[unbound-name]
 
 
 class VGGPerceptualLoss(PerceptualLoss):
@@ -322,7 +429,7 @@ class VGGPerceptualLoss(PerceptualLoss):
       loss_weight: Loss weight coefficients.
     """
     super().__init__(
-        feature_weight=np.array([0.1, 0.1, 1.0, 1.0, 1.0]),
+        feature_weight=np.array([0.1, 0.1, 1.0, 1.0, 1.0]),  # pyrefly: ignore[bad-argument-type]
         loss_weight=loss_weight,
     )
 
@@ -341,10 +448,10 @@ class VGGPerceptualLoss(PerceptualLoss):
 
   def _compute_features(self, img: tf.Tensor) -> Sequence[tf.Tensor]:
     """Computes VGG19 features."""
-    img = (img + 1) / 2.0
+    img = (img + 1) / 2.0  # pyrefly: ignore[bad-assignment, unsupported-operation]
     norm_img = (img - self._rgb_mean) / self._rgb_std
     # no grad, as it only serves as a frozen feature extractor.
-    return self._vgg19(norm_img)
+    return self._vgg19(norm_img)  # pyrefly: ignore[not-callable]
 
 
 def _compute_gram_matrix(feature: tf.Tensor) -> tf.Tensor:

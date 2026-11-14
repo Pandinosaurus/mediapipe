@@ -20,17 +20,19 @@
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_set.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/ascii.h"
-#include "absl/strings/string_view.h"
-#include "absl/strings/substitute.h"
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/status/status_macros.h"     // from @com_google_absl
+#include "absl/strings/ascii.h"            // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
+#include "absl/strings/substitute.h"       // from @com_google_absl
 #include "mediapipe/calculators/tensor/bert_preprocessor_calculator.pb.h"
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/tensor.h"
+#include "mediapipe/framework/memory_manager.h"
+#include "mediapipe/framework/memory_manager_service.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/tasks/cc/core/utils.h"
 #include "mediapipe/tasks/cc/metadata/metadata_extractor.h"
@@ -69,7 +71,6 @@ constexpr absl::string_view kSeparatorToken = "[SEP]";
 //
 // This calculator is currently configured for the TextClassifier Task but it
 // will eventually be generalized for other Text Tasks.
-// TODO: Handle preprocessing for other Text Tasks too.
 //
 // Inputs:
 //   TEXT - std::string
@@ -141,6 +142,9 @@ class BertPreprocessorCalculator : public Node {
   // `tensor_size` for the BERT model.
   std::vector<Tensor> GenerateInputTensors(
       const std::vector<std::string>& input_tokens, int tensor_size);
+
+  // Enable pooling of AHWBs in Tensor instances.
+  MemoryManager* memory_manager_ = nullptr;
 };
 
 absl::Status BertPreprocessorCalculator::UpdateContract(
@@ -154,17 +158,21 @@ absl::Status BertPreprocessorCalculator::UpdateContract(
     RET_CHECK_GE(options.bert_max_seq_len(), 2)
         << "bert_max_seq_len must be at least 2";
   }
+  cc->UseService(kMemoryManagerService).Optional();
   return absl::OkStatus();
 }
 
 absl::Status BertPreprocessorCalculator::Open(CalculatorContext* cc) {
+  if (cc->Service(kMemoryManagerService).IsAvailable()) {
+    memory_manager_ = &cc->Service(kMemoryManagerService).GetObject();
+  }
   const ModelMetadataExtractor* metadata_extractor =
       &kMetadataExtractorSideIn(cc).Get();
   const tflite::ProcessUnit* tokenizer_metadata =
       metadata_extractor->GetInputProcessUnit(kTokenizerProcessUnitIndex);
-  ASSIGN_OR_RETURN(tokenizer_,
-                   tasks::text::tokenizers::CreateTokenizerFromProcessUnit(
-                       tokenizer_metadata, metadata_extractor));
+  ABSL_ASSIGN_OR_RETURN(tokenizer_,
+                        tasks::text::tokenizers::CreateTokenizerFromProcessUnit(
+                            tokenizer_metadata, metadata_extractor));
 
   auto* input_tensors_metadata = metadata_extractor->GetInputTensorMetadata();
   input_ids_tensor_index_ = FindTensorIndexByMetadataName(
@@ -244,7 +252,9 @@ std::vector<Tensor> BertPreprocessorCalculator::GenerateInputTensors(
   input_tensors.reserve(kNumInputTensorsForBert);
   for (int i = 0; i < kNumInputTensorsForBert; ++i) {
     input_tensors.push_back(
-        {Tensor::ElementType::kInt32, Tensor::Shape({tensor_size})});
+        {Tensor::ElementType::kInt32,
+         Tensor::Shape({1, tensor_size}, has_dynamic_input_tensors_),
+         memory_manager_});
   }
   std::memcpy(input_tensors[input_ids_tensor_index_]
                   .GetCpuWriteView()

@@ -13,12 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <memory>
-#include <type_traits>
-#include <utility>
 #include <vector>
 
-#include "absl/strings/str_format.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/core/clip_vector_size_calculator.pb.h"
 #include "mediapipe/calculators/core/gate_calculator.pb.h"
 #include "mediapipe/calculators/util/association_calculator.pb.h"
@@ -29,9 +27,6 @@ limitations under the License.
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/landmark.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
-#include "mediapipe/framework/formats/tensor.h"
-#include "mediapipe/framework/port/status_macros.h"
-#include "mediapipe/tasks/cc/common.h"
 #include "mediapipe/tasks/cc/components/utils/gate.h"
 #include "mediapipe/tasks/cc/core/model_asset_bundle_resources.h"
 #include "mediapipe/tasks/cc/core/model_resources_cache.h"
@@ -101,24 +96,48 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
   auto* pose_detector_graph_options =
       options->mutable_pose_detector_graph_options();
   if (!pose_detector_graph_options->base_options().has_model_asset()) {
-    ASSIGN_OR_RETURN(const auto pose_detector_file,
-                     resources.GetFile(kPoseDetectorTFLiteName));
+    ABSL_ASSIGN_OR_RETURN(const auto pose_detector_file,
+                          resources.GetFile(kPoseDetectorTFLiteName));
     SetExternalFile(pose_detector_file,
                     pose_detector_graph_options->mutable_base_options()
                         ->mutable_model_asset(),
                     is_copy);
   }
-  pose_detector_graph_options->mutable_base_options()
-      ->mutable_acceleration()
-      ->CopyFrom(options->base_options().acceleration());
+  if (options->base_options().acceleration().has_gpu()) {
+    core::proto::Acceleration gpu_accel;
+    gpu_accel.mutable_gpu()->set_use_advanced_gpu_api(true);
+    pose_detector_graph_options->mutable_base_options()
+        ->mutable_acceleration()
+        ->CopyFrom(gpu_accel);
+
+  } else {
+    pose_detector_graph_options->mutable_base_options()
+        ->mutable_acceleration()
+        ->CopyFrom(options->base_options().acceleration());
+    if (options->base_options().acceleration().has_litert() &&
+        options->base_options().acceleration().litert().has_gpu()) {
+      // PoseDetector model contains sparse tensors (DENSIFY ops) which are not
+      // supported by the LiteRT GPU (ML Drift) accelerator. Fall back to
+      // LiteRT CPU (XNNPACK) for PoseDetectorGraph while keeping
+      // PoseLandmarksDetectorGraph on LiteRT GPU.
+      pose_detector_graph_options->mutable_base_options()
+          ->mutable_acceleration()
+          ->mutable_litert()
+          ->clear_gpu();
+      pose_detector_graph_options->mutable_base_options()
+          ->mutable_acceleration()
+          ->mutable_litert()
+          ->mutable_cpu();
+    }
+  }
   pose_detector_graph_options->mutable_base_options()->set_use_stream_mode(
       options->base_options().use_stream_mode());
   auto* pose_landmarks_detector_graph_options =
       options->mutable_pose_landmarks_detector_graph_options();
   if (!pose_landmarks_detector_graph_options->base_options()
            .has_model_asset()) {
-    ASSIGN_OR_RETURN(const auto pose_landmarks_detector_file,
-                     resources.GetFile(kPoseLandmarksDetectorTFLiteName));
+    ABSL_ASSIGN_OR_RETURN(const auto pose_landmarks_detector_file,
+                          resources.GetFile(kPoseLandmarksDetectorTFLiteName));
     SetExternalFile(
         pose_landmarks_detector_file,
         pose_landmarks_detector_graph_options->mutable_base_options()
@@ -130,6 +149,11 @@ absl::Status SetSubTaskBaseOptions(const ModelAssetBundleResources& resources,
       ->CopyFrom(options->base_options().acceleration());
   pose_landmarks_detector_graph_options->mutable_base_options()
       ->set_use_stream_mode(options->base_options().use_stream_mode());
+
+  pose_detector_graph_options->mutable_base_options()->set_gpu_origin(
+      options->base_options().gpu_origin());
+  pose_landmarks_detector_graph_options->mutable_base_options()->set_gpu_origin(
+      options->base_options().gpu_origin());
 
   return absl::OkStatus();
 }
@@ -217,23 +241,23 @@ class PoseLandmarkerGraph : public core::ModelTaskGraph {
     if (sc->Options<PoseLandmarkerGraphOptions>()
             .base_options()
             .has_model_asset()) {
-      ASSIGN_OR_RETURN(
+      ABSL_ASSIGN_OR_RETURN(
           const auto* model_asset_bundle_resources,
           CreateModelAssetBundleResources<PoseLandmarkerGraphOptions>(sc));
       // Copies the file content instead of passing the pointer of file in
       // memory if the subgraph model resource service is not available.
-      MP_RETURN_IF_ERROR(SetSubTaskBaseOptions(
+      ABSL_RETURN_IF_ERROR(SetSubTaskBaseOptions(
           *model_asset_bundle_resources,
           sc->MutableOptions<PoseLandmarkerGraphOptions>(),
           !sc->Service(::mediapipe::tasks::core::kModelResourcesCacheService)
                .IsAvailable()));
     }
-    ASSIGN_OR_RETURN(auto outs,
-                     BuildPoseLandmarkerGraph(
-                         *sc->MutableOptions<PoseLandmarkerGraphOptions>(),
-                         graph[Input<Image>(kImageTag)],
-                         graph[Input<NormalizedRect>::Optional(kNormRectTag)],
-                         graph, output_segmentation_masks));
+    ABSL_ASSIGN_OR_RETURN(
+        auto outs, BuildPoseLandmarkerGraph(
+                       *sc->MutableOptions<PoseLandmarkerGraphOptions>(),
+                       graph[Input<Image>(kImageTag)],
+                       graph[Input<NormalizedRect>::Optional(kNormRectTag)],
+                       graph, output_segmentation_masks));
     outs.landmark_lists >>
         graph[Output<std::vector<NormalizedLandmarkList>>(kNormLandmarksTag)];
     outs.world_landmark_lists >>
@@ -251,19 +275,8 @@ class PoseLandmarkerGraph : public core::ModelTaskGraph {
           graph[Output<std::vector<Image>>(kSegmentationMaskTag)];
     }
 
-    // TODO remove when support is fixed.
-    // As mediapipe GraphBuilder currently doesn't support configuring
-    // InputStreamInfo, modifying the CalculatorGraphConfig proto directly.
     CalculatorGraphConfig config = graph.GetConfig();
-    for (int i = 0; i < config.node_size(); ++i) {
-      if (config.node(i).calculator() == "PreviousLoopbackCalculator") {
-        auto* info = config.mutable_node(i)->add_input_stream_info();
-        info->set_tag_index(kLoopTag);
-        info->set_back_edge(true);
-        break;
-      }
-    }
-
+    core::FixGraphBackEdges(config);
     return config;
   }
 
@@ -283,7 +296,9 @@ class PoseLandmarkerGraph : public core::ModelTaskGraph {
 
     auto& pose_detector =
         graph.AddNode("mediapipe.tasks.vision.pose_detector.PoseDetectorGraph");
-    pose_detector.GetOptions<PoseDetectorGraphOptions>().Swap(
+    auto& pose_detector_options =
+        pose_detector.GetOptions<PoseDetectorGraphOptions>();
+    pose_detector_options.Swap(
         tasks_options.mutable_pose_detector_graph_options());
     auto& clip_pose_rects =
         graph.AddNode("ClipNormalizedRectVectorSizeCalculator");
@@ -294,9 +309,23 @@ class PoseLandmarkerGraph : public core::ModelTaskGraph {
     auto& pose_landmarks_detector_graph = graph.AddNode(
         "mediapipe.tasks.vision.pose_landmarker."
         "MultiplePoseLandmarksDetectorGraph");
-    pose_landmarks_detector_graph
-        .GetOptions<PoseLandmarksDetectorGraphOptions>()
-        .Swap(tasks_options.mutable_pose_landmarks_detector_graph_options());
+    auto& pose_landmarks_detector_graph_options =
+        pose_landmarks_detector_graph
+            .GetOptions<PoseLandmarksDetectorGraphOptions>();
+    pose_landmarks_detector_graph_options.Swap(
+        tasks_options.mutable_pose_landmarks_detector_graph_options());
+
+    // Apply smoothing filter only on the single pose landmarks, because
+    // landmarks smoothing calculator doesn't support multiple landmarks yet.
+    if (pose_detector_options.num_poses() == 1) {
+      pose_landmarks_detector_graph_options.set_smooth_landmarks(
+          tasks_options.base_options().use_stream_mode());
+    } else if (pose_detector_options.num_poses() > 1 &&
+               pose_landmarks_detector_graph_options.smooth_landmarks()) {
+      return absl::InvalidArgumentError(
+          "Currently pose landmarks smoothing only supports a single pose.");
+    }
+
     image_in >> pose_landmarks_detector_graph.In(kImageTag);
     clipped_pose_rects >> pose_landmarks_detector_graph.In(kNormRectTag);
 

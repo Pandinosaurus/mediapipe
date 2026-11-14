@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/flags/flag.h"
-#include "absl/strings/str_replace.h"
+#include <cstdint>
+
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/strings/str_replace.h"  // from @com_google_absl
+#include "google/protobuf/text_format.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_saved_model_generator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -26,11 +29,12 @@
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/tool/tag_map_helper.h"
 #include "mediapipe/framework/tool/validate_type.h"
-#include "tensorflow/core/framework/device_attributes.pb.h"
+#include "tensorflow/core/framework/device_attributes.pb.h"  // from @org_tensorflow
+#include "testing/base/public/gunit.h"
 
 namespace mediapipe {
+using ::absl_testing::StatusIs;
 
-using ::testing::status::StatusIs;
 namespace {
 
 namespace tf = ::tensorflow;
@@ -40,21 +44,28 @@ constexpr char kStringSignatureNameTag[] = "STRING_SIGNATURE_NAME";
 constexpr char kSessionTag[] = "SESSION";
 
 std::string GetSavedModelDir() {
-  std::string out_path =
-      file::JoinPath("./", "mediapipe/calculators/tensorflow/testdata/",
-                     "tensorflow_saved_model/00000000");
+  std::string out_path = file::JoinPath(
+      ::testing::SrcDir(), "mediapipe/calculators/tensorflow/testdata/",
+      "tensorflow_saved_model/00000000");
   return out_path;
 }
 
 // Helper function that creates Tensor INT32 matrix with size 1x3.
 tf::Tensor TensorMatrix1x3(const int v1, const int v2, const int v3) {
   tf::Tensor tensor(tf::DT_INT32,
-                    tf::TensorShape(std::vector<tf::int64>({1, 3})));
+                    tf::TensorShape(std::vector<int64_t>({1, 3})));
   auto matrix = tensor.matrix<int32_t>();
   matrix(0, 0) = v1;
   matrix(0, 1) = v2;
   matrix(0, 2) = v3;
   return tensor;
+}
+
+std::string PrintOptionsAsTextProto(
+    const TensorFlowSessionFromSavedModelGeneratorOptions& options) {
+  std::string text_proto;
+  google::protobuf::TextFormat::PrintToString(options, &text_proto);
+  return text_proto;
 }
 
 class TensorFlowSessionFromSavedModelGeneratorTest : public ::testing::Test {
@@ -105,6 +116,24 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
   EXPECT_EQ(session.tag_to_tensor_map.at("B"), "b:0");
   EXPECT_EQ(session.tag_to_tensor_map.at("MULTIPLIED"), "multiplied:0");
   EXPECT_EQ(session.tag_to_tensor_map.at("EXPENSIVE"), "expensive:0");
+}
+
+TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
+       CreateSessionWithEmptyTagOptionIgnoresSpecifiedTags) {
+  generator_options_->set_saved_model_has_empty_tag(true);
+  generator_options_->add_saved_model_tag("some_tag");
+  generator_options_->add_saved_model_tag("some_other_tag");
+
+  PacketSet input_side_packets(tool::CreateTagMap({}).value());
+  PacketSet output_side_packets(
+      tool::CreateTagMap({"SESSION:session"}).value());
+  absl::Status run_status = tool::RunGenerateAndValidateTypes(
+      "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
+      input_side_packets, &output_side_packets);
+
+  EXPECT_FALSE(run_status.ok());
+  EXPECT_THAT(run_status.message(),
+              ::testing::HasSubstr("matching supplied tags: {  }"));
 }
 
 TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
@@ -199,7 +228,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
       }
       input_stream: "a_tensor"
   )",
-                           generator_options_->DebugString()));
+                           PrintOptionsAsTextProto(*generator_options_)));
 
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(graph_config));
@@ -264,7 +293,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
   // Session must be set.
   ASSERT_NE(session.session, nullptr);
   std::vector<tensorflow::DeviceAttributes> devices;
-  ASSERT_EQ(session.session->ListDevices(&devices), tensorflow::OkStatus());
+  ASSERT_EQ(session.session->ListDevices(&devices), absl::OkStatus());
   EXPECT_THAT(devices.size(), 10);
 }
 

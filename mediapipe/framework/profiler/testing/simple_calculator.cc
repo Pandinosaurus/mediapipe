@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 
@@ -28,7 +29,7 @@ class SimpleCalculator : public CalculatorBase {
   }
 
   absl::Status Process(CalculatorContext* cc) final {
-    LOG(WARNING) << "Simple Calculator Process called, count_: " << count_;
+    ABSL_LOG(WARNING) << "Simple Calculator Process called, count_: " << count_;
     int max_count = 1;
     if (cc->InputSidePackets().HasTag("MAX_COUNT")) {
       max_count = cc->InputSidePackets().Tag("MAX_COUNT").Get<int>();

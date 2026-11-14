@@ -16,10 +16,10 @@
 #include <string>
 #include <utility>
 
-#include "absl/status/status.h"
-#include "absl/strings/str_format.h"
-#include "libyuv/convert_argb.h"
-#include "libyuv/video_common.h"
+#include "absl/status/status.h"       // from @com_google_absl
+#include "absl/strings/str_format.h"  // from @com_google_absl
+#include "libyuv/convert_argb.h"      // from @libyuv
+#include "libyuv/video_common.h"      // from @libyuv
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -38,7 +38,7 @@ std::string FourCCToString(libyuv::FourCC fourcc) {
   buf[0] = (fourcc >> 24) & 0xff;
   buf[1] = (fourcc >> 16) & 0xff;
   buf[2] = (fourcc >> 8) & 0xff;
-  buf[3] = (fourcc)&0xff;
+  buf[3] = (fourcc) & 0xff;
   buf[4] = 0;
   return std::string(buf);
 }
@@ -49,7 +49,7 @@ std::string FourCCToString(libyuv::FourCC fourcc) {
 // The input `YUVImage` is expected to be in the NV12, NV21, YV12 or I420 (aka
 // YV21) format (as per the `fourcc()` property). This covers the most commonly
 // used YUV image formats used on mobile devices. Other formats are not
-// supported and wil result in an `InvalidArgumentError`.
+// supported and will result in an `InvalidArgumentError`.
 class YUVToImageCalculator : public Node {
  public:
   static constexpr Input<YUVImage> kInput{"YUV_IMAGE"};

@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -20,7 +23,6 @@ cc_library(
     name = "language_detector",
     srcs = ["language_detector.cc"],
     hdrs = ["language_detector.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/api2:builder",
         "//mediapipe/tasks/cc/components/containers:category",
@@ -28,10 +30,13 @@ cc_library(
         "//mediapipe/tasks/cc/components/processors:classifier_options",
         "//mediapipe/tasks/cc/core:base_options",
         "//mediapipe/tasks/cc/core:base_task_api",
+        "//mediapipe/tasks/cc/core:running_mode",
         "//mediapipe/tasks/cc/core:task_api_factory",
+        "//mediapipe/tasks/cc/core:task_runner",
         "//mediapipe/tasks/cc/text/text_classifier:text_classifier_graph",
         "//mediapipe/tasks/cc/text/text_classifier/proto:text_classifier_graph_options_cc_proto",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],

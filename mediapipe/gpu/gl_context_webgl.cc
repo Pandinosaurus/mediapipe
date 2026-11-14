@@ -12,12 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <utility>
 
-#include "absl/memory/memory.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/memory/memory.h"         // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/types/span.h"            // from @com_google_absl
 #include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_builder.h"
 #include "mediapipe/gpu/gl_context.h"
 #include "mediapipe/gpu/gl_context_internal.h"
@@ -30,7 +37,7 @@ namespace mediapipe {
 // TODO: Handle webGL "context lost" and "context restored" events.
 GlContext::StatusOrGlContext GlContext::Create(std::nullptr_t nullp,
                                                bool create_thread) {
-  return Create(0, create_thread);
+  return Create(static_cast<EMSCRIPTEN_WEBGL_CONTEXT_HANDLE>(0), create_thread);
 }
 
 GlContext::StatusOrGlContext GlContext::Create(const GlContext& share_context,
@@ -41,14 +48,20 @@ GlContext::StatusOrGlContext GlContext::Create(const GlContext& share_context,
 GlContext::StatusOrGlContext GlContext::Create(
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE share_context, bool create_thread) {
   std::shared_ptr<GlContext> context(new GlContext());
-  MP_RETURN_IF_ERROR(context->CreateContext(share_context));
-  MP_RETURN_IF_ERROR(context->FinishInitialization(create_thread));
+  ABSL_RETURN_IF_ERROR(context->CreateContext(share_context));
+  ABSL_RETURN_IF_ERROR(context->FinishInitialization(create_thread));
   return std::move(context);
+}
+
+GlContext::StatusOrGlContext GlContext::CreateForDeviceUuid(
+    absl::Span<const uint8_t> /*device_uuid*/, bool /*create_thread*/) {
+  return absl::UnimplementedError(
+      "Selecting a GPU by device UUID is not supported on this platform.");
 }
 
 absl::Status GlContext::CreateContextInternal(
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE external_context, int webgl_version) {
-  CHECK(webgl_version == 1 || webgl_version == 2);
+  ABSL_CHECK(webgl_version == 1 || webgl_version == 2);
 
   EmscriptenWebGLContextAttributes attrs;
   emscripten_webgl_init_context_attributes(&attrs);
@@ -67,6 +80,14 @@ absl::Status GlContext::CreateContextInternal(
   // TODO: Investigate this option in more detail, esp. on Safari.
   attrs.preserveDrawingBuffer = 0;
 
+  // TODO: Investigate making this toggle-able, so clients can choose
+  // to hint for dual-GPU platforms according to their individual needs. For
+  // now, we prefer highest performance at the expense of more power, since most
+  // use cases are realtime ML and rendering, where speed is essential. However,
+  // clients can override this if necessary by requesting their canvas' WebGL
+  // context manually before initializing the graph.
+  attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
+
   // Quick patch for -s DISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR so it also
   // looks for our #canvas target in Module.canvas, where we expect it to be.
   // -s OFFSCREENCANVAS_SUPPORT=1 will no longer work with this under the new
@@ -78,7 +99,7 @@ absl::Status GlContext::CreateContextInternal(
 
   // Check for failure
   if (context_handle <= 0) {
-    LOG(INFO) << "Couldn't create webGL " << webgl_version << " context.";
+    ABSL_LOG(INFO) << "Couldn't create webGL " << webgl_version << " context.";
     return ::mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
            << "emscripten_webgl_create_context() returned error "
            << context_handle;
@@ -103,32 +124,32 @@ absl::Status GlContext::CreateContext(
 
   auto status = CreateContextInternal(external_context, 2);
   if (!status.ok()) {
-    LOG(WARNING) << "Creating a context with WebGL 2 failed: " << status;
-    LOG(WARNING) << "Fall back on WebGL 1.";
+    ABSL_LOG(WARNING) << "Creating a context with WebGL 2 failed: " << status;
+    ABSL_LOG(WARNING) << "Fall back on WebGL 1.";
     status = CreateContextInternal(external_context, 1);
   }
-  MP_RETURN_IF_ERROR(status);
+  ABSL_RETURN_IF_ERROR(status);
 
-  LOG(INFO) << "Successfully created a WebGL context with major version "
-            << gl_major_version_ << " and handle " << context_;
-
+  VLOG(1) << "Successfully created a WebGL context with major version "
+          << gl_major_version_ << " and handle " << context_;
   return absl::OkStatus();
 }
 
 void GlContext::DestroyContext() {
   if (thread_) {
     // For now, we force web MediaPipe to be single-threaded, so error here.
-    LOG(ERROR) << "thread_ should not exist in DestroyContext() on web.";
+    ABSL_LOG(ERROR) << "thread_ should not exist in DestroyContext() on web.";
   }
 
   // Destroy the context and surface.
   if (context_ != 0) {
     EMSCRIPTEN_RESULT res = emscripten_webgl_destroy_context(context_);
     if (res != EMSCRIPTEN_RESULT_SUCCESS) {
-      LOG(ERROR) << "emscripten_webgl_destroy_context() returned error " << res;
+      ABSL_LOG(ERROR) << "emscripten_webgl_destroy_context() returned error "
+                      << res;
     } else {
-      LOG(INFO) << "Successfully destroyed WebGL context with handle "
-                << context_;
+      ABSL_LOG(INFO) << "Successfully destroyed WebGL context with handle "
+                     << context_;
     }
     context_ = 0;
   }

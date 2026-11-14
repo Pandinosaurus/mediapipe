@@ -14,8 +14,17 @@
 
 #include "mediapipe/modules/objectron/calculators/box.h"
 
-#include "Eigen/Core"
+#include <array>
+#include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "Eigen/Core"             // from @eigen
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "mediapipe/framework/port/logging.h"
+#include "mediapipe/modules/objectron/calculators/model.h"
+#include "mediapipe/modules/objectron/calculators/types.h"
 
 namespace mediapipe {
 
@@ -107,12 +116,12 @@ void Box::Adjust(const std::vector<float>& variables) {
 }
 
 float* Box::GetVertex(size_t vertex_id) {
-  CHECK_LT(vertex_id, kNumKeypoints);
+  ABSL_CHECK_LT(vertex_id, kNumKeypoints);
   return bounding_box_[vertex_id].data();
 }
 
 const float* Box::GetVertex(size_t vertex_id) const {
-  CHECK_LT(vertex_id, kNumKeypoints);
+  ABSL_CHECK_LT(vertex_id, kNumKeypoints);
   return bounding_box_[vertex_id].data();
 }
 
@@ -135,7 +144,7 @@ bool Box::InsideTest(const Eigen::Vector3f& point, int check_axis) const {
 }
 
 void Box::Deserialize(const Object& obj) {
-  CHECK_EQ(obj.keypoints_size(), kNumKeypoints);
+  ABSL_CHECK_EQ(obj.keypoints_size(), kNumKeypoints);
   Model::Deserialize(obj);
 }
 
@@ -222,7 +231,7 @@ std::pair<Vector3f, Vector3f> Box::GetGroundPlane() const {
 
 template <typename T>
 void Box::Fit(const std::vector<T>& vertices) {
-  CHECK_EQ(vertices.size(), kNumKeypoints);
+  ABSL_CHECK_EQ(vertices.size(), kNumKeypoints);
   scale_.setZero();
   // The scale would remain invariant under rotation and translation.
   // We can safely estimate the scale from the oriented box.

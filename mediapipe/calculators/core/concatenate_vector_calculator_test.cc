@@ -30,13 +30,15 @@ namespace mediapipe {
 typedef ConcatenateVectorCalculator<int> TestConcatenateIntVectorCalculator;
 MEDIAPIPE_REGISTER_NODE(TestConcatenateIntVectorCalculator);
 
-void AddInputVector(int index, const std::vector<int>& input, int64_t timestamp,
+template <typename T>
+void AddInputVector(int index, const std::vector<T>& input, int64_t timestamp,
                     CalculatorRunner* runner) {
   runner->MutableInputs()->Index(index).packets.push_back(
-      MakePacket<std::vector<int>>(input).At(Timestamp(timestamp)));
+      MakePacket<std::vector<T>>(input).At(Timestamp(timestamp)));
 }
 
-void AddInputVectors(const std::vector<std::vector<int>>& inputs,
+template <typename T>
+void AddInputVectors(const std::vector<std::vector<T>>& inputs,
                      int64_t timestamp, CalculatorRunner* runner) {
   for (int i = 0; i < inputs.size(); ++i) {
     AddInputVector(i, inputs[i], timestamp, runner);
@@ -382,6 +384,23 @@ TEST(ConcatenateFloatVectorCalculatorTest, OneEmptyStreamNoOutput) {
   EXPECT_EQ(0, outputs.size());
 }
 
+TEST(ConcatenateStringVectorCalculatorTest, OneTimestamp) {
+  CalculatorRunner runner("ConcatenateStringVectorCalculator",
+                          /*options_string=*/"", /*num_inputs=*/3,
+                          /*num_outputs=*/1, /*num_side_packets=*/0);
+
+  std::vector<std::vector<std::string>> inputs = {
+      {"a", "b"}, {"c"}, {"d", "e", "f"}};
+  AddInputVectors(inputs, /*timestamp=*/1, &runner);
+  MP_ASSERT_OK(runner.Run());
+
+  const std::vector<Packet>& outputs = runner.Outputs().Index(0).packets;
+  EXPECT_EQ(1, outputs.size());
+  EXPECT_EQ(Timestamp(1), outputs[0].Timestamp());
+  std::vector<std::string> expected_vector = {"a", "b", "c", "d", "e", "f"};
+  EXPECT_EQ(expected_vector, outputs[0].Get<std::vector<std::string>>());
+}
+
 typedef ConcatenateVectorCalculator<std::unique_ptr<int>>
     TestConcatenateUniqueIntPtrCalculator;
 MEDIAPIPE_REGISTER_NODE(TestConcatenateUniqueIntPtrCalculator);
@@ -414,19 +433,19 @@ TEST(TestConcatenateUniqueIntVectorCalculatorTest, ConsumeOneTimestamp) {
 
   // input1 : {0, 1, 2}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_1 =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(3);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(3);
   for (int i = 0; i < 3; ++i) {
-    input_1->at(i) = absl::make_unique<int>(i);
+    input_1->at(i) = std::make_unique<int>(i);
   }
   // input2: {3}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_2 =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(1);
-  input_2->at(0) = absl::make_unique<int>(3);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(1);
+  input_2->at(0) = std::make_unique<int>(3);
   // input3: {4, 5}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_3 =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(2);
-  input_3->at(0) = absl::make_unique<int>(4);
-  input_3->at(1) = absl::make_unique<int>(5);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(2);
+  input_3->at(0) = std::make_unique<int>(4);
+  input_3->at(1) = std::make_unique<int>(5);
 
   MP_EXPECT_OK(graph.AddPacketToInputStream(
       "in_1", Adopt(input_1.release()).At(Timestamp(1))));
@@ -476,9 +495,9 @@ TEST(TestConcatenateUniqueIntVectorCalculatorTest, OneEmptyStreamStillOutput) {
 
   // input1 : {0, 1, 2}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_1 =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(3);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(3);
   for (int i = 0; i < 3; ++i) {
-    input_1->at(i) = absl::make_unique<int>(i);
+    input_1->at(i) = std::make_unique<int>(i);
   }
 
   MP_EXPECT_OK(graph.AddPacketToInputStream(
@@ -530,9 +549,9 @@ TEST(TestConcatenateUniqueIntVectorCalculatorTest, OneEmptyStreamNoOutput) {
 
   // input1 : {0, 1, 2}
   std::unique_ptr<std::vector<std::unique_ptr<int>>> input_1 =
-      absl::make_unique<std::vector<std::unique_ptr<int>>>(3);
+      std::make_unique<std::vector<std::unique_ptr<int>>>(3);
   for (int i = 0; i < 3; ++i) {
-    input_1->at(i) = absl::make_unique<int>(i);
+    input_1->at(i) = std::make_unique<int>(i);
   }
 
   MP_EXPECT_OK(graph.AddPacketToInputStream(

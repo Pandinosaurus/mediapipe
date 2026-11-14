@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdint>
+
 #include "mediapipe/calculators/tensorflow/tensor_to_vector_string_calculator_options.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/framework/tensor.h"    // from @org_tensorflow
+#include "tensorflow/core/framework/types.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 
@@ -36,7 +38,7 @@ class TensorToVectorStringCalculatorTest : public ::testing::Test {
         TensorToVectorStringCalculatorOptions::ext);
     options->set_tensor_is_2d(tensor_is_2d);
     options->set_flatten_nd(flatten_nd);
-    runner_ = absl::make_unique<CalculatorRunner>(config);
+    runner_ = std::make_unique<CalculatorRunner>(config);
   }
 
   std::unique_ptr<CalculatorRunner> runner_;
@@ -44,8 +46,8 @@ class TensorToVectorStringCalculatorTest : public ::testing::Test {
 
 TEST_F(TensorToVectorStringCalculatorTest, ConvertsToVectorFloat) {
   SetUpRunner(false, false);
-  const tf::TensorShape tensor_shape(std::vector<tf::int64>{5});
-  auto tensor = absl::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
+  const tf::TensorShape tensor_shape(std::vector<int64_t>{5});
+  auto tensor = std::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
   auto tensor_vec = tensor->vec<tensorflow::tstring>();
   for (int i = 0; i < 5; ++i) {
     tensor_vec(i) = absl::StrCat("foo", i);
@@ -72,8 +74,8 @@ TEST_F(TensorToVectorStringCalculatorTest, ConvertsToVectorFloat) {
 
 TEST_F(TensorToVectorStringCalculatorTest, ConvertsBatchedToVectorVectorFloat) {
   SetUpRunner(true, false);
-  const tf::TensorShape tensor_shape(std::vector<tf::int64>{1, 5});
-  auto tensor = absl::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
+  const tf::TensorShape tensor_shape(std::vector<int64_t>{1, 5});
+  auto tensor = std::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
   auto slice = tensor->Slice(0, 1).flat<tensorflow::tstring>();
   for (int i = 0; i < 5; ++i) {
     slice(i) = absl::StrCat("foo", i);
@@ -101,8 +103,8 @@ TEST_F(TensorToVectorStringCalculatorTest, ConvertsBatchedToVectorVectorFloat) {
 
 TEST_F(TensorToVectorStringCalculatorTest, FlattenShouldTakeAllDimensions) {
   SetUpRunner(false, true);
-  const tf::TensorShape tensor_shape(std::vector<tf::int64>{2, 2, 2});
-  auto tensor = absl::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
+  const tf::TensorShape tensor_shape(std::vector<int64_t>{2, 2, 2});
+  auto tensor = std::make_unique<tf::Tensor>(tf::DT_STRING, tensor_shape);
   auto slice = tensor->flat<tensorflow::tstring>();
   for (int i = 0; i < 2 * 2 * 2; ++i) {
     slice(i) = absl::StrCat("foo", i);

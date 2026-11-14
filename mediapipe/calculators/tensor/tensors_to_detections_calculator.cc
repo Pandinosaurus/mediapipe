@@ -15,8 +15,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "absl/strings/str_format.h"
-#include "absl/types/span.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
+#include "absl/types/span.h"            // from @com_google_absl
 #include "mediapipe/calculators/tensor/tensors_to_detections_calculator.pb.h"
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -27,6 +29,7 @@
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port.h"
 #include "mediapipe/framework/port/ret_check.h"
+#include "mediapipe/gpu/gpu_service.h"
 
 // Note: On Apple platforms MEDIAPIPE_DISABLE_GL_COMPUTE is automatically
 // defined in mediapipe/framework/port.h. Therefore,
@@ -83,7 +86,7 @@ void ConvertRawValuesToAnchors(const float* raw_anchors, int num_boxes,
 
 void ConvertAnchorsToRawValues(const std::vector<Anchor>& anchors,
                                int num_boxes, float* raw_anchors) {
-  CHECK_EQ(anchors.size(), num_boxes);
+  ABSL_CHECK_EQ(anchors.size(), num_boxes);
   int box = 0;
   for (const auto& anchor : anchors) {
     raw_anchors[box * kNumCoordsPerBox + 0] = anchor.y_center();
@@ -146,7 +149,7 @@ BoxFormat GetBoxFormat(const TensorsToDetectionsCalculatorOptions& options) {
 //  TENSORS - Vector of Tensors of type kFloat32. The vector of tensors can have
 //            2 or 3 tensors. First tensor is the predicted raw boxes/keypoints.
 //            The size of the values must be (num_boxes * num_predicted_values).
-//            Second tensor is the score tensor. The size of the valuse must be
+//            Second tensor is the score tensor. The size of the values must be
 //            (num_boxes * num_classes). It's optional to pass in a third tensor
 //            for anchors (e.g. for SSD models) depend on the outputs of the
 //            detection model. The size of anchor tensor must be (num_boxes *
@@ -214,7 +217,8 @@ class TensorsToDetectionsCalculator : public Node {
                                    const int* detection_classes,
                                    std::vector<Detection>* output_detections);
   Detection ConvertToDetection(float box_ymin, float box_xmin, float box_ymax,
-                               float box_xmax, float score, int class_id,
+                               float box_xmax, absl::Span<const float> scores,
+                               absl::Span<const int> class_ids,
                                bool flip_vertically);
   bool IsClassIndexAllowed(int class_index);
 
@@ -222,6 +226,7 @@ class TensorsToDetectionsCalculator : public Node {
   int num_boxes_ = 0;
   int num_coords_ = 0;
   int max_results_ = -1;
+  int classes_per_detection_ = 1;
   BoxFormat box_output_format_ =
       mediapipe::TensorsToDetectionsCalculatorOptions::YXHW;
 
@@ -256,6 +261,7 @@ class TensorsToDetectionsCalculator : public Node {
 
   bool gpu_inited_ = false;
   bool gpu_input_ = false;
+  bool gpu_has_enough_work_groups_ = true;
   bool anchors_init_ = false;
 };
 MEDIAPIPE_REGISTER_NODE(TensorsToDetectionsCalculator);
@@ -264,9 +270,11 @@ absl::Status TensorsToDetectionsCalculator::UpdateContract(
     CalculatorContract* cc) {
   if (CanUseGpu()) {
 #ifndef MEDIAPIPE_DISABLE_GL_COMPUTE
-    MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
+    ABSL_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(
+        cc, /*request_gpu_as_optional=*/true));
 #elif MEDIAPIPE_METAL_ENABLED
-    MP_RETURN_IF_ERROR([MPPMetalHelper updateContract:cc]);
+    ABSL_RETURN_IF_ERROR(
+        [MPPMetalHelper updateContract:cc requestGpuAsOptional:true]);
 #endif  // !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
   }
 
@@ -274,11 +282,10 @@ absl::Status TensorsToDetectionsCalculator::UpdateContract(
 }
 
 absl::Status TensorsToDetectionsCalculator::Open(CalculatorContext* cc) {
-  MP_RETURN_IF_ERROR(LoadOptions(cc));
+  ABSL_RETURN_IF_ERROR(LoadOptions(cc));
 
-  if (CanUseGpu()) {
+  if (CanUseGpu() && cc->Service(mediapipe::kGpuService).IsAvailable()) {
 #ifndef MEDIAPIPE_DISABLE_GL_COMPUTE
-    MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
 #elif MEDIAPIPE_METAL_ENABLED
     gpu_helper_ = [[MPPMetalHelper alloc] initWithCalculatorContext:cc];
     RET_CHECK(gpu_helper_);
@@ -289,9 +296,10 @@ absl::Status TensorsToDetectionsCalculator::Open(CalculatorContext* cc) {
 }
 
 absl::Status TensorsToDetectionsCalculator::Process(CalculatorContext* cc) {
-  auto output_detections = absl::make_unique<std::vector<Detection>>();
+  auto output_detections = std::make_unique<std::vector<Detection>>();
   bool gpu_processing = false;
-  if (CanUseGpu()) {
+  if (CanUseGpu() && cc->Service(mediapipe::kGpuService).IsAvailable() &&
+      gpu_has_enough_work_groups_) {
     // Use GPU processing only if at least one input tensor is already on GPU
     // (to avoid CPU->GPU overhead).
     for (const auto& tensor : *kInTensors(cc)) {
@@ -321,14 +329,23 @@ absl::Status TensorsToDetectionsCalculator::Process(CalculatorContext* cc) {
     RET_CHECK(!has_custom_box_indices_);
   }
 
-  if (gpu_processing) {
-    if (!gpu_inited_) {
-      MP_RETURN_IF_ERROR(GpuInit(cc));
+  if (gpu_processing && !gpu_inited_) {
+    auto status = GpuInit(cc);
+    if (status.ok()) {
       gpu_inited_ = true;
+    } else if (status.code() == absl::StatusCode::kFailedPrecondition) {
+      // For initialization error because of hardware limitation, fallback to
+      // CPU processing.
+      ABSL_LOG(WARNING) << status.message();
+    } else {
+      // For other error, let the error propagates.
+      return status;
     }
-    MP_RETURN_IF_ERROR(ProcessGPU(cc, output_detections.get()));
+  }
+  if (gpu_processing && gpu_inited_) {
+    ABSL_RETURN_IF_ERROR(ProcessGPU(cc, output_detections.get()));
   } else {
-    MP_RETURN_IF_ERROR(ProcessCPU(cc, output_detections.get()));
+    ABSL_RETURN_IF_ERROR(ProcessCPU(cc, output_detections.get()));
   }
 
   kOutDetections(cc).Send(std::move(output_detections));
@@ -346,17 +363,41 @@ absl::Status TensorsToDetectionsCalculator::ProcessCPU(
     // TODO: Add flexible input tensor size handling.
     auto raw_box_tensor =
         &input_tensors[tensor_mapping_.detections_tensor_index()];
-    RET_CHECK_EQ(raw_box_tensor->shape().dims.size(), 3);
-    RET_CHECK_EQ(raw_box_tensor->shape().dims[0], 1);
     RET_CHECK_GT(num_boxes_, 0) << "Please set num_boxes in calculator options";
-    RET_CHECK_EQ(raw_box_tensor->shape().dims[1], num_boxes_);
-    RET_CHECK_EQ(raw_box_tensor->shape().dims[2], num_coords_);
+    if (raw_box_tensor->shape().dims.size() == 3) {
+      // The tensors from CPU inference has dim 3.
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[0], 1);
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[1], num_boxes_);
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[2], num_coords_);
+    } else if (raw_box_tensor->shape().dims.size() == 4) {
+      // The tensors from GPU inference has dim 4. For gpu-cpu fallback support,
+      // we allow tensors with 4 dims.
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[0], 1);
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[1], 1);
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[2], num_boxes_);
+      RET_CHECK_EQ(raw_box_tensor->shape().dims[3], num_coords_);
+    } else {
+      return absl::InvalidArgumentError(
+          "The dimensions of box Tensor must be 3 or 4.");
+    }
     auto raw_score_tensor =
         &input_tensors[tensor_mapping_.scores_tensor_index()];
-    RET_CHECK_EQ(raw_score_tensor->shape().dims.size(), 3);
-    RET_CHECK_EQ(raw_score_tensor->shape().dims[0], 1);
-    RET_CHECK_EQ(raw_score_tensor->shape().dims[1], num_boxes_);
-    RET_CHECK_EQ(raw_score_tensor->shape().dims[2], num_classes_);
+    if (raw_score_tensor->shape().dims.size() == 3) {
+      // The tensors from CPU inference has dim 3.
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[0], 1);
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[1], num_boxes_);
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[2], num_classes_);
+    } else if (raw_score_tensor->shape().dims.size() == 4) {
+      // The tensors from GPU inference has dim 4. For gpu-cpu fallback support,
+      // we allow tensors with 4 dims.
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[0], 1);
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[1], 1);
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[2], num_boxes_);
+      RET_CHECK_EQ(raw_score_tensor->shape().dims[3], num_classes_);
+    } else {
+      return absl::InvalidArgumentError(
+          "The dimensions of score Tensor must be 3 or 4.");
+    }
     auto raw_box_view = raw_box_tensor->GetCpuReadView();
     auto raw_boxes = raw_box_view.buffer<float>();
     auto raw_scores_view = raw_score_tensor->GetCpuReadView();
@@ -381,7 +422,7 @@ absl::Status TensorsToDetectionsCalculator::ProcessCPU(
       anchors_init_ = true;
     }
     std::vector<float> boxes(num_boxes_ * num_coords_);
-    MP_RETURN_IF_ERROR(DecodeBoxes(raw_boxes, anchors_, &boxes));
+    ABSL_RETURN_IF_ERROR(DecodeBoxes(raw_boxes, anchors_, &boxes));
 
     std::vector<float> detection_scores(num_boxes_);
     std::vector<int> detection_classes(num_boxes_);
@@ -415,7 +456,7 @@ absl::Status TensorsToDetectionsCalculator::ProcessCPU(
       detection_classes[i] = class_id;
     }
 
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         ConvertToDetections(boxes.data(), detection_scores.data(),
                             detection_classes.data(), output_detections));
   } else {
@@ -449,6 +490,15 @@ absl::Status TensorsToDetectionsCalculator::ProcessCPU(
     auto num_boxes_view = num_boxes_tensor->GetCpuReadView();
     auto num_boxes = num_boxes_view.buffer<float>();
     num_boxes_ = num_boxes[0];
+    // The detection model with Detection_PostProcess op may output duplicate
+    // boxes with different classes, in the following format:
+    //   num_boxes_tensor = [num_boxes]
+    //   detection_classes_tensor = [box_1_class_1, box_1_class_2, ...]
+    //   detection_scores_tensor = [box_1_score_1, box_1_score_2, ... ]
+    //   detection_boxes_tensor = [box_1, box1, ... ]
+    // Each box repeats classes_per_detection_ times.
+    // Note Detection_PostProcess op is only supported in CPU.
+    classes_per_detection_ = options_.max_classes_per_detection();
 
     auto detection_boxes_view = detection_boxes_tensor->GetCpuReadView();
     auto detection_boxes = detection_boxes_view.buffer<float>();
@@ -458,13 +508,13 @@ absl::Status TensorsToDetectionsCalculator::ProcessCPU(
 
     auto detection_classes_view = detection_classes_tensor->GetCpuReadView();
     auto detection_classes_ptr = detection_classes_view.buffer<float>();
-    std::vector<int> detection_classes(num_boxes_);
-    for (int i = 0; i < num_boxes_; ++i) {
+    std::vector<int> detection_classes(num_boxes_ * classes_per_detection_);
+    for (int i = 0; i < detection_classes.size(); ++i) {
       detection_classes[i] = static_cast<int>(detection_classes_ptr[i]);
     }
-    MP_RETURN_IF_ERROR(ConvertToDetections(detection_boxes, detection_scores,
-                                           detection_classes.data(),
-                                           output_detections));
+    ABSL_RETURN_IF_ERROR(ConvertToDetections(detection_boxes, detection_scores,
+                                             detection_classes.data(),
+                                             output_detections));
   }
   return absl::OkStatus();
 }
@@ -476,9 +526,9 @@ absl::Status TensorsToDetectionsCalculator::ProcessGPU(
   RET_CHECK_GT(num_boxes_, 0) << "Please set num_boxes in calculator options";
 #ifndef MEDIAPIPE_DISABLE_GL_COMPUTE
 
-  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, &input_tensors, &cc,
-                                                 &output_detections]()
-                                                    -> absl::Status {
+  ABSL_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, &input_tensors, &cc,
+                                                   &output_detections]()
+                                                      -> absl::Status {
     if (!anchors_init_) {
       if (input_tensors.size() == kNumInputTensorsWithAnchors) {
         auto read_view = input_tensors[tensor_mapping_.anchors_tensor_index()]
@@ -542,9 +592,9 @@ absl::Status TensorsToDetectionsCalculator::ProcessGPU(
   }
   auto decoded_boxes_view = decoded_boxes_buffer_->GetCpuReadView();
   auto boxes = decoded_boxes_view.buffer<float>();
-  MP_RETURN_IF_ERROR(ConvertToDetections(boxes, detection_scores.data(),
-                                         detection_classes.data(),
-                                         output_detections));
+  ABSL_RETURN_IF_ERROR(ConvertToDetections(boxes, detection_scores.data(),
+                                           detection_classes.data(),
+                                           output_detections));
 #elif MEDIAPIPE_METAL_ENABLED
   if (!anchors_init_) {
     if (input_tensors.size() == kNumInputTensorsWithAnchors) {
@@ -629,25 +679,27 @@ absl::Status TensorsToDetectionsCalculator::ProcessGPU(
   }
   auto decoded_boxes_view = decoded_boxes_buffer_->GetCpuReadView();
   auto boxes = decoded_boxes_view.buffer<float>();
-  MP_RETURN_IF_ERROR(ConvertToDetections(boxes, detection_scores.data(),
-                                         detection_classes.data(),
-                                         output_detections));
+  ABSL_RETURN_IF_ERROR(ConvertToDetections(boxes, detection_scores.data(),
+                                           detection_classes.data(),
+                                           output_detections));
 
 #else
-  LOG(ERROR) << "GPU input on non-Android not supported yet.";
+  ABSL_LOG(ERROR) << "GPU input on non-Android not supported yet.";
 #endif  // !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
   return absl::OkStatus();
 }
 
 absl::Status TensorsToDetectionsCalculator::Close(CalculatorContext* cc) {
 #ifndef MEDIAPIPE_DISABLE_GL_COMPUTE
-  gpu_helper_.RunInGlContext([this] {
-    decoded_boxes_buffer_ = nullptr;
-    scored_boxes_buffer_ = nullptr;
-    raw_anchors_buffer_ = nullptr;
-    glDeleteProgram(decode_program_);
-    glDeleteProgram(score_program_);
-  });
+  if (gpu_inited_) {
+    gpu_helper_.RunInGlContext([this] {
+      decoded_boxes_buffer_ = nullptr;
+      scored_boxes_buffer_ = nullptr;
+      raw_anchors_buffer_ = nullptr;
+      glDeleteProgram(decode_program_);
+      glDeleteProgram(score_program_);
+    });
+  }
 #elif MEDIAPIPE_METAL_ENABLED
   decoded_boxes_buffer_ = nullptr;
   scored_boxes_buffer_ = nullptr;
@@ -669,18 +721,18 @@ absl::Status TensorsToDetectionsCalculator::LoadOptions(CalculatorContext* cc) {
   num_boxes_ = options_.num_boxes();
   num_coords_ = options_.num_coords();
   box_output_format_ = GetBoxFormat(options_);
-  CHECK_NE(options_.max_results(), 0)
+  ABSL_CHECK_NE(options_.max_results(), 0)
       << "The maximum number of the top-scored detection results must be "
          "non-zero.";
   max_results_ = options_.max_results();
 
   // Currently only support 2D when num_values_per_keypoint equals to 2.
-  CHECK_EQ(options_.num_values_per_keypoint(), 2);
+  ABSL_CHECK_EQ(options_.num_values_per_keypoint(), 2);
 
   // Check if the output size is equal to the requested boxes and keypoints.
-  CHECK_EQ(options_.num_keypoints() * options_.num_values_per_keypoint() +
-               kNumCoordsPerBox,
-           num_coords_);
+  ABSL_CHECK_EQ(options_.num_keypoints() * options_.num_values_per_keypoint() +
+                    kNumCoordsPerBox,
+                num_coords_);
 
   if (kSideInIgnoreClasses(cc).IsConnected()) {
     RET_CHECK(!kSideInIgnoreClasses(cc).IsEmpty());
@@ -826,16 +878,10 @@ absl::Status TensorsToDetectionsCalculator::DecodeBoxes(
 absl::Status TensorsToDetectionsCalculator::ConvertToDetections(
     const float* detection_boxes, const float* detection_scores,
     const int* detection_classes, std::vector<Detection>* output_detections) {
-  for (int i = 0; i < num_boxes_; ++i) {
+  for (int i = 0; i < num_boxes_ * classes_per_detection_;
+       i += classes_per_detection_) {
     if (max_results_ > 0 && output_detections->size() == max_results_) {
       break;
-    }
-    if (options_.has_min_score_thresh() &&
-        detection_scores[i] < options_.min_score_thresh()) {
-      continue;
-    }
-    if (!IsClassIndexAllowed(detection_classes[i])) {
-      continue;
     }
     const int box_offset = i * num_coords_;
     Detection detection = ConvertToDetection(
@@ -843,7 +889,14 @@ absl::Status TensorsToDetectionsCalculator::ConvertToDetections(
         /*box_xmin=*/detection_boxes[box_offset + box_indices_[1]],
         /*box_ymax=*/detection_boxes[box_offset + box_indices_[2]],
         /*box_xmax=*/detection_boxes[box_offset + box_indices_[3]],
-        detection_scores[i], detection_classes[i], options_.flip_vertically());
+        absl::MakeConstSpan(detection_scores + i, classes_per_detection_),
+        absl::MakeConstSpan(detection_classes + i, classes_per_detection_),
+        options_.flip_vertically());
+    // if all the scores and classes are filtered out, we skip the empty
+    // detection.
+    if (detection.score().empty()) {
+      continue;
+    }
     const auto& bbox = detection.location_data().relative_bounding_box();
     if (bbox.width() < 0 || bbox.height() < 0 || std::isnan(bbox.width()) ||
         std::isnan(bbox.height())) {
@@ -873,11 +926,21 @@ absl::Status TensorsToDetectionsCalculator::ConvertToDetections(
 }
 
 Detection TensorsToDetectionsCalculator::ConvertToDetection(
-    float box_ymin, float box_xmin, float box_ymax, float box_xmax, float score,
-    int class_id, bool flip_vertically) {
+    float box_ymin, float box_xmin, float box_ymax, float box_xmax,
+    absl::Span<const float> scores, absl::Span<const int> class_ids,
+    bool flip_vertically) {
   Detection detection;
-  detection.add_score(score);
-  detection.add_label_id(class_id);
+  for (int i = 0; i < scores.size(); ++i) {
+    if (!IsClassIndexAllowed(class_ids[i])) {
+      continue;
+    }
+    if (options_.has_min_score_thresh() &&
+        scores[i] < options_.min_score_thresh()) {
+      continue;
+    }
+    detection.add_score(scores[i]);
+    detection.add_label_id(class_ids[i]);
+  }
 
   LocationData* location_data = detection.mutable_location_data();
   location_data->set_format(LocationData::RELATIVE_BOUNDING_BOX);
@@ -907,8 +970,9 @@ absl::Status TensorsToDetectionsCalculator::GpuInit(CalculatorContext* cc) {
       break;
   }
 #ifndef MEDIAPIPE_DISABLE_GL_COMPUTE
-  MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, output_format_flag]()
-                                                    -> absl::Status {
+  ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+  ABSL_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, output_format_flag]()
+                                                      -> absl::Status {
     // A shader to decode detection boxes.
     const std::string decode_src = absl::Substitute(
         R"( #version 310 es
@@ -1111,15 +1175,21 @@ void main() {
     int max_wg_size;  //  typically <= 1024
     glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1,
                     &max_wg_size);  // y-dim
-    CHECK_LT(num_classes_, max_wg_size)
-        << "# classes must be < " << max_wg_size;
+    gpu_has_enough_work_groups_ = num_classes_ < max_wg_size;
+    if (!gpu_has_enough_work_groups_) {
+      return absl::FailedPreconditionError(absl::StrFormat(
+          "Hardware limitation: Processing will be done on CPU, because "
+          "num_classes %d exceeds the max work_group size %d.",
+          num_classes_, max_wg_size));
+    }
     // TODO support better filtering.
     if (class_index_set_.is_allowlist) {
-      CHECK_EQ(class_index_set_.values.size(),
-               IsClassIndexAllowed(0) ? num_classes_ : num_classes_ - 1)
+      ABSL_CHECK_EQ(class_index_set_.values.size(),
+                    IsClassIndexAllowed(0) ? num_classes_ : num_classes_ - 1)
           << "Only all classes  >= class 0  or  >= class 1";
     } else {
-      CHECK_EQ(class_index_set_.values.size(), IsClassIndexAllowed(0) ? 0 : 1)
+      ABSL_CHECK_EQ(class_index_set_.values.size(),
+                    IsClassIndexAllowed(0) ? 0 : 1)
           << "Only ignore class 0 is allowed";
     }
 
@@ -1340,11 +1410,12 @@ kernel void scoreKernel(
 
   // TODO support better filtering.
   if (class_index_set_.is_allowlist) {
-    CHECK_EQ(class_index_set_.values.size(),
-             IsClassIndexAllowed(0) ? num_classes_ : num_classes_ - 1)
+    ABSL_CHECK_EQ(class_index_set_.values.size(),
+                  IsClassIndexAllowed(0) ? num_classes_ : num_classes_ - 1)
         << "Only all classes  >= class 0  or  >= class 1";
   } else {
-    CHECK_EQ(class_index_set_.values.size(), IsClassIndexAllowed(0) ? 0 : 1)
+    ABSL_CHECK_EQ(class_index_set_.values.size(),
+                  IsClassIndexAllowed(0) ? 0 : 1)
         << "Only ignore class 0 is allowed";
   }
 
@@ -1370,9 +1441,14 @@ kernel void scoreKernel(
         Tensor::ElementType::kFloat32, Tensor::Shape{1, num_boxes_ * 2});
     // # filter classes supported is hardware dependent.
     int max_wg_size = score_program_.maxTotalThreadsPerThreadgroup;
-    CHECK_LT(num_classes_, max_wg_size) << "# classes must be <" << max_wg_size;
+    gpu_has_enough_work_groups_ = num_classes_ < max_wg_size;
+    if (!gpu_has_enough_work_groups_) {
+      return absl::FailedPreconditionError(absl::StrFormat(
+          "Hardware limitation: Processing will be done on CPU, because "
+          "num_classes %d exceeds the max work_group size %d.",
+          num_classes_, max_wg_size));
+    }
   }
-
 #endif  // !defined(MEDIAPIPE_DISABLE_GL_COMPUTE)
 
   return absl::OkStatus();

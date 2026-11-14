@@ -12,14 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Placeholder for internal Python strict library and test compatibility macro.
+# Placeholder for internal Python strict binary and library compatibility macro.
 # Placeholder for internal Python library rule.
+# Placeholder: load py_test
 
 licenses(["notice"])
-
-package(
-    default_visibility = ["//mediapipe:__subpackages__"],
-)
 
 ######################################################################
 # Public target of the MediaPipe Model Maker ImageClassifier APIs.
@@ -49,7 +46,11 @@ py_library(
 py_test(
     name = "model_spec_test",
     srcs = ["model_spec_test.py"],
-    deps = [":model_spec"],
+    deps = [
+        ":model_spec",
+        "@model_maker_pip_deps_absl_py//:pkg",
+        "@model_maker_pip_deps_tensorflow//:pkg",
+    ],
 )
 
 py_library(
@@ -58,6 +59,7 @@ py_library(
     deps = [
         "//mediapipe/model_maker/python/core/data:classification_dataset",
         "//mediapipe/model_maker/python/vision/core:image_utils",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -68,6 +70,8 @@ py_test(
         ":dataset",
         "//mediapipe/model_maker/python/vision/core:image_utils",
         "//mediapipe/model_maker/python/vision/core:test_utils",
+        "@model_maker_pip_deps_numpy//:pkg",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -104,17 +108,20 @@ py_library(
         ":model_spec",
         "//mediapipe/model_maker/python/core/data:classification_dataset",
         "//mediapipe/model_maker/python/core/tasks:classifier",
+        "//mediapipe/model_maker/python/core/utils:metrics",
         "//mediapipe/model_maker/python/core/utils:model_util",
         "//mediapipe/model_maker/python/core/utils:quantization",
         "//mediapipe/model_maker/python/vision/core:image_preprocessing",
         "//mediapipe/tasks/python/metadata/metadata_writers:image_classifier",
         "//mediapipe/tasks/python/metadata/metadata_writers:metadata_writer",
+        "@model_maker_pip_deps_tensorflow//:pkg",
+        "@model_maker_pip_deps_tensorflow_hub//:pkg",
     ],
 )
 
 py_library(
     name = "image_classifier_test_lib",
-    testonly = 1,
+    testonly = True,
     srcs = ["image_classifier_test.py"],
     data = ["//mediapipe/model_maker/python/vision/image_classifier/testdata"],
     deps = [
@@ -122,6 +129,9 @@ py_library(
         ":image_classifier_import",
         ":model_options",
         "//mediapipe/tasks/python/test:test_utils",
+        "@model_maker_pip_deps_absl_py//:pkg",
+        "@model_maker_pip_deps_numpy//:pkg",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )
 
@@ -130,7 +140,10 @@ py_test(
     size = "large",
     srcs = ["image_classifier_test.py"],
     shard_count = 2,
-    tags = ["requires-net:external"],
+    tags = [
+        "notsan",  # TODO b/352507058 - TSAN run takes 18 minutes. Disabled for now.
+        "requires-net:external",
+    ],
     deps = [
         ":image_classifier_test_lib",
     ],
@@ -142,5 +155,7 @@ py_binary(
     deps = [
         ":image_classifier_import",
         "//mediapipe/model_maker/python/core/utils:quantization",
+        "@model_maker_pip_deps_absl_py//:pkg",
+        "@model_maker_pip_deps_tensorflow//:pkg",
     ],
 )

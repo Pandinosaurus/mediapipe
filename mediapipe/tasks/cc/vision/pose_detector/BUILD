@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//mediapipe/tasks:internal",
-])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -22,9 +23,11 @@ cc_library(
     name = "pose_detector_graph",
     srcs = ["pose_detector_graph.cc"],
     deps = [
+        "//mediapipe/calculators/core:clip_vector_size_calculator",
         "//mediapipe/calculators/core:clip_vector_size_calculator_cc_proto",
         "//mediapipe/calculators/tensor:image_to_tensor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:inference_calculator",
+        "//mediapipe/calculators/tensor:inference_calculator_litert",  # buildcleaner: keep
         "//mediapipe/calculators/tensor:tensors_to_detections_calculator",
         "//mediapipe/calculators/tensor:tensors_to_detections_calculator_cc_proto",
         "//mediapipe/calculators/tflite:ssd_anchors_calculator",
@@ -42,13 +45,17 @@ cc_library(
         "//mediapipe/framework:calculator_cc_proto",
         "//mediapipe/framework:subgraph",
         "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:detection_cc_proto",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/formats:tensor",
         "//mediapipe/tasks/cc/components/processors:image_preprocessing_graph",
+        "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core:model_task_graph",
         "//mediapipe/tasks/cc/vision/pose_detector/proto:pose_detector_graph_options_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,

@@ -15,61 +15,45 @@ limitations under the License.
 
 package com.google.mediapipe.tasks.core;
 
-import com.google.mediapipe.calculator.proto.InferenceCalculatorProto;
 import com.google.mediapipe.proto.CalculatorOptionsProto.CalculatorOptions;
-import com.google.mediapipe.tasks.core.proto.AccelerationProto;
 import com.google.mediapipe.tasks.core.proto.BaseOptionsProto;
-import com.google.mediapipe.tasks.core.proto.ExternalFileProto;
-import com.google.protobuf.ByteString;
+import com.google.protobuf.Any;
 
 /**
  * MediaPipe Tasks options base class. Any MediaPipe task-specific options class should extend
- * {@link TaskOptions}.
+ * {@link TaskOptions} and implement exactly one of convertTo*Proto() methods.
  */
 public abstract class TaskOptions {
   /**
    * Converts a MediaPipe Tasks task-specific options to a {@link CalculatorOptions} protobuf
    * message.
    */
-  public abstract CalculatorOptions convertToCalculatorOptionsProto();
+  public CalculatorOptions convertToCalculatorOptionsProto() {
+    return null;
+  }
+
+  /** Converts a MediaPipe Tasks task-specific options to an proto3 {@link Any} message. */
+  public Any convertToAnyProto() {
+    return null;
+  }
 
   /**
    * Converts a {@link BaseOptions} instance to a {@link BaseOptionsProto.BaseOptions} protobuf
    * message.
    */
   protected BaseOptionsProto.BaseOptions convertBaseOptionsToProto(BaseOptions options) {
-    ExternalFileProto.ExternalFile.Builder externalFileBuilder =
-        ExternalFileProto.ExternalFile.newBuilder();
-    options.modelAssetPath().ifPresent(externalFileBuilder::setFileName);
-    options
-        .modelAssetFileDescriptor()
-        .ifPresent(
-            fd ->
-                externalFileBuilder.setFileDescriptorMeta(
-                    ExternalFileProto.FileDescriptorMeta.newBuilder().setFd(fd).build()));
-    options
-        .modelAssetBuffer()
-        .ifPresent(
-            modelBuffer -> {
-              modelBuffer.rewind();
-              externalFileBuilder.setFileContent(ByteString.copyFrom(modelBuffer));
-            });
-    AccelerationProto.Acceleration.Builder accelerationBuilder =
-        AccelerationProto.Acceleration.newBuilder();
-    switch (options.delegate()) {
-      case CPU:
-        accelerationBuilder.setTflite(
-            InferenceCalculatorProto.InferenceCalculatorOptions.Delegate.TfLite
-                .getDefaultInstance());
-        break;
-      case GPU:
-        accelerationBuilder.setGpu(
-            InferenceCalculatorProto.InferenceCalculatorOptions.Delegate.Gpu.getDefaultInstance());
-        break;
-    }
-    return BaseOptionsProto.BaseOptions.newBuilder()
-        .setModelAsset(externalFileBuilder.build())
-        .setAcceleration(accelerationBuilder.build())
-        .build();
+    return BaseOptionsUtils.convertBaseOptionsToProto(options);
+  }
+
+  /**
+   * Converts a {@link BaseOptions} instance to a {@link BaseOptionsProto.BaseOptions} protobuf
+   * message, optionally routing inference through the LiteRT backend.
+   *
+   * <p>{@code useLiteRt} is an internal execution-engine choice made per task, not a user-facing
+   * option: callers still select CPU or GPU via {@link Delegate}.
+   */
+  protected BaseOptionsProto.BaseOptions convertBaseOptionsToProto(
+      BaseOptions options, boolean useLiteRt) {
+    return BaseOptionsUtils.convertBaseOptionsToProto(options, useLiteRt);
   }
 }

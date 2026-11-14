@@ -16,18 +16,17 @@
 #define MEDIAPIPE_CALCULATORS_AUDIO_RATIONAL_FACTOR_RESAMPLE_CALCULATOR_H_
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
-#include "Eigen/Core"
-#include "absl/strings/str_cat.h"
+#include "Eigen/Core"              // from @eigen
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "audio/dsp/resampler.h"
 #include "mediapipe/calculators/audio/rational_factor_resample_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/time_series_header.pb.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/util/time_series_util.h"
 
 namespace mediapipe {
@@ -86,8 +85,8 @@ class RationalFactorResampleCalculator : public CalculatorBase {
 
   double source_sample_rate_;
   double target_sample_rate_;
-  int64 cumulative_input_samples_;
-  int64 cumulative_output_samples_;
+  int64_t cumulative_input_samples_;
+  int64_t cumulative_output_samples_;
   Timestamp initial_timestamp_;
   bool check_inconsistent_timestamps_;
   int num_channels_;

@@ -12,15 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mediapipe/tasks/cc/components/processors/proto/classifier_options.pb.h"
 #import "mediapipe/tasks/ios/components/processors/sources/MPPClassifierOptions.h"
+
+struct MpClassifierOptions;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface MPPClassifierOptions (Helpers)
 
-- (void)copyToProto:
-    (mediapipe::tasks::components::processors::proto::ClassifierOptions *)classifierOptionsProto;
+/**
+ * Copies the classifier options to a C `MpClassifierOptions` struct.
+ *
+ * This method heap-allocates C strings and string arrays on `cClassifierOptions`.
+ * Callers must release them via `+freeCOptions:` (or `MpClassifierOptionsFree`).
+ */
+- (void)copyToCOptions:(struct MpClassifierOptions *)cClassifierOptions;
+
+/** Frees any memory allocated inside a C `MpClassifierOptions` struct. */
++ (void)freeCOptions:(nullable struct MpClassifierOptions *)cClassifierOptions;
 
 @end
 

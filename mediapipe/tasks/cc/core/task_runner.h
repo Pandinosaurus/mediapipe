@@ -24,30 +24,74 @@ limitations under the License.
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/base/thread_annotations.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/status/statusor.h"          // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/port/status_macros.h"
-#include "mediapipe/tasks/cc/core/model_resources.h"
-#include "mediapipe/tasks/cc/core/model_resources_cache.h"
-#include "tensorflow/lite/core/api/op_resolver.h"
+#include "mediapipe/framework/executor.h"
+#include "mediapipe/framework/memory_manager.h"
+#include "mediapipe/tasks/cc/core/host_environment.h"
+#include "mediapipe/tasks/cc/core/logging/tasks_logger.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
+#include "tflite/core/api/op_resolver.h"  // from @litert
 
 namespace mediapipe {
+
+#if !MEDIAPIPE_DISABLE_GPU
+class GpuResources;
+#endif  // !MEDIAPIPE_DISABLE_GPU
+
 namespace tasks {
 namespace core {
+
+class TaskRunnerTestPeer;
+
+using ErrorFn = std::function<void(absl::Status)>;
 
 // Mapping from the MediaPipe calculator graph stream/side packet names to the
 // packets.
 using PacketMap = std::map<std::string, Packet>;
 // A callback method to get output packets from the task runner.
 using PacketsCallback = std::function<void(absl::StatusOr<PacketMap>)>;
+
+// The options for configuring a TaskRunner instance.
+struct TaskRunnerOptions {
+  CalculatorGraphConfig config;
+  std::string task_name;
+  RunningMode task_running_mode;
+  std::unique_ptr<tflite::OpResolver> op_resolver = nullptr;
+  PacketsCallback packets_callback = nullptr;
+  std::shared_ptr<Executor> default_executor = nullptr;
+  std::optional<PacketMap> input_side_packets = std::nullopt;
+#if !MEDIAPIPE_DISABLE_GPU
+  std::shared_ptr<::mediapipe::GpuResources> resources = nullptr;
+#endif
+  // Optional shared MemoryManager registered as `kMemoryManagerService` on
+  // the underlying CalculatorGraph before initialization (and therefore
+  // inherited by subgraphs and nested CalculatorGraph(CalculatorContext*)
+  // runners). Ownership is shared with the graph; callers may pass the same
+  // instance to multiple TaskRunner instances to share pools. If nullptr,
+  // `kMemoryManagerService` is left unset (no default initialization). On
+  // platforms without Android Hardware Buffer support, MemoryManager is a
+  // lightweight no-op wrapper.
+  std::shared_ptr<::mediapipe::MemoryManager> memory_manager;
+  std::optional<ErrorFn> error_fn = std::nullopt;
+  bool disable_default_service = false;
+  core::HostEnvironment host_environment =
+      core::HostEnvironment::HOST_ENVIRONMENT_UNKNOWN;
+  core::HostSystem host_system = core::HostSystem::HOST_SYSTEM_UNKNOWN;
+  std::string host_version = "";
+  std::string app_id = "";
+  std::string app_version = "";
+  std::string ca_bundle_path = "";
+};
 
 // The mediapipe task runner class.
 // The runner has two processing modes: synchronous mode and asynchronous mode.
@@ -71,9 +115,7 @@ class TaskRunner {
   // callback is absent, clients must use the synchronous method, Process(), to
   // provide the input packets and receive the output packets.
   static absl::StatusOr<std::unique_ptr<TaskRunner>> Create(
-      CalculatorGraphConfig config,
-      std::unique_ptr<tflite::OpResolver> op_resolver = nullptr,
-      PacketsCallback packets_callback = nullptr);
+      TaskRunnerOptions options);
 
   // TaskRunner is neither copyable nor movable.
   TaskRunner(const TaskRunner&) = delete;
@@ -114,10 +156,14 @@ class TaskRunner {
   const CalculatorGraphConfig& GetGraphConfig() { return graph_.Config(); }
 
  private:
+  friend class ::mediapipe::tasks::core::TaskRunnerTestPeer;
+
   // Constructor.
   // Creates a TaskRunner instance with an optional PacketsCallback method.
-  TaskRunner(PacketsCallback packets_callback = nullptr)
-      : packets_callback_(packets_callback) {}
+  explicit TaskRunner(PacketsCallback packets_callback,
+                      std::unique_ptr<logging::TasksLogger> tasks_logger)
+      : packets_callback_(packets_callback),
+        tasks_logger_(std::move(tasks_logger)) {}
 
   // Initializes the task runner. Returns an ok status to indicate that the
   // runner is ready to start. Otherwise, returns an error status to indicate
@@ -125,7 +171,12 @@ class TaskRunner {
   // be only initialized once.
   absl::Status Initialize(
       CalculatorGraphConfig config,
-      std::unique_ptr<tflite::OpResolver> op_resolver = nullptr);
+      std::unique_ptr<tflite::OpResolver> op_resolver = nullptr,
+      std::shared_ptr<Executor> default_executor = nullptr,
+      std::optional<PacketMap> input_side_packets = std::nullopt,
+      std::optional<ErrorFn> error_fn = std::nullopt,
+      bool disable_default_service = false,
+      std::shared_ptr<::mediapipe::MemoryManager> memory_manager = nullptr);
 
   // Starts the task runner. Returns an ok status to indicate that the
   // runner is ready to accept input data. Otherwise, returns an error status to
@@ -135,6 +186,7 @@ class TaskRunner {
   PacketsCallback packets_callback_;
   std::vector<std::string> output_stream_names_;
   CalculatorGraph graph_;
+  std::unique_ptr<logging::TasksLogger> tasks_logger_;
   bool initialized_ = false;
   std::atomic_bool is_running_ = false;
 

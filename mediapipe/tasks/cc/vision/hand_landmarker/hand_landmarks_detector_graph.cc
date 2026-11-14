@@ -13,13 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <memory>
-#include <type_traits>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
 #include "mediapipe/calculators/core/split_vector_calculator.pb.h"
 #include "mediapipe/calculators/tensor/tensors_to_classification_calculator.pb.h"
 #include "mediapipe/calculators/tensor/tensors_to_landmarks_calculator.pb.h"
@@ -27,24 +27,21 @@ limitations under the License.
 #include "mediapipe/calculators/util/thresholding_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
+#include "mediapipe/framework/calculator.pb.h"
+#include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/classification.pb.h"
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/landmark.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
-#include "mediapipe/framework/formats/tensor.h"
+#include "mediapipe/framework/subgraph.h"
 #include "mediapipe/tasks/cc/common.h"
 #include "mediapipe/tasks/cc/components/processors/image_preprocessing_graph.h"
 #include "mediapipe/tasks/cc/components/utils/gate.h"
 #include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/model_task_graph.h"
-#include "mediapipe/tasks/cc/core/proto/inference_subgraph.pb.h"
-#include "mediapipe/tasks/cc/core/utils.h"
-#include "mediapipe/tasks/cc/metadata/metadata_extractor.h"
 #include "mediapipe/tasks/cc/vision/hand_landmarker/proto/hand_landmarks_detector_graph_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_tensor_specs.h"
-#include "mediapipe/tasks/metadata/metadata_schema_generated.h"
 #include "mediapipe/util/label_map.pb.h"
-#include "mediapipe/util/label_map_util.h"
 
 namespace mediapipe {
 namespace tasks {
@@ -61,7 +58,7 @@ using ::mediapipe::api2::builder::Source;
 using ::mediapipe::tasks::components::utils::AllowIf;
 using ::mediapipe::tasks::vision::hand_landmarker::proto::
     HandLandmarksDetectorGraphOptions;
-using LabelItems = mediapipe::proto_ns::Map<int64, ::mediapipe::LabelMapItem>;
+using LabelItems = mediapipe::proto_ns::Map<int64_t, ::mediapipe::LabelMapItem>;
 
 constexpr char kImageTag[] = "IMAGE";
 constexpr char kHandRectTag[] = "HAND_RECT";
@@ -93,7 +90,7 @@ struct HandLandmarkerOutputs {
   Source<std::vector<NormalizedRect>> hand_rects_next_frame;
   Source<std::vector<bool>> presences;
   Source<std::vector<float>> presence_scores;
-  Source<std::vector<ClassificationList>> handednesses;
+  Source<std::vector<ClassificationList>> handedness;
 };
 
 absl::Status SanityCheckOptions(
@@ -142,8 +139,8 @@ void ConfigureTensorsToHandednessCalculator(
   LabelMapItem right_hand = LabelMapItem();
   right_hand.set_name("Right");
   right_hand.set_display_name("Right");
-  (*options->mutable_label_items())[0] = std::move(left_hand);
-  (*options->mutable_label_items())[1] = std::move(right_hand);
+  (*options->mutable_label_items())[0] = std::move(right_hand);
+  (*options->mutable_label_items())[1] = std::move(left_hand);
 }
 
 void ConfigureHandRectTransformationCalculator(
@@ -212,11 +209,11 @@ class SingleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
  public:
   absl::StatusOr<CalculatorGraphConfig> GetConfig(
       SubgraphContext* sc) override {
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         const auto* model_resources,
-        CreateModelResources<HandLandmarksDetectorGraphOptions>(sc));
+        GetOrCreateModelResources<HandLandmarksDetectorGraphOptions>(sc));
     Graph graph;
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         auto hand_landmark_detection_outs,
         BuildSingleHandLandmarksDetectorGraph(
             sc->Options<HandLandmarksDetectorGraphOptions>(), *model_resources,
@@ -254,23 +251,25 @@ class SingleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
       const HandLandmarksDetectorGraphOptions& subgraph_options,
       const core::ModelResources& model_resources, Source<Image> image_in,
       Source<NormalizedRect> hand_rect, Graph& graph) {
-    MP_RETURN_IF_ERROR(SanityCheckOptions(subgraph_options));
+    ABSL_RETURN_IF_ERROR(SanityCheckOptions(subgraph_options));
 
     auto& preprocessing = graph.AddNode(
         "mediapipe.tasks.components.processors.ImagePreprocessingGraph");
     bool use_gpu =
         components::processors::DetermineImagePreprocessingGpuBackend(
             subgraph_options.base_options().acceleration());
-    MP_RETURN_IF_ERROR(components::processors::ConfigureImagePreprocessingGraph(
-        model_resources, use_gpu,
-        &preprocessing.GetOptions<tasks::components::processors::proto::
-                                      ImagePreprocessingGraphOptions>()));
+    ABSL_RETURN_IF_ERROR(
+        components::processors::ConfigureImagePreprocessingGraph(
+            model_resources, use_gpu,
+            subgraph_options.base_options().gpu_origin(),
+            &preprocessing.GetOptions<tasks::components::processors::proto::
+                                          ImagePreprocessingGraphOptions>()));
     image_in >> preprocessing.In("IMAGE");
     hand_rect >> preprocessing.In("NORM_RECT");
     auto image_size = preprocessing[Output<std::pair<int, int>>("IMAGE_SIZE")];
 
-    ASSIGN_OR_RETURN(auto image_tensor_specs,
-                     BuildInputImageTensorSpecs(model_resources));
+    ABSL_ASSIGN_OR_RETURN(auto image_tensor_specs,
+                          BuildInputImageTensorSpecs(model_resources));
 
     auto& inference = AddInference(
         model_resources, subgraph_options.base_options().acceleration(), graph);
@@ -462,7 +461,7 @@ class MultipleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
   absl::StatusOr<CalculatorGraphConfig> GetConfig(
       SubgraphContext* sc) override {
     Graph graph;
-    ASSIGN_OR_RETURN(
+    ABSL_ASSIGN_OR_RETURN(
         auto hand_landmark_detection_outputs,
         BuildHandLandmarksDetectorGraph(
             sc->Options<HandLandmarksDetectorGraphOptions>(),
@@ -478,7 +477,7 @@ class MultipleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
         graph[Output<std::vector<bool>>(kPresenceTag)];
     hand_landmark_detection_outputs.presence_scores >>
         graph[Output<std::vector<float>>(kPresenceScoreTag)];
-    hand_landmark_detection_outputs.handednesses >>
+    hand_landmark_detection_outputs.handedness >>
         graph[Output<std::vector<ClassificationList>>(kHandednessTag)];
 
     return graph.GetConfig();
@@ -492,8 +491,8 @@ class MultipleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
     auto& hand_landmark_subgraph = graph.AddNode(
         "mediapipe.tasks.vision.hand_landmarker."
         "SingleHandLandmarksDetectorGraph");
-    hand_landmark_subgraph.GetOptions<HandLandmarksDetectorGraphOptions>()
-        .CopyFrom(subgraph_options);
+    hand_landmark_subgraph.GetOptions<HandLandmarksDetectorGraphOptions>() =
+        subgraph_options;
 
     auto& begin_loop_multi_hand_rects =
         graph.AddNode("BeginLoopNormalizedRectCalculator");
@@ -562,7 +561,7 @@ class MultipleHandLandmarksDetectorGraph : public core::ModelTaskGraph {
         /* hand_rects_next_frame= */ hand_rects_next_frame,
         /* presences= */ presences,
         /* presence_scores= */ presence_scores,
-        /* handednesses= */ handednesses,
+        /* handedness= */ handednesses,
     }};
   }
 };

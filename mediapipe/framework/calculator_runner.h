@@ -22,9 +22,9 @@
 #include <string>
 #include <vector>
 
-#include "absl/base/macros.h"
+#include "absl/base/macros.h"    // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 
@@ -128,7 +128,7 @@ class CalculatorRunner {
   mediapipe::Counter* GetCounter(const std::string& name);
 
   // Returns all graph counters values.
-  std::map<std::string, int64> GetCountersValues();
+  std::map<std::string, int64_t> GetCountersValues();
 
  private:
   static const char kSourcePrefix[];

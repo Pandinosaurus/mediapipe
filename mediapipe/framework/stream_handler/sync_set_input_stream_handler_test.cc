@@ -17,12 +17,14 @@
 #include <tuple>
 #include <vector>
 
-#include "absl/synchronization/mutex.h"
+#include "absl/log/absl_log.h"           // from @com_google_absl
+#include "absl/status/status.h"          // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 // TODO: Move protos in another CL after the C++ code migration.
-#include "absl/base/macros.h"
-#include "absl/memory/memory.h"
-#include "absl/strings/str_cat.h"
+#include "absl/base/macros.h"      // from @com_google_absl
+#include "absl/memory/memory.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
@@ -72,7 +74,7 @@ absl::Status InputsToDebugString(const InputStreamShardSet& inputs,
   ABSL_CONST_INIT static absl::Mutex mu(absl::kConstInit);
   static Timestamp static_timestamp = Timestamp(0);
   {
-    absl::MutexLock lock(&mu);
+    absl::MutexLock lock(mu);
     output_packet = MakePacket<std::string>(output).At(static_timestamp);
     ++static_timestamp;
   }
@@ -215,7 +217,7 @@ TEST(SyncSetInputStreamHandlerTest, OrdinaryOperation) {
 
   RandomEngine rng(testing::UnitTest::GetInstance()->random_seed());
   for (int iter = 0; iter < 1000; ++iter) {
-    LOG(INFO) << "Starting command shuffling iteration " << iter;
+    ABSL_LOG(INFO) << "Starting command shuffling iteration " << iter;
 
     // Merge the commands for each sync set together into a serial list.
     // This is done by randomly choosing which list to grab from next.

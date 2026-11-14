@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default_visibility = ["//mediapipe/calculators/tensor:__subpackages__"]
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = default_visibility)
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -36,7 +37,6 @@ cc_library(
     hdrs = [
         "bert_tokenizer.h",
     ],
-    visibility = default_visibility + ["//mediapipe/tasks:users"],
     deps = [
         ":tokenizer",
         "//mediapipe/framework/port:integral_types",
@@ -71,8 +71,9 @@ cc_library(
     deps = [
         ":tokenizer",
         "//mediapipe/framework/port:logging",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/strings",
-        "@com_google_sentencepiece//src:sentencepiece_processor",
+        "@com_google_sentencepiece//:sentencepiece_processor",
     ],
 )
 
@@ -86,7 +87,8 @@ cc_test(
         ":sentencepiece_tokenizer",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/tasks/cc/core:utils",
-        "@com_google_sentencepiece//src:sentencepiece_processor",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_sentencepiece//:sentencepiece_processor",
     ],
 )
 
@@ -101,11 +103,12 @@ cc_library(
         ":regex_tokenizer",
         ":sentencepiece_tokenizer",
         ":tokenizer",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@flatbuffers//:runtime_cc",
@@ -119,6 +122,7 @@ cc_test(
         "//mediapipe/tasks/testdata/text:albert_model",
         "//mediapipe/tasks/testdata/text:mobile_bert_model",
         "//mediapipe/tasks/testdata/text:text_classifier_models",
+        "@com_google_absl//absl/log:absl_check",
     ],
     linkopts = ["-ldl"],
     deps = [
@@ -127,7 +131,6 @@ cc_test(
         ":sentencepiece_tokenizer",
         ":tokenizer_utils",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/core:utils",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
@@ -136,7 +139,7 @@ cc_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
-        "@com_google_sentencepiece//src:sentencepiece_processor",
+        "@com_google_sentencepiece//:sentencepiece_processor",
     ],
 )
 

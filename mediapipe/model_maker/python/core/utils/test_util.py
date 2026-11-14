@@ -16,9 +16,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from typing import List, Union
-
-# Dependency imports
+from typing import Sequence
+from typing import Dict, List, Union
 
 import numpy as np
 import tensorflow as tf
@@ -41,7 +40,7 @@ def create_dataset(data_size: int,
   labels = tf.random.uniform(
       shape=[data_size], minval=0, maxval=num_classes, dtype=tf.int32)
 
-  tf_dataset = tf.data.Dataset.from_tensor_slices((features, labels))
+  tf_dataset = tf.data.Dataset.from_tensor_slices((features, labels))  # pyrefly: ignore[bad-argument-type]
   dataset = ds.Dataset(tf_dataset, data_size)
   return dataset
 
@@ -69,9 +68,9 @@ def build_model(input_shape: List[int], num_classes: int) -> tf.keras.Model:
   inputs = tf.keras.layers.Input(shape=input_shape)
   if len(input_shape) == 3:  # Image inputs.
     outputs = tf.keras.layers.GlobalAveragePooling2D()(inputs)
-    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(outputs)
+    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(outputs)  # pyrefly: ignore[not-callable]
   elif len(input_shape) == 1:  # Text inputs.
-    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(inputs)
+    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(inputs)  # pyrefly: ignore[not-callable]
   else:
     raise ValueError("Model inputs should be 2D tensor or 4D tensor.")
 
@@ -86,12 +85,23 @@ def is_same_output(tflite_model: bytearray,
   """Returns if the output of TFLite model and keras model are identical."""
   # Gets output from lite model.
   lite_runner = model_util.get_lite_runner(tflite_model)
-  lite_output = lite_runner.run(input_tensors)
+  lite_output = lite_runner.run(input_tensors)  # pyrefly: ignore[bad-argument-type]
 
   # Gets output from keras model.
   keras_output = keras_model.predict_on_batch(input_tensors)
 
-  return np.allclose(lite_output, keras_output, atol=atol)
+  return np.allclose(lite_output, keras_output, atol=atol)  # pyrefly: ignore[bad-argument-type]
+
+
+def run_tflite(
+    tflite_filename: str,
+    input_tensors: Union[List[tf.Tensor], Dict[str, tf.Tensor]],
+) -> Union[Sequence[tf.Tensor], tf.Tensor]:
+  """Runs TFLite model inference."""
+  with tf.io.gfile.GFile(tflite_filename, "rb") as f:
+    tflite_model = f.read()
+  lite_runner = model_util.get_lite_runner(tflite_model)
+  return lite_runner.run(input_tensors)
 
 
 def test_tflite(keras_model: tf.keras.Model,

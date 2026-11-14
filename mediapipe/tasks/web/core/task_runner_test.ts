@@ -17,16 +17,27 @@ import 'jasmine';
 
 // Placeholder for internal dependency on encodeByteArray
 import {InferenceCalculatorOptions} from '../../../calculators/tensor/inference_calculator_pb';
+import {GpuOrigin as GpuOriginProto} from '../../../gpu/gpu_origin_pb';
 import {BaseOptions as BaseOptionsProto} from '../../../tasks/cc/core/proto/base_options_pb';
 import {TaskRunner} from '../../../tasks/web/core/task_runner';
+import {
+  createSpyWasmModule,
+  SpyWasmModule,
+} from '../../../tasks/web/core/task_runner_test_utils';
+import * as graphRunner from '../../../web/graph_runner/graph_runner';
 import {ErrorListener} from '../../../web/graph_runner/graph_runner';
 // Placeholder for internal dependency on trusted resource URL builder
 
-import {CachedGraphRunner} from './task_runner';
-import {TaskRunnerOptions} from './task_runner_options.d';
+import {CachedGraphRunner, createTaskRunner} from './task_runner';
+import type {TaskRunnerOptions} from './task_runner_options';
+import {WasmFileset} from './wasm_fileset';
+
+type Writeable<T> = {
+  -readonly [P in keyof T]: T[P];
+};
 
 class TaskRunnerFake extends TaskRunner {
-  private errorListener: ErrorListener|undefined;
+  private errorListener: ErrorListener | undefined;
   private errors: string[] = [];
 
   baseOptions = new BaseOptionsProto();
@@ -36,13 +47,21 @@ class TaskRunnerFake extends TaskRunner {
   }
 
   constructor() {
-    super(jasmine.createSpyObj<CachedGraphRunner>([
-      'setAutoRenderToScreen', 'setGraph', 'finishProcessing',
-      'registerModelResourcesGraphService', 'attachErrorListener'
-    ]));
-    const graphRunner = this.graphRunner as jasmine.SpyObj<CachedGraphRunner>;
+    super(
+      jasmine.createSpyObj<CachedGraphRunner>([
+        'setAutoRenderToScreen',
+        'setGraph',
+        'finishProcessing',
+        'registerModelResourcesGraphService',
+        'attachErrorListener',
+        'getMediapipeApiKey',
+      ]),
+    );
+    const graphRunner = this.graphRunner as jasmine.SpyObj<
+      Writeable<CachedGraphRunner>
+    >;
     expect(graphRunner.setAutoRenderToScreen).toHaveBeenCalled();
-    graphRunner.attachErrorListener.and.callFake(listener => {
+    graphRunner.attachErrorListener.and.callFake((listener) => {
       this.errorListener = listener;
     });
     graphRunner.setGraph.and.callFake(() => {
@@ -51,26 +70,41 @@ class TaskRunnerFake extends TaskRunner {
     graphRunner.finishProcessing.and.callFake(() => {
       this.throwErrors();
     });
+    graphRunner.wasmModule = createSpyWasmModule();
+  }
+
+  get wasmModule(): SpyWasmModule {
+    return this.graphRunner.wasmModule as SpyWasmModule;
   }
 
   enqueueError(message: string): void {
     this.errors.push(message);
   }
 
-  override finishProcessing(): void {
-    super.finishProcessing();
+  override finishProcessing(timestamp: number): void {
+    super.finishProcessing(timestamp);
+  }
+
+  override getTaskName(): string {
+    return 'TaskRunnerFake';
   }
 
   override refreshGraph(): void {}
 
   override setGraph(graphData: Uint8Array, isBinary: boolean): void {
     super.setGraph(graphData, isBinary);
-    expect(this.graphRunner.registerModelResourcesGraphService)
-        .toHaveBeenCalled();
+    expect(
+      this.graphRunner.registerModelResourcesGraphService,
+    ).toHaveBeenCalled();
   }
 
-  setOptions(options: TaskRunnerOptions): Promise<void> {
-    return this.applyOptions(options);
+  setOptions(options: TaskRunnerOptions, useLitert = false): Promise<void> {
+    return this.applyOptions(
+      options,
+      /* loadTfliteModel= */ true,
+      /* isLiteRtLmModel= */ false,
+      useLitert,
+    );
   }
 
   private throwErrors(): void {
@@ -95,9 +129,11 @@ describe('TaskRunner', () => {
     acceleration: {
       xnnpack: undefined,
       gpu: undefined,
+      litert: undefined,
       tflite: {},
       nnapi: undefined,
     },
+    gpuOrigin: GpuOriginProto.Mode.TOP_LEFT,
   };
   const mockBytesResultWithGpuDelegate = {
     ...mockBytesResult,
@@ -109,31 +145,120 @@ describe('TaskRunner', () => {
         allowPrecisionLoss: true,
         cachedKernelPath: undefined,
         serializedModelDir: undefined,
+        cacheWritingBehavior:
+          InferenceCalculatorOptions.Delegate.Gpu.CacheWritingBehavior
+            .WRITE_OR_ERROR,
         modelToken: undefined,
-        usage: InferenceCalculatorOptions.Delegate.Gpu.InferenceUsage
-                   .SUSTAINED_SPEED,
+        usage:
+          InferenceCalculatorOptions.Delegate.Gpu.InferenceUsage
+            .SUSTAINED_SPEED,
+        webnn: undefined,
       },
+      litert: undefined,
       tflite: undefined,
       nnapi: undefined,
     },
+  };
+  const mockFileResult = {
+    modelAsset: {
+      fileContent: '',
+      fileName: '/model.dat',
+      fileDescriptorMeta: undefined,
+      filePointerMeta: undefined,
+    },
+    useStreamMode: false,
+    acceleration: {
+      xnnpack: undefined,
+      gpu: undefined,
+      litert: undefined,
+      tflite: {},
+      nnapi: undefined,
+    },
+    gpuOrigin: GpuOriginProto.Mode.TOP_LEFT,
   };
 
   let fetchSpy: jasmine.Spy;
   let taskRunner: TaskRunnerFake;
   let fetchStatus: number;
+  let locator: graphRunner.FileLocator | undefined;
+
+  let oldCreate = graphRunner.createMediaPipeLib;
 
   beforeEach(() => {
     fetchStatus = 200;
-    fetchSpy = jasmine.createSpy().and.callFake(async url => {
+    fetchSpy = jasmine.createSpy().and.callFake(async (url) => {
       return {
         arrayBuffer: () => mockBytes.buffer,
         ok: fetchStatus === 200,
         status: fetchStatus,
       } as unknown as Response;
     });
-    global.fetch = fetchSpy;
+    globalThis.fetch = fetchSpy;
+
+    // Monkeypatch an exported static method for testing!
+    oldCreate = graphRunner.createMediaPipeLib;
+    locator = undefined;
+    (graphRunner as {createMediaPipeLib: Function}).createMediaPipeLib = jasmine
+      .createSpy()
+      .and.callFake(
+        (type, wasmLoaderPath, assetLoaderPath, canvas, fileLocator) => {
+          locator = fileLocator;
+          // tslint:disable-next-line:no-any Monkeypatching for test mocks.
+          return Promise.resolve(taskRunner as any);
+        },
+      );
 
     taskRunner = TaskRunnerFake.createFake();
+  });
+
+  afterEach(() => {
+    // Restore the monkeypatch.
+    (graphRunner as {createMediaPipeLib: Function}).createMediaPipeLib =
+      oldCreate;
+  });
+
+  it('constructs with useful file locators for asset.data files', () => {
+    const fileset: WasmFileset = {
+      wasmLoaderPath: `wasm.js`,
+      wasmBinaryPath: `a/b/c/wasm.wasm`,
+      assetLoaderPath: `asset.js`,
+      assetBinaryPath: `a/b/c/asset.data`,
+    };
+
+    const options = {
+      baseOptions: {
+        modelAssetPath: `modelAssetPath`,
+      },
+    };
+
+    const runner = createTaskRunner(TaskRunnerFake, null, fileset, options);
+    expect(runner).toBeDefined();
+    expect(locator).toBeDefined();
+    expect(locator?.locateFile('wasm.wasm')).toEqual('a/b/c/wasm.wasm');
+    expect(locator?.locateFile('asset.data')).toEqual('a/b/c/asset.data');
+    expect(locator?.locateFile('unknown')).toEqual('unknown');
+  });
+
+  it('constructs without useful file locators with no asset.data file', () => {
+    const fileset: WasmFileset = {
+      wasmLoaderPath: `wasm.js`,
+      wasmBinaryPath: `a/b/c/wasm.wasm`,
+      assetLoaderPath: `asset.js`,
+      // No path to the assets binary.
+    };
+
+    const options = {
+      baseOptions: {
+        modelAssetPath: `modelAssetPath`,
+      },
+    };
+
+    const runner = createTaskRunner(TaskRunnerFake, null, fileset, options);
+    expect(runner).toBeDefined();
+    expect(locator).toBeDefined();
+    expect(locator?.locateFile('wasm.wasm')).toEqual('a/b/c/wasm.wasm');
+    expect(locator?.locateFile('asset.data')).toEqual('asset.data');
+    expect(locator?.locateFile('unknown')).toEqual('unknown');
   });
 
   it('handles errors during graph update', () => {
@@ -150,7 +275,7 @@ describe('TaskRunner', () => {
     taskRunner.enqueueError('Test error');
 
     expect(() => {
-      taskRunner.finishProcessing();
+      taskRunner.finishProcessing(0);
     }).toThrowError('Test error');
   });
 
@@ -178,9 +303,9 @@ describe('TaskRunner', () => {
   it('verifies that at least one model asset option is provided', () => {
     expect(() => {
       taskRunner.setOptions({});
-    })
-        .toThrowError(
-            /Either baseOptions.modelAssetPath or baseOptions.modelAssetBuffer must be set/);
+    }).toThrowError(
+      /Either baseOptions.modelAssetPath or baseOptions.modelAssetBuffer must be set/,
+    );
   });
 
   it('verifies that no more than one model asset option is provided', () => {
@@ -188,41 +313,167 @@ describe('TaskRunner', () => {
       taskRunner.setOptions({
         baseOptions: {
           modelAssetPath: `foo`,
-          modelAssetBuffer: new Uint8Array([])
-        }
+          modelAssetBuffer: new Uint8Array([]),
+        },
       });
-    })
-        .toThrowError(
-            /Cannot set both baseOptions.modelAssetPath and baseOptions.modelAssetBuffer/);
+    }).toThrowError(
+      /Cannot set both baseOptions.modelAssetPath and baseOptions.modelAssetBuffer/,
+    );
   });
 
-  it('doesn\'t require model once it is configured', async () => {
-    await taskRunner.setOptions(
-        {baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)}});
+  it("doesn't require model once it is configured", async () => {
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)},
+    });
     expect(() => {
       taskRunner.setOptions({});
     }).not.toThrowError();
   });
 
-  it('downloads model', async () => {
-    await taskRunner.setOptions(
-        {baseOptions: {modelAssetPath: `foo`}});
+  it('writes model to file system', async () => {
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetPath: `foo`},
+    });
 
     expect(fetchSpy).toHaveBeenCalled();
-    expect(taskRunner.baseOptions.toObject()).toEqual(mockBytesResult);
+    expect(taskRunner.wasmModule.FS_createDataFile).toHaveBeenCalledOnceWith(
+      '/',
+      'model.dat',
+      mockBytes,
+      /* canRead= */ true,
+      /* canWrite= */ false,
+      /* canOwn= */ true,
+    );
+    expect(taskRunner.baseOptions.toObject()).toEqual(mockFileResult);
   });
 
   it('does not download model when bytes are provided', async () => {
-    await taskRunner.setOptions(
-        {baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)}});
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)},
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(taskRunner.baseOptions.toObject()).toEqual(mockBytesResult);
+  });
+
+  describe('LiteRT delegate migration', () => {
+    function optionsWith(delegate?: 'CPU' | 'GPU') {
+      return {
+        baseOptions: {
+          modelAssetBuffer: new Uint8Array(mockBytes),
+          ...(delegate ? {delegate} : {}),
+        },
+      };
+    }
+
+    it('stays on the TFLite delegate by default', async () => {
+      await taskRunner.setOptions(optionsWith());
+
+      const acceleration = taskRunner.baseOptions.getAcceleration()!;
+      expect(acceleration.hasTflite()).toBe(true);
+      expect(acceleration.hasLitert()).toBe(false);
+    });
+
+    it('routes the default CPU path to LiteRT when useLitert is set', async () => {
+      await taskRunner.setOptions(optionsWith(), /* useLitert= */ true);
+
+      const acceleration = taskRunner.baseOptions.getAcceleration()!;
+      // `delegate` is a oneof, so selecting LiteRT must clear TFLite.
+      expect(acceleration.hasTflite()).toBe(false);
+      expect(acceleration.hasLitert()).toBe(true);
+      expect(acceleration.getLitert()!.hasCpu()).toBe(true);
+      expect(acceleration.getLitert()!.hasGpu()).toBe(false);
+    });
+
+    it('routes GPU to LiteRT without a CPU fallback', async () => {
+      await taskRunner.setOptions(optionsWith('GPU'), /* useLitert= */ true);
+
+      const acceleration = taskRunner.baseOptions.getAcceleration()!;
+      expect(acceleration.hasGpu()).toBe(false);
+      expect(acceleration.hasLitert()).toBe(true);
+      expect(acceleration.getLitert()!.hasGpu()).toBe(true);
+      // A GPU request must be GPU-only: LiteRT treats the accelerator set as
+      // the backends it is allowed to use, so permitting CPU would let the
+      // model silently run on CPU instead of failing.
+      expect(acceleration.getLitert()!.hasCpu()).toBe(false);
+    });
+
+    it('keeps the GPU selection when later options omit the delegate', async () => {
+      await taskRunner.setOptions(optionsWith('GPU'), /* useLitert= */ true);
+      await taskRunner.setOptions(optionsWith(), /* useLitert= */ true);
+
+      const litert = taskRunner.baseOptions.getAcceleration()!.getLitert()!;
+      expect(litert.hasGpu()).toBe(true);
+    });
+
+    it('downgrades to CPU when the delegate is explicitly changed to CPU', async () => {
+      await taskRunner.setOptions(optionsWith('GPU'), /* useLitert= */ true);
+      await taskRunner.setOptions(optionsWith('CPU'), /* useLitert= */ true);
+
+      const litert = taskRunner.baseOptions.getAcceleration()!.getLitert()!;
+      expect(litert.hasGpu()).toBe(false);
+      expect(litert.hasCpu()).toBe(true);
+    });
+  });
+
+  it('can read from ReadableStreamDefaultReader (with empty data)', async () => {
+    if (typeof ReadableStream === 'undefined') return; // No Node support
+
+    const readableStream = new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: readableStream.getReader()},
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(taskRunner.baseOptions.toObject().modelAsset?.fileContent).toEqual(
+      '',
+    );
+  });
+
+  it('can read from ReadableStreamDefaultReader (with one chunk)', async () => {
+    if (typeof ReadableStream === 'undefined') return; // No Node support
+
+    const bytes = new Uint8Array(mockBytes);
+    const readableStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: readableStream.getReader()},
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(taskRunner.baseOptions.toObject()).toEqual(mockBytesResult);
+  });
+
+  it('can read from ReadableStreamDefaultReader (with two chunks)', async () => {
+    if (typeof ReadableStream === 'undefined') return; // No Node support
+
+    const readableStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0, 1]));
+        controller.enqueue(new Uint8Array([2, 3]));
+        controller.close();
+      },
+    });
+    await taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: readableStream.getReader()},
+    });
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(taskRunner.baseOptions.toObject()).toEqual(mockBytesResult);
   });
 
   it('changes model synchronously when bytes are provided', () => {
-    const resolvedPromise = taskRunner.setOptions(
-        {baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)}});
+    const resolvedPromise = taskRunner.setOptions({
+      baseOptions: {modelAssetBuffer: new Uint8Array(mockBytes)},
+    });
 
     // Check that the change has been applied even though we do not await the
     // above Promise
@@ -232,10 +483,11 @@ describe('TaskRunner', () => {
 
   it('returns custom error if model download failed', () => {
     fetchStatus = 404;
-    return expectAsync(taskRunner.setOptions({
-             baseOptions: {modelAssetPath: `notfound.tflite`}
-           }))
-        .toBeRejectedWithError('Failed to fetch model: notfound.tflite (404)');
+    return expectAsync(
+      taskRunner.setOptions({
+        baseOptions: {modelAssetPath: `notfound.tflite`},
+      }),
+    ).toBeRejectedWithError('Failed to fetch model: notfound.tflite (404)');
   });
 
   it('can enable CPU delegate', async () => {
@@ -243,7 +495,7 @@ describe('TaskRunner', () => {
       baseOptions: {
         modelAssetBuffer: new Uint8Array(mockBytes),
         delegate: 'CPU',
-      }
+      },
     });
     expect(taskRunner.baseOptions.toObject()).toEqual(mockBytesResult);
   });
@@ -253,10 +505,11 @@ describe('TaskRunner', () => {
       baseOptions: {
         modelAssetBuffer: new Uint8Array(mockBytes),
         delegate: 'GPU',
-      }
+      },
     });
-    expect(taskRunner.baseOptions.toObject())
-        .toEqual(mockBytesResultWithGpuDelegate);
+    expect(taskRunner.baseOptions.toObject()).toEqual(
+      mockBytesResultWithGpuDelegate,
+    );
   });
 
   it('can reset delegate', async () => {
@@ -264,7 +517,7 @@ describe('TaskRunner', () => {
       baseOptions: {
         modelAssetBuffer: new Uint8Array(mockBytes),
         delegate: 'GPU',
-      }
+      },
     });
     // Clear delegate
     await taskRunner.setOptions({baseOptions: {delegate: undefined}});
@@ -276,10 +529,11 @@ describe('TaskRunner', () => {
       baseOptions: {
         modelAssetBuffer: new Uint8Array(mockBytes),
         delegate: 'GPU',
-      }
+      },
     });
     await taskRunner.setOptions({baseOptions: {}});
-    expect(taskRunner.baseOptions.toObject())
-        .toEqual(mockBytesResultWithGpuDelegate);
+    expect(taskRunner.baseOptions.toObject()).toEqual(
+      mockBytesResultWithGpuDelegate,
+    );
   });
 });

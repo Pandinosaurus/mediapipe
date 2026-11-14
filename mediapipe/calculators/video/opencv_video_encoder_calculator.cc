@@ -18,19 +18,19 @@
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_split.h"
+#include "absl/log/absl_log.h"       // from @com_google_absl
+#include "absl/status/status.h"      // from @com_google_absl
+#include "absl/strings/str_split.h"  // from @com_google_absl
 #include "mediapipe/calculators/video/opencv_video_encoder_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/formats/video_stream_header.h"
 #include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/opencv_highgui_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
 #include "mediapipe/framework/port/opencv_video_inc.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/source_location.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_builder.h"
 #include "mediapipe/framework/tool/status_util.h"
 
@@ -187,9 +187,10 @@ absl::Status OpenCvVideoEncoderCalculator::Close(CalculatorContext* cc) {
     const std::string& audio_file_path =
         cc->InputSidePackets().Tag(kAudioFilePathTag).Get<std::string>();
     if (audio_file_path.empty()) {
-      LOG(WARNING) << "OpenCvVideoEncoderCalculator isn't able to attach the "
-                      "audio tracks to the generated video because the audio "
-                      "file path is not specified.";
+      ABSL_LOG(WARNING)
+          << "OpenCvVideoEncoderCalculator isn't able to attach the "
+             "audio tracks to the generated video because the audio "
+             "file path is not specified.";
     } else {
       // A temp output file is needed because FFmpeg can't do in-place editing.
       const std::string temp_file_path = std::tmpnam(nullptr);
@@ -218,7 +219,7 @@ absl::Status OpenCvVideoEncoderCalculator::SetUpVideoWriter(float frame_rate,
   RET_CHECK(frame_rate > 0 && width > 0 && height > 0)
       << "Invalid video metadata: frame_rate=" << frame_rate
       << ", width=" << width << ", height=" << height;
-  writer_ = absl::make_unique<cv::VideoWriter>(
+  writer_ = std::make_unique<cv::VideoWriter>(
       output_file_path_, four_cc_, frame_rate, cv::Size(width, height));
   if (!writer_->isOpened()) {
     return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)

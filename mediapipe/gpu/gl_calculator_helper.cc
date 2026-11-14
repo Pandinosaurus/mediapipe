@@ -14,20 +14,22 @@
 
 #include "mediapipe/gpu/gl_calculator_helper.h"
 
+#include "absl/log/absl_check.h"   // from @com_google_absl
+#include "absl/log/absl_log.h"     // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/legacy_calculator_support.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/gpu/gpu_buffer.h"
 #include "mediapipe/gpu/gpu_service.h"
 
 namespace mediapipe {
 
-GlCalculatorHelper::GlCalculatorHelper() {}
+GlCalculatorHelper::GlCalculatorHelper() = default;
 
-GlCalculatorHelper::~GlCalculatorHelper() {}
+GlCalculatorHelper::~GlCalculatorHelper() = default;
 
 void GlCalculatorHelper::InitializeInternal(CalculatorContext* cc,
                                             GpuResources* gpu_resources) {
@@ -36,7 +38,7 @@ void GlCalculatorHelper::InitializeInternal(CalculatorContext* cc,
 }
 
 absl::Status GlCalculatorHelper::Open(CalculatorContext* cc) {
-  CHECK(cc);
+  ABSL_CHECK(cc);
   auto gpu_service = cc->Service(kGpuService);
   RET_CHECK(gpu_service.IsAvailable())
       << "GPU service not available. Did you forget to call "
@@ -54,8 +56,13 @@ void GlCalculatorHelper::InitializeForTest(GpuResources* gpu_resources) {
 }
 
 // static
-absl::Status GlCalculatorHelper::UpdateContract(CalculatorContract* cc) {
-  cc->UseService(kGpuService);
+absl::Status GlCalculatorHelper::UpdateContract(CalculatorContract* cc,
+                                                bool request_gpu_as_optional) {
+  if (request_gpu_as_optional) {
+    cc->UseService(kGpuService).Optional();
+  } else {
+    cc->UseService(kGpuService);
+  }
   // Allow the legacy side packet to be provided, too, for backwards
   // compatibility with existing graphs. It will just be ignored.
   auto& input_side_packets = cc->InputSidePackets();
@@ -71,12 +78,12 @@ absl::Status GlCalculatorHelper::SetupInputSidePackets(
     PacketTypeSet* input_side_packets) {
   auto cc = LegacyCalculatorSupport::Scoped<CalculatorContract>::current();
   if (cc) {
-    CHECK_EQ(input_side_packets, &cc->InputSidePackets());
+    ABSL_CHECK_EQ(input_side_packets, &cc->InputSidePackets());
     return UpdateContract(cc);
   }
 
   // TODO: remove when we can.
-  LOG(WARNING)
+  ABSL_LOG(WARNING)
       << "CalculatorContract not available. If you're calling this "
          "from a GetContract method, call GlCalculatorHelper::UpdateContract "
          "instead.";
@@ -183,9 +190,9 @@ GpuBuffer GlCalculatorHelper::GpuBufferCopyingImageFrame(
     const ImageFrame& image_frame) {
 #if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
   auto maybe_buffer = CreateCVPixelBufferCopyingImageFrame(image_frame);
-  // Converts absl::StatusOr to absl::Status since CHECK_OK() currently only
-  // deals with absl::Status in MediaPipe OSS.
-  CHECK_OK(maybe_buffer.status());
+  // Converts absl::StatusOr to absl::Status since ABSL_CHECK_OK() currently
+  // only deals with absl::Status in MediaPipe OSS.
+  ABSL_CHECK_OK(maybe_buffer);
   return GpuBuffer(std::move(maybe_buffer).value());
 #else
   return GpuBuffer(GlTextureBuffer::Create(image_frame));
@@ -194,8 +201,8 @@ GpuBuffer GlCalculatorHelper::GpuBufferCopyingImageFrame(
 
 void GlCalculatorHelper::GetGpuBufferDimensions(const GpuBuffer& pixel_buffer,
                                                 int* width, int* height) {
-  CHECK(width);
-  CHECK(height);
+  ABSL_CHECK(width);
+  ABSL_CHECK(height);
   *width = pixel_buffer.width();
   *height = pixel_buffer.height();
 }
@@ -206,8 +213,21 @@ GlTexture GlCalculatorHelper::CreateDestinationTexture(int width, int height,
     CreateFramebuffer();
   }
 
-  GpuBuffer gpu_buffer =
+  auto gpu_buffer =
       gpu_resources_->gpu_buffer_pool().GetBuffer(width, height, format);
+  ABSL_CHECK_OK(gpu_buffer);
+  return MapGpuBuffer(*gpu_buffer, gpu_buffer->GetWriteView<GlTextureView>(0));
+}
+
+GlTexture GlCalculatorHelper::CreateDestinationTexture(
+    const ImageFrame& image_frame) {
+  // TODO: ensure buffer pool is used when creating textures out of
+  // ImageFrame.
+  GpuBuffer gpu_buffer = GpuBufferCopyingImageFrame(image_frame);
+  return MapGpuBuffer(gpu_buffer, gpu_buffer.GetWriteView<GlTextureView>(0));
+}
+
+GlTexture GlCalculatorHelper::CreateDestinationTexture(GpuBuffer& gpu_buffer) {
   return MapGpuBuffer(gpu_buffer, gpu_buffer.GetWriteView<GlTextureView>(0));
 }
 
@@ -221,7 +241,7 @@ std::unique_ptr<ImageFrame> GlTexture::GetFrame<ImageFrame>() const {
   view_->DoneWriting();
   std::shared_ptr<const ImageFrame> view =
       gpu_buffer_.GetReadView<ImageFrame>();
-  auto copy = absl::make_unique<ImageFrame>();
+  auto copy = std::make_unique<ImageFrame>();
   copy->CopyFrom(*view, ImageFrame::kDefaultAlignmentBoundary);
   return copy;
 }
@@ -229,14 +249,14 @@ std::unique_ptr<ImageFrame> GlTexture::GetFrame<ImageFrame>() const {
 template <>
 std::unique_ptr<GpuBuffer> GlTexture::GetFrame<GpuBuffer>() const {
   view_->DoneWriting();
-  return absl::make_unique<GpuBuffer>(gpu_buffer_);
+  return std::make_unique<GpuBuffer>(gpu_buffer_);
 }
 
 template <>
 std::unique_ptr<mediapipe::Image> GlTexture::GetFrame<mediapipe::Image>()
     const {
   std::unique_ptr<GpuBuffer> buf = GetFrame<GpuBuffer>();
-  auto output = absl::make_unique<mediapipe::Image>(*buf);
+  auto output = std::make_unique<mediapipe::Image>(*buf);
   return output;
 }
 

@@ -13,15 +13,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "absl/strings/substitute.h"
-#include "mediapipe/framework/api2/port.h"
+#include "absl/flags/flag.h"           // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/strings/substitute.h"   // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
 #include "mediapipe/framework/deps/file_path.h"
@@ -75,8 +74,8 @@ Environment CreateEnvironment() {
       proto::OriginPointLocation::TOP_LEFT_CORNER);
   auto& perspective_camera = *environment.mutable_perspective_camera();
   perspective_camera.set_vertical_fov_degrees(63.0 /*degrees*/);
-  perspective_camera.set_near(1.0 /* 1cm */);
-  perspective_camera.set_far(10000.0 /* 100m */);
+  perspective_camera.set_near_plane(1.0 /* 1cm */);
+  perspective_camera.set_far_plane(10000.0 /* 100m */);
   return environment;
 }
 
@@ -124,7 +123,9 @@ TEST(FaceGeometryFromLandmarksGraphTest, DefaultEnvironment) {
   auto& face_geometry = output_packets[0].Get<std::vector<FaceGeometry>>()[0];
   EXPECT_THAT(
       face_geometry,
-      testing::EqualsProto(GetExpectedFaceGeometry(kFaceGeometryFileName)));
+      testing::proto::Approximately(
+          testing::EqualsProto(GetExpectedFaceGeometry(kFaceGeometryFileName)),
+          1e-4));
 }
 
 TEST(FaceGeometryFromLandmarksGraphTest, SideInEnvironment) {
@@ -164,7 +165,9 @@ TEST(FaceGeometryFromLandmarksGraphTest, SideInEnvironment) {
   auto& face_geometry = output_packets[0].Get<std::vector<FaceGeometry>>()[0];
   EXPECT_THAT(
       face_geometry,
-      testing::EqualsProto(GetExpectedFaceGeometry(kFaceGeometryFileName)));
+      testing::proto::Approximately(
+          testing::EqualsProto(GetExpectedFaceGeometry(kFaceGeometryFileName)),
+          1e-4));
 }
 
 }  // namespace

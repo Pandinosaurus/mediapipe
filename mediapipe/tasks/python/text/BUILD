@@ -23,18 +23,17 @@ py_library(
     srcs = [
         "text_classifier.py",
     ],
-    visibility = ["//mediapipe/tasks:users"],
     deps = [
-        "//mediapipe/python:packet_creator",
-        "//mediapipe/python:packet_getter",
-        "//mediapipe/tasks/cc/components/containers/proto:classifications_py_pb2",
-        "//mediapipe/tasks/cc/components/processors/proto:classifier_options_py_pb2",
-        "//mediapipe/tasks/cc/text/text_classifier/proto:text_classifier_graph_options_py_pb2",
+        "//mediapipe/tasks/python/components/containers:category",
         "//mediapipe/tasks/python/components/containers:classification_result",
+        "//mediapipe/tasks/python/components/containers:classification_result_c",
+        "//mediapipe/tasks/python/components/processors:classifier_options",
+        "//mediapipe/tasks/python/components/processors:classifier_options_c",
         "//mediapipe/tasks/python/core:base_options",
-        "//mediapipe/tasks/python/core:optional_dependencies",
-        "//mediapipe/tasks/python/core:task_info",
-        "//mediapipe/tasks/python/text/core:base_text_task_api",
+        "//mediapipe/tasks/python/core:base_options_c",
+        "//mediapipe/tasks/python/core:mediapipe_c_bindings",
+        "//mediapipe/tasks/python/core:mediapipe_c_utils",
+        "//mediapipe/tasks/python/core:serial_dispatcher",
     ],
 )
 
@@ -44,16 +43,59 @@ py_library(
         "text_embedder.py",
     ],
     deps = [
-        "//mediapipe/python:packet_creator",
-        "//mediapipe/python:packet_getter",
-        "//mediapipe/tasks/cc/components/containers/proto:embeddings_py_pb2",
-        "//mediapipe/tasks/cc/components/processors/proto:embedder_options_py_pb2",
-        "//mediapipe/tasks/cc/text/text_embedder/proto:text_embedder_graph_options_py_pb2",
         "//mediapipe/tasks/python/components/containers:embedding_result",
+        "//mediapipe/tasks/python/components/containers:embedding_result_c",
         "//mediapipe/tasks/python/components/utils:cosine_similarity",
         "//mediapipe/tasks/python/core:base_options",
-        "//mediapipe/tasks/python/core:optional_dependencies",
-        "//mediapipe/tasks/python/core:task_info",
-        "//mediapipe/tasks/python/text/core:base_text_task_api",
+        "//mediapipe/tasks/python/core:base_options_c",
+        "//mediapipe/tasks/python/core:mediapipe_c_bindings",
+        "//mediapipe/tasks/python/core:mediapipe_c_utils",
+        "//mediapipe/tasks/python/core:serial_dispatcher",
+    ],
+)
+
+py_library(
+    name = "language_detector",
+    srcs = [
+        "language_detector.py",
+    ],
+    deps = [
+        "//mediapipe/tasks/python/components/containers:category",
+        "//mediapipe/tasks/python/components/containers:classification_result",
+        "//mediapipe/tasks/python/components/processors:classifier_options",
+        "//mediapipe/tasks/python/components/processors:classifier_options_c",
+        "//mediapipe/tasks/python/core:base_options",
+        "//mediapipe/tasks/python/core:base_options_c",
+        "//mediapipe/tasks/python/core:mediapipe_c_bindings",
+        "//mediapipe/tasks/python/core:mediapipe_c_utils",
+        "//mediapipe/tasks/python/core:serial_dispatcher",
+    ],
+)
+
+py_library(
+    name = "text_summarizer",
+    srcs = [
+        "text_summarizer.py",
+    ],
+    deps = [
+        "//mediapipe/tasks/python/core:base_options",
+        "//mediapipe/tasks/python/core:base_options_c",
+        "//mediapipe/tasks/python/core:mediapipe_c_bindings",
+        "//mediapipe/tasks/python/core:mediapipe_c_utils",
+        "//mediapipe/tasks/python/core:serial_dispatcher",
+    ],
+)
+
+py_library(
+    name = "text_proofreader",
+    srcs = [
+        "text_proofreader.py",
+    ],
+    deps = [
+        "//mediapipe/tasks/python/core:base_options",
+        "//mediapipe/tasks/python/core:base_options_c",
+        "//mediapipe/tasks/python/core:mediapipe_c_bindings",
+        "//mediapipe/tasks/python/core:mediapipe_c_utils",
+        "//mediapipe/tasks/python/core:serial_dispatcher",
     ],
 )

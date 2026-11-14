@@ -28,13 +28,16 @@
 #ifndef MEDIAPIPE_FRAMEWORK_TOOL_SINK_H_
 #define MEDIAPIPE_FRAMEWORK_TOOL_SINK_H_
 
+#include <functional>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/base/macros.h"
+#include "absl/base/attributes.h"          // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
 #include "mediapipe/framework/calculator_base.h"
-#include "mediapipe/framework/packet_type.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 
@@ -59,6 +62,9 @@ namespace tool {
 // it is used for initialization).  Any number of these functions can
 // be called on graph.
 //
+// NOTE: `dumped_data` (vector sink you pass) must outlive graph initialized
+// with the `config` you add the sink to.
+//
 // Example usage:
 //   CalculatorGraphConfig config = tool::ParseGraphFromFileOrDie("config.txt");
 //   std::vector<Packet> packet_dump;
@@ -66,9 +72,9 @@ namespace tool {
 //   // Call tool::AddVectorSink() more times if you wish. Note that each stream
 //   // needs to get its own packet vector.
 //   CalculatorGraph graph;
-//   CHECK_OK(graph.Initialize(config));
+//   ABSL_CHECK_OK(graph.Initialize(config));
 //   // Set other input side packets.
-//   CHECK_OK(graph.Run());
+//   ABSL_CHECK_OK(graph.Run());
 //   for (const Packet& packet : packet_dump) {
 //     // Do something.
 //   }
@@ -78,6 +84,9 @@ void AddVectorSink(const std::string& stream_name,  //
 
 // Same as above, but only extract the Timestamp::PostStream() packet
 // of the stream.
+//
+// NOTE: `post_stream_packet` (post stream packet sink you pass) must outlive
+// graph initialized with the `config` you add the sink to.
 void AddPostStreamPacketSink(const std::string& stream_name,
                              CalculatorGraphConfig* config,
                              Packet* post_stream_packet);
@@ -86,6 +95,9 @@ void AddPostStreamPacketSink(const std::string& stream_name,
 // Adds a conversion calculator to convert a side packet to a stream with a
 // single packet at timestamp PostStream and then calls AddPostStreamPacketSink
 // to dump the packet.
+//
+// NOTE: `dumped_packet` (side packet sink you pass) must outlive graph
+// initialized with the `config` you add the sink to.
 ABSL_DEPRECATED("Use CalculatorGraph::GetOutputSidePacket(const std::string&)")
 void AddSidePacketSink(const std::string& side_packet_name,
                        CalculatorGraphConfig* config, Packet* dumped_packet);
@@ -120,6 +132,17 @@ void AddMultiStreamCallback(
     std::function<void(const std::vector<Packet>&)> callback,
     CalculatorGraphConfig* config, std::map<std::string, Packet>* side_packets,
     bool observe_timestamp_bounds = false);
+
+using PacketMap = absl::flat_hash_map<std::string, Packet>;
+
+// Same as above, but returns a map of stream name to packet. When the callback
+// is called, all stream names are guaranteed to be represent in the map, though
+// some of them can be empty packets.
+void AddMultiStreamCallback(const std::vector<std::string>& streams,
+                            std::function<void(PacketMap)> callback,
+                            CalculatorGraphConfig* config,
+                            std::map<std::string, Packet>* side_packets,
+                            bool observe_timestamp_bounds = false);
 
 // Add a CallbackWithHeaderCalculator to intercept packets sent on
 // stream stream_name, and the header packet on stream stream_header.
@@ -158,7 +181,7 @@ void AddCallbackWithHeaderCalculator(const std::string& stream_name,
 //   tool::AddCallbackCalculator("the_output_stream", &config,
 //                               &input_side_packet_name, true);
 //   CalculatorGraph graph(config);
-//   CHECK_OK(graph.Run(
+//   ABSL_CHECK_OK(graph.Run(
 //       {{input_side_packet_name,
 //         MakePacket<std::function<void(const Packet&)>>(
 //             std::bind(&MyClass::MyFunction, this, std::placeholders::_1))}}
@@ -203,6 +226,16 @@ class CallbackWithHeaderCalculator : public CalculatorBase {
   // the current implementation, or in the Process() call when the header stream
   // has the packet.
   Packet header_packet_;
+};
+
+// Produces an output packet with the PostStream timestamp containing the
+// input side packet.
+class MediaPipeInternalSidePacketToPacketStreamCalculator
+    : public CalculatorBase {
+ public:
+  static absl::Status GetContract(CalculatorContract* cc);
+  absl::Status Open(CalculatorContext* cc) final;
+  absl::Status Process(CalculatorContext* cc) final;
 };
 
 }  // namespace tool

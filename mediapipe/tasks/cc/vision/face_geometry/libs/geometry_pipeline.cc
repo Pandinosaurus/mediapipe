@@ -14,21 +14,21 @@
 
 #include "mediapipe/tasks/cc/vision/face_geometry/libs/geometry_pipeline.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "Eigen/Core"
-#include "absl/memory/memory.h"
+#include "Eigen/Core"                   // from @eigen
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
 #include "mediapipe/framework/formats/landmark.pb.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/formats/matrix_data.pb.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
-#include "mediapipe/framework/port/status_macros.h"
-#include "mediapipe/framework/port/statusor.h"
 #include "mediapipe/tasks/cc/vision/face_geometry/libs/mesh_3d_utils.h"
 #include "mediapipe/tasks/cc/vision/face_geometry/libs/procrustes_solver.h"
 #include "mediapipe/tasks/cc/vision/face_geometry/libs/validation_utils.h"
@@ -47,7 +47,7 @@ struct PerspectiveCameraFrustum {
     static constexpr float kDegreesToRadians = 3.14159265358979323846f / 180.f;
 
     const float height_at_near =
-        2.f * perspective_camera.near() *
+        2.f * perspective_camera.near_plane() *
         std::tan(0.5f * kDegreesToRadians *
                  perspective_camera.vertical_fov_degrees());
 
@@ -57,16 +57,16 @@ struct PerspectiveCameraFrustum {
     right = 0.5f * width_at_near;
     bottom = -0.5f * height_at_near;
     top = 0.5f * height_at_near;
-    near = perspective_camera.near();
-    far = perspective_camera.far();
+    near_plane = perspective_camera.near_plane();
+    far_plane = perspective_camera.far_plane();
   }
 
   float left;
   float right;
   float bottom;
   float top;
-  float near;
-  float far;
+  float near_plane;
+  float far_plane;
 };
 
 class ScreenToMetricSpaceConverter {
@@ -143,9 +143,9 @@ class ScreenToMetricSpaceConverter {
     Eigen::Matrix3Xf intermediate_landmarks(screen_landmarks);
     ChangeHandedness(intermediate_landmarks);
 
-    ASSIGN_OR_RETURN(const float first_iteration_scale,
-                     EstimateScale(intermediate_landmarks),
-                     _ << "Failed to estimate first iteration scale!");
+    ABSL_ASSIGN_OR_RETURN(const float first_iteration_scale,
+                          EstimateScale(intermediate_landmarks),
+                          _ << "Failed to estimate first iteration scale!");
 
     // 2nd iteration: unproject XY using the scale from the 1st iteration.
     intermediate_landmarks = screen_landmarks;
@@ -158,7 +158,7 @@ class ScreenToMetricSpaceConverter {
     // landmarks.
     if (input_source_ == proto::InputSource::FACE_DETECTION_PIPELINE) {
       Eigen::Matrix4f intermediate_pose_transform_mat;
-      MP_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
+      ABSL_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
           canonical_metric_landmarks_, intermediate_landmarks,
           landmark_weights_, intermediate_pose_transform_mat))
           << "Failed to estimate pose transform matrix!";
@@ -168,9 +168,9 @@ class ScreenToMetricSpaceConverter {
            canonical_metric_landmarks_.colwise().homogeneous())
               .row(2);
     }
-    ASSIGN_OR_RETURN(const float second_iteration_scale,
-                     EstimateScale(intermediate_landmarks),
-                     _ << "Failed to estimate second iteration scale!");
+    ABSL_ASSIGN_OR_RETURN(const float second_iteration_scale,
+                          EstimateScale(intermediate_landmarks),
+                          _ << "Failed to estimate second iteration scale!");
 
     // Use the total scale to unproject the screen landmarks.
     const float total_scale = first_iteration_scale * second_iteration_scale;
@@ -181,7 +181,7 @@ class ScreenToMetricSpaceConverter {
     // At this point, screen landmarks are converted into metric landmarks.
     Eigen::Matrix3Xf& metric_landmarks = screen_landmarks;
 
-    MP_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
+    ABSL_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
         canonical_metric_landmarks_, metric_landmarks, landmark_weights_,
         pose_transform_mat))
         << "Failed to estimate pose transform matrix!";
@@ -194,7 +194,7 @@ class ScreenToMetricSpaceConverter {
            canonical_metric_landmarks_.colwise().homogeneous())
               .row(2);
 
-      MP_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
+      ABSL_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
           canonical_metric_landmarks_, metric_landmarks, landmark_weights_,
           pose_transform_mat))
           << "Failed to estimate pose transform matrix!";
@@ -231,7 +231,7 @@ class ScreenToMetricSpaceConverter {
 
   absl::StatusOr<float> EstimateScale(Eigen::Matrix3Xf& landmarks) const {
     Eigen::Matrix4f transform_mat;
-    MP_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
+    ABSL_RETURN_IF_ERROR(procrustes_solver_->SolveWeightedOrthogonalProblem(
         canonical_metric_landmarks_, landmarks, landmark_weights_,
         transform_mat))
         << "Failed to estimate canonical-to-runtime landmark set transform!";
@@ -243,15 +243,15 @@ class ScreenToMetricSpaceConverter {
                               float depth_offset, float scale,
                               Eigen::Matrix3Xf& landmarks) {
     landmarks.row(2) =
-        (landmarks.array().row(2) - depth_offset + pcf.near) / scale;
+        (landmarks.array().row(2) - depth_offset + pcf.near_plane) / scale;
   }
 
   static void UnprojectXY(const PerspectiveCameraFrustum& pcf,
                           Eigen::Matrix3Xf& landmarks) {
     landmarks.row(0) =
-        landmarks.row(0).cwiseProduct(landmarks.row(2)) / pcf.near;
+        landmarks.row(0).cwiseProduct(landmarks.row(2)) / pcf.near_plane;
     landmarks.row(1) =
-        landmarks.row(1).cwiseProduct(landmarks.row(2)) / pcf.near;
+        landmarks.row(1).cwiseProduct(landmarks.row(2)) / pcf.near_plane;
   }
 
   static void ChangeHandedness(Eigen::Matrix3Xf& landmarks) {
@@ -312,7 +312,7 @@ class GeometryPipelineImpl : public GeometryPipeline {
       const std::vector<mediapipe::NormalizedLandmarkList>&
           multi_face_landmarks,
       int frame_width, int frame_height) const override {
-    MP_RETURN_IF_ERROR(ValidateFrameDimensions(frame_width, frame_height))
+    ABSL_RETURN_IF_ERROR(ValidateFrameDimensions(frame_width, frame_height))
         << "Invalid frame dimensions!";
 
     // Create a perspective camera frustum to be shared for geometry estimation
@@ -337,9 +337,9 @@ class GeometryPipelineImpl : public GeometryPipeline {
       // transformation matrix.
       mediapipe::LandmarkList metric_face_landmarks;
       Eigen::Matrix4f pose_transform_mat;
-      MP_RETURN_IF_ERROR(space_converter_->Convert(screen_face_landmarks, pcf,
-                                                   metric_face_landmarks,
-                                                   pose_transform_mat))
+      ABSL_RETURN_IF_ERROR(space_converter_->Convert(screen_face_landmarks, pcf,
+                                                     metric_face_landmarks,
+                                                     pose_transform_mat))
           << "Failed to convert landmarks from the screen to the metric space!";
 
       // Pack geometry data for this face.
@@ -405,9 +405,9 @@ class GeometryPipelineImpl : public GeometryPipeline {
 absl::StatusOr<std::unique_ptr<GeometryPipeline>> CreateGeometryPipeline(
     const proto::Environment& environment,
     const proto::GeometryPipelineMetadata& metadata) {
-  MP_RETURN_IF_ERROR(ValidateEnvironment(environment))
+  ABSL_RETURN_IF_ERROR(ValidateEnvironment(environment))
       << "Invalid environment!";
-  MP_RETURN_IF_ERROR(ValidateGeometryPipelineMetadata(metadata))
+  ABSL_RETURN_IF_ERROR(ValidateGeometryPipelineMetadata(metadata))
       << "Invalid geometry pipeline metadata!";
 
   const auto& canonical_mesh = metadata.canonical_mesh();
@@ -452,11 +452,11 @@ absl::StatusOr<std::unique_ptr<GeometryPipeline>> CreateGeometryPipeline(
   }
 
   std::unique_ptr<GeometryPipeline> result =
-      absl::make_unique<GeometryPipelineImpl>(
+      std::make_unique<GeometryPipelineImpl>(
           environment.perspective_camera(), canonical_mesh,
           canonical_mesh_vertex_size, canonical_mesh_num_vertices,
           canonical_mesh_vertex_position_offset,
-          absl::make_unique<ScreenToMetricSpaceConverter>(
+          std::make_unique<ScreenToMetricSpaceConverter>(
               environment.origin_point_location(),
               metadata.input_source() == proto::InputSource::DEFAULT
                   ? proto::InputSource::FACE_LANDMARK_PIPELINE

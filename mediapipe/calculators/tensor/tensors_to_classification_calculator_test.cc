@@ -16,7 +16,7 @@
 #include <limits>
 #include <vector>
 
-#include "absl/memory/memory.h"
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensor/tensors_to_classification_calculator.pb.h"
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -36,7 +36,7 @@ class TensorsToClassificationCalculatorTest : public ::testing::Test {
  protected:
   void BuildGraph(mediapipe::CalculatorRunner* runner,
                   const std::vector<float>& scores) {
-    auto tensors = absl::make_unique<std::vector<Tensor>>();
+    auto tensors = std::make_unique<std::vector<Tensor>>();
     tensors->emplace_back(
         Tensor::ElementType::kFloat32,
         Tensor::Shape{1, 1, static_cast<int>(scores.size()), 1});

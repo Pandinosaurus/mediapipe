@@ -24,19 +24,19 @@
 
 #include <string>
 
+#include "absl/log/absl_log.h"   // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_frozen_graph_generator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/deps/clock.h"
 #include "mediapipe/framework/deps/monotonic_clock.h"
 #include "mediapipe/framework/port/file_helpers.h"
-#include "mediapipe/framework/port/logging.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/tool/status_util.h"
-#include "tensorflow/core/framework/graph.pb.h"
-#include "tensorflow/core/framework/node_def.pb.h"
-#include "tensorflow/core/public/session_options.h"
+#include "tensorflow/core/framework/graph.pb.h"      // from @org_tensorflow
+#include "tensorflow/core/framework/node_def.pb.h"   // from @org_tensorflow
+#include "tensorflow/core/public/session_options.h"  // from @org_tensorflow
 
 namespace mediapipe {
 
@@ -106,7 +106,7 @@ class TensorFlowSessionFromFrozenGraphGenerator : public PacketGenerator {
         packet_generator_options.GetExtension(
             TensorFlowSessionFromFrozenGraphGeneratorOptions::ext);
     // Output bundle packet.
-    auto session = ::absl::make_unique<TensorFlowSession>();
+    auto session = std::make_unique<TensorFlowSession>();
 
     tf::SessionOptions session_options;
     session_options.config.CopyFrom(options.config());
@@ -139,14 +139,14 @@ class TensorFlowSessionFromFrozenGraphGenerator : public PacketGenerator {
       SetPreferredDevice(&graph_def, options.preferred_device_id());
     }
 
-    const tf::Status tf_status = session->session->Create(graph_def);
+    const absl::Status tf_status = session->session->Create(graph_def);
     RET_CHECK(tf_status.ok()) << "Create failed: " << tf_status.ToString();
 
     for (const auto& key_value : options.tag_to_tensor_names()) {
       session->tag_to_tensor_map[key_value.first] = key_value.second;
     }
     if (!initialization_op_names.empty()) {
-      const tf::Status tf_status =
+      const absl::Status tf_status =
           session->session->Run({}, {}, initialization_op_names, {});
       // RET_CHECK on the tf::Status object itself in order to print an
       // informative error message.
@@ -155,8 +155,8 @@ class TensorFlowSessionFromFrozenGraphGenerator : public PacketGenerator {
 
     output_side_packets->Tag(kSessionTag) = Adopt(session.release());
     const uint64_t end_time = absl::ToUnixMicros(clock->TimeNow());
-    LOG(INFO) << "Loaded frozen model in: " << end_time - start_time
-              << " microseconds.";
+    ABSL_LOG(INFO) << "Loaded frozen model in: " << end_time - start_time
+                   << " microseconds.";
     return absl::OkStatus();
   }
 };

@@ -21,8 +21,10 @@
 #include <sstream>
 #include <string>
 
-#include "absl/status/status.h"
-#include "absl/strings/str_cat.h"
+#include "absl/log/absl_check.h"   // from @com_google_absl
+#include "absl/log/absl_log.h"     // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_profile.pb.h"
 #include "mediapipe/framework/port/advanced_proto_inc.h"
@@ -43,15 +45,15 @@ using ::testing::IsSupersetOf;
 void LoadGraphProfile(const std::string& path, GraphProfile* proto) {
   int fd = open(path.c_str(), O_RDONLY);
   if (fd == -1) {
-    LOG(ERROR) << "could not open test graph: " << path
-               << ", error: " << strerror(errno);
+    ABSL_LOG(ERROR) << "could not open test graph: " << path
+                    << ", error: " << strerror(errno);
     return;
   }
   proto_ns::io::FileInputStream input(fd);
   bool success = proto->ParseFromZeroCopyStream(&input);
   close(fd);
   if (!success) {
-    LOG(ERROR) << "could not parse test graph: " << path;
+    ABSL_LOG(ERROR) << "could not parse test graph: " << path;
   }
 }
 
@@ -60,8 +62,7 @@ std::unique_ptr<Reporter> loadReporter(const std::vector<std::string>& paths) {
   for (const auto path : paths) {
     GraphProfile profile;
     LoadGraphProfile(
-        absl::StrCat(GetTestDataDir("mediapipe/framework/profiler"), path),
-        &profile);
+        absl::StrCat("mediapipe/framework/profiler/testdata/", path), &profile);
     reporter->Accumulate(profile);
   }
   return reporter;
@@ -86,7 +87,7 @@ TEST(Reporter, ReportAllColumns) {
 // wildcards.
 TEST(Reporter, ReportOneColumn) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
-  MEDIAPIPE_CHECK_OK(reporter->set_columns({"time_mean"}));
+  ABSL_CHECK_OK(reporter->set_columns({"time_mean"}));
   auto report = reporter->Report();
   EXPECT_THAT(report->headers(), ElementsAre("calculator", "time_mean"));
 }
@@ -95,7 +96,7 @@ TEST(Reporter, ReportOneColumn) {
 // Notice the columns are alphabetical except for the first column, 'calendar'.
 TEST(Reporter, ReportColumnsWithWildcards) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
-  MEDIAPIPE_CHECK_OK(reporter->set_columns({"*_m??n", "*l?t*cy*"}));
+  ABSL_CHECK_OK(reporter->set_columns({"*_m??n", "*l?t*cy*"}));
   EXPECT_THAT(reporter->Report()->headers(),
               ElementsAre("calculator", "input_latency_mean", "time_mean",
                           "input_latency_stddev", "input_latency_total"));
@@ -103,10 +104,10 @@ TEST(Reporter, ReportColumnsWithWildcards) {
 
 TEST(Reporter, AggregatesAreRecorded) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
-  MEDIAPIPE_CHECK_OK(reporter->set_columns({"time_*", "*latency*"}));
+  ABSL_CHECK_OK(reporter->set_columns({"time_*", "*latency*"}));
   const auto& report = reporter->Report();
   const auto& lines = report->lines();
-  EXPECT_EQ(lines.size(), 3);
+  ASSERT_EQ(lines.size(), 3);
   EXPECT_THAT(lines[2],
               ElementsAre("OpenCvWriteTextCalculator", "13823.77", "100.00",
                           "5541.47", "1976799", "245.13", "464.27", "35054"));
@@ -117,10 +118,10 @@ TEST(Reporter, JoinsFiles) {
       "profile_opencv_0.binarypb",
       "profile_opencv_1.binarypb",
   });
-  MEDIAPIPE_CHECK_OK(reporter->set_columns({"time_*", "*latency*"}));
+  ABSL_CHECK_OK(reporter->set_columns({"time_*", "*latency*"}));
   const auto& report = reporter->Report();
   const auto& lines = report->lines();
-  EXPECT_EQ(lines.size(), 3);
+  ASSERT_EQ(lines.size(), 3);
   EXPECT_THAT(lines[2],
               ElementsAre("OpenCvWriteTextCalculator", "14707.77", "100.00",
                           "5630.52", "3000385", "237.50", "389.35", "48449"));
@@ -146,14 +147,14 @@ TEST(Reporter, PrintAllColumns) {
 TEST(Reporter, CanReportBadColumns) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
   auto result = reporter->set_columns({"il[leg]al"});
-  EXPECT_EQ(result.code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(result.message(), "Column 'il[leg]al' is invalid.\n");
 }
 
 TEST(Reporter, CanReportNonMatchingColumns) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
   auto result = reporter->set_columns({"time_*", "il[leg]al"});
-  EXPECT_EQ(result.code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(result.message(), "Column 'il[leg]al' is invalid.\n");
   // Should not affect active columns, which is currently still "*".
   auto report = reporter->Report();
@@ -164,7 +165,7 @@ TEST(Reporter, CanReportNonMatchingColumns) {
 TEST(Reporter, BadPatternsIgnored) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
   auto result = reporter->set_columns({"time_mean", "il[leg]al", "^bad"});
-  EXPECT_EQ(result.code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
   // Can report multiple errors at once, separated by newlines.
   EXPECT_EQ(result.message(),
             "Column 'il[leg]al' is invalid.\n"
@@ -177,7 +178,7 @@ TEST(Reporter, BadPatternsIgnored) {
 TEST(Reporter, NonMatchingColumnsIgnored) {
   auto reporter = loadReporter({"profile_opencv_0.binarypb"});
   auto result = reporter->set_columns({"koopa*"});
-  EXPECT_EQ(result.code(), StatusCode::kInvalidArgument);
+  EXPECT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(result.message(), "Column 'koopa*' did not match any columns.\n");
 }
 

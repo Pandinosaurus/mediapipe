@@ -20,7 +20,10 @@ import com.google.mediapipe.proto.CalculatorProto.CalculatorGraphConfig;
 import com.google.mediapipe.proto.CalculatorProto.CalculatorGraphConfig.Node;
 import com.google.mediapipe.proto.CalculatorProto.InputStreamInfo;
 import com.google.mediapipe.calculator.proto.FlowLimiterCalculatorProto.FlowLimiterCalculatorOptions;
+import com.google.mediapipe.framework.MediaPipeException;
+import com.google.protobuf.Any;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,7 +35,14 @@ public abstract class TaskInfo<T extends TaskOptions> {
   /** Builder for {@link TaskInfo}. */
   @AutoValue.Builder
   public abstract static class Builder<T extends TaskOptions> {
-    /** Sets the MediaPipe task name. */
+    /**
+     * Sets the MediaPipe task name, e.g. {@code "FaceDetector"}.
+     *
+     * <p>The name identifies the task in usage logging ({@code SolutionName.TASKS_<NAME>}). Pass a
+     * string literal, never a class name obtained through reflection: apps commonly ship with
+     * R8/ProGuard, which renames classes, so {@code getSimpleName()} yields an arbitrary name on the
+     * device and the task is logged as {@code SOLUTION_UNKNOWN}.
+     */
     public abstract Builder<T> setTaskName(String value);
 
     /** Sets the MediaPipe task running mode name. */
@@ -47,8 +57,11 @@ public abstract class TaskInfo<T extends TaskOptions> {
     /** Sets a list of task graph output stream info {@link String}s in the form TAG:name. */
     public abstract Builder<T> setOutputStreams(List<String> value);
 
+    /** Sets a list of task graph input side packet info {@link String}s in the form TAG:name. */
+    public abstract Builder<T> setInputSidePackets(List<String> value);
+
     /** Sets to true if the task requires a flow limiter. */
-    public abstract Builder<T> setEnableFlowLimiting(Boolean value);
+    public abstract Builder<T> setEnableFlowLimiting(boolean value);
 
     /**
      * Sets a task-specific options instance.
@@ -89,10 +102,15 @@ public abstract class TaskInfo<T extends TaskOptions> {
 
   abstract List<String> outputStreams();
 
-  abstract Boolean enableFlowLimiting();
+  abstract List<String> inputSidePackets();
+
+  abstract boolean enableFlowLimiting();
 
   public static <T extends TaskOptions> Builder<T> builder() {
-    return new AutoValue_TaskInfo.Builder<T>().setTaskName("").setTaskRunningModeName("");
+    return new AutoValue_TaskInfo.Builder<T>()
+        .setTaskName("")
+        .setTaskRunningModeName("")
+        .setInputSidePackets(Collections.emptyList());
   }
 
   /* Returns a list of the output stream names without the stream tags. */
@@ -110,13 +128,28 @@ public abstract class TaskInfo<T extends TaskOptions> {
    */
   CalculatorGraphConfig generateGraphConfig() {
     CalculatorGraphConfig.Builder graphBuilder = CalculatorGraphConfig.newBuilder();
-    Node.Builder taskSubgraphBuilder =
-        Node.newBuilder()
-            .setCalculator(taskGraphName())
-            .setOptions(taskOptions().convertToCalculatorOptionsProto());
+    CalculatorOptions options = taskOptions().convertToCalculatorOptionsProto();
+    Any anyOptions = taskOptions().convertToAnyProto();
+    if (!(options == null ^ anyOptions == null)) {
+      throw new MediaPipeException(
+          MediaPipeException.StatusCode.INVALID_ARGUMENT.ordinal(),
+          "Only one of convertTo*Proto() method should be implemented for "
+              + taskOptions().getClass());
+    }
+    Node.Builder taskSubgraphBuilder = Node.newBuilder().setCalculator(taskGraphName());
+    if (options != null) {
+      taskSubgraphBuilder.setOptions(options);
+    }
+    if (anyOptions != null) {
+      taskSubgraphBuilder.addNodeOptions(anyOptions);
+    }
     for (String outputStream : outputStreams()) {
       taskSubgraphBuilder.addOutputStream(outputStream);
       graphBuilder.addOutputStream(outputStream);
+    }
+    for (String sidePacket : inputSidePackets()) {
+      taskSubgraphBuilder.addInputSidePacket(sidePacket);
+      graphBuilder.addInputSidePacket(sidePacket);
     }
     if (!enableFlowLimiting()) {
       for (String inputStream : inputStreams()) {

@@ -16,14 +16,15 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 #include "mediapipe/framework/formats/location.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/opencv_imgcodecs_inc.h"
 #include "mediapipe/framework/port/status_matchers.h"
-#include "tensorflow/core/example/example.pb.h"
-#include "tensorflow/core/example/feature.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
+#include "tensorflow/core/example/feature.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 namespace mediasequence {
@@ -709,6 +710,30 @@ TEST(MediaSequenceTest, RoundTripTextContextContent) {
   ASSERT_EQ("test", GetTextContextContent(sequence));
   ClearTextContextContent(&sequence);
   ASSERT_FALSE(HasTextContextContent(sequence));
+}
+
+TEST(MediaSequenceTest, RoundTripTextContextTokenId) {
+  tensorflow::SequenceExample sequence;
+  ASSERT_FALSE(HasTextContextTokenId(sequence));
+  std::vector<int64_t> vi = {47, 35};
+  SetTextContextTokenId(vi, &sequence);
+  ASSERT_TRUE(HasTextContextTokenId(sequence));
+  ASSERT_EQ(GetTextContextTokenId(sequence).size(), vi.size());
+  ASSERT_EQ(GetTextContextTokenId(sequence)[1], vi[1]);
+  ClearTextContextTokenId(&sequence);
+  ASSERT_FALSE(HasTextContextTokenId(sequence));
+}
+
+TEST(MediaSequenceTest, RoundTripTextContextEmbedding) {
+  tensorflow::SequenceExample sequence;
+  ASSERT_FALSE(HasTextContextEmbedding(sequence));
+  std::vector<float> vi = {47., 35.};
+  SetTextContextEmbedding(vi, &sequence);
+  ASSERT_TRUE(HasTextContextEmbedding(sequence));
+  ASSERT_EQ(GetTextContextEmbedding(sequence).size(), vi.size());
+  ASSERT_EQ(GetTextContextEmbedding(sequence)[1], vi[1]);
+  ClearTextContextEmbedding(&sequence);
+  ASSERT_FALSE(HasTextContextEmbedding(sequence));
 }
 
 TEST(MediaSequenceTest, RoundTripTextContent) {

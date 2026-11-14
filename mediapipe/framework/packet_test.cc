@@ -14,13 +14,19 @@
 
 #include "mediapipe/framework/packet.h"
 
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/strings/str_cat.h"
+#include "absl/memory/memory.h"    // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "google/protobuf/message_lite.h"
+#include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/packet_test.pb.h"
 #include "mediapipe/framework/port/core_proto_inc.h"
 #include "mediapipe/framework/port/gmock.h"
@@ -176,9 +182,11 @@ TEST(PacketTest, ReturnGenericProtobufMessage) {
       new ::mediapipe::PacketTestProto);
   proto_ptr->add_x(123);
   Packet packet = Adopt(static_cast<proto_ns::Message*>(proto_ptr.release()));
-  EXPECT_EQ(123, dynamic_cast<const ::mediapipe::PacketTestProto&>(
-                     packet.Get<proto_ns::Message>())
-                     .x(0));
+  EXPECT_EQ(
+      123,
+      google::protobuf::DynamicCastMessage<const ::mediapipe::PacketTestProto>(
+          packet.Get<proto_ns::Message>())
+          .x(0));
 }
 
 TEST(PacketTest, TryWrongProtobufMessageSubType) {
@@ -205,7 +213,7 @@ TEST(PacketTest, GetProtoBase) {
 }
 
 TEST(PacketTest, ValidateAsProtoMessageLite) {
-  auto proto_ptr = absl::make_unique<::mediapipe::PacketTestProto>();
+  auto proto_ptr = std::make_unique<::mediapipe::PacketTestProto>();
   proto_ptr->add_x(123);
   Packet packet = Adopt(proto_ptr.release());
   MP_EXPECT_OK(packet.ValidateAsProtoMessageLite());
@@ -368,6 +376,24 @@ TEST(PacketTest, TestPacketConsumeOrCopy) {
   EXPECT_TRUE(packet3.IsEmpty());
 }
 
+TEST(PacketTest, TestForeignCleanupIsInvokedOnceWhenAllPacketCopiesDestroyed) {
+  int num_cleanup = 0;
+  const float unused_data = 0;
+  Packet packet =
+      PointToForeign(&unused_data, [&num_cleanup]() { ++num_cleanup; });
+
+  std::vector<Packet> packet_copies(10, packet);
+  packet_copies.clear();
+  EXPECT_EQ(num_cleanup, 0);
+
+  packet_copies = std::vector<Packet>(10, packet);
+  packet = Packet();
+  EXPECT_EQ(num_cleanup, 0);
+
+  packet_copies.clear();
+  EXPECT_EQ(num_cleanup, 1);
+}
+
 TEST(PacketTest, TestConsumeForeignHolder) {
   std::unique_ptr<int> data(new int(33));
   Packet packet = PointToForeign(data.get());
@@ -496,12 +522,30 @@ TEST(PacketTest, PacketFromSerializedProto) {
   original.add_value("foo");
   std::string serialized = original.SerializeAsString();
 
-  StatusOr<Packet> maybe_packet = packet_internal::PacketFromDynamicProto(
+  absl::StatusOr<Packet> maybe_packet = packet_internal::PacketFromDynamicProto(
       "mediapipe.SimpleProto", serialized);
   MP_ASSERT_OK(maybe_packet);
   Packet packet = maybe_packet.value();
   MP_EXPECT_OK(packet.ValidateAsType<::mediapipe::SimpleProto>());
   EXPECT_FALSE(packet.ValidateAsType<::mediapipe::PacketTestProto>().ok());
+}
+
+TEST(PacketTest, Share) {
+  bool exist;
+  Packet packet = MakePacket<MyClass>(&exist);
+  ASSERT_EQ(exist, true);
+  ASSERT_THAT(packet.Share<std::string>(),
+              StatusIs(absl::StatusCode::kInvalidArgument));  // Wrong type.
+  MP_ASSERT_OK_AND_ASSIGN(std::shared_ptr<const MyClass> ptr,
+                          packet.Share<MyClass>());
+  packet = {};
+  ASSERT_THAT(packet.Share<MyClass>(),
+              StatusIs(absl::StatusCode::kInternal));  // Empty packet.
+  // The shared_ptr should still be retaining the object.
+  EXPECT_EQ(exist, true);
+  ptr = nullptr;
+  // Now it should be released.
+  EXPECT_EQ(exist, false);
 }
 
 TEST(PacketTest, SharedPtrWithPacketOwnership) {

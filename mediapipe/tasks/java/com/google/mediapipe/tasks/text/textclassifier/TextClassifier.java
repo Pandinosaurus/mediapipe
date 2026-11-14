@@ -95,7 +95,7 @@ public final class TextClassifier implements AutoCloseable {
   private final TaskRunner runner;
 
   static {
-    System.loadLibrary("mediapipe_tasks_text_jni");
+    System.loadLibrary("mediapipe_tasks_jni");
     ProtoUtil.registerTypeName(
         ClassificationsProto.ClassificationResult.class,
         "mediapipe.tasks.components.containers.proto.ClassificationResult");
@@ -169,7 +169,7 @@ public final class TextClassifier implements AutoCloseable {
         TaskRunner.create(
             context,
             TaskInfo.<TextClassifierOptions>builder()
-                .setTaskName(TextClassifier.class.getSimpleName())
+                .setTaskName("TextClassifier")
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(INPUT_STREAMS)
                 .setOutputStreams(OUTPUT_STREAMS)

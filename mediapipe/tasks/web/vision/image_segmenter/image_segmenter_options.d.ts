@@ -17,7 +17,7 @@
 import {VisionTaskOptions} from '../../../../tasks/web/vision/core/vision_task_options';
 
 /** Options to configure the MediaPipe Image Segmenter Task */
-export interface ImageSegmenterOptions extends VisionTaskOptions {
+export declare interface ImageSegmenterOptions extends VisionTaskOptions {
   /**
    * The locale to use for display names specified through the TFLite Model
    * Metadata, if any. Defaults to English.

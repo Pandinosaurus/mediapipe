@@ -13,18 +13,19 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
+#include "absl/status/status.h"  // from @com_google_absl
+#include "absl/time/clock.h"     // from @com_google_absl
+#include "absl/time/time.h"      // from @com_google_absl
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_runner.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/timestamp.h"

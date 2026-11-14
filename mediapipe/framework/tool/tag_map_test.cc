@@ -14,7 +14,9 @@
 
 #include "mediapipe/framework/tool/tag_map.h"
 
-#include "absl/strings/str_join.h"
+#include "absl/log/absl_log.h"      // from @com_google_absl
+#include "absl/status/status.h"     // from @com_google_absl
+#include "absl/strings/str_join.h"  // from @com_google_absl
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/map_util.h"
@@ -329,8 +331,8 @@ void TestDebugString(
   tool::TagMap& tag_map = *statusor_tag_map.value();
   std::string debug_string = tag_map.DebugString();
   std::string short_string = tag_map.ShortDebugString();
-  LOG(INFO) << "ShortDebugString:\n" << short_string << "\n";
-  LOG(INFO) << "DebugString:\n" << debug_string << "\n\n";
+  ABSL_LOG(INFO) << "ShortDebugString:\n" << short_string << "\n";
+  ABSL_LOG(INFO) << "DebugString:\n" << debug_string << "\n\n";
 
   std::vector<std::string> actual_entries;
   for (const auto& field : tag_map.CanonicalEntries()) {

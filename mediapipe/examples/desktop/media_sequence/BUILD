@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+# Placeholder: load py_binary
+# Placeholder: load py_library
 
-package(default_visibility = ["//mediapipe/examples:__subpackages__"])
+licenses(["notice"])
 
 cc_library(
     name = "run_graph_file_io_main",
@@ -22,11 +25,14 @@ cc_library(
     deps = [
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:file_helpers",
-        "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
+        "//mediapipe/framework/port:ret_check",
+        "//third_party/gloop/base:init_google",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
     ],
 )

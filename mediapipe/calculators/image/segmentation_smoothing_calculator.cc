@@ -15,14 +15,15 @@
 #include <algorithm>
 #include <memory>
 
+#include "absl/log/absl_log.h"          // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/calculators/image/segmentation_smoothing_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_options.pb.h"
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/image_format.pb.h"
 #include "mediapipe/framework/formats/image_frame.h"
-#include "mediapipe/framework/port/logging.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/vector.h"
 
 #if !MEDIAPIPE_DISABLE_GPU
@@ -110,14 +111,15 @@ REGISTER_CALCULATOR(SegmentationSmoothingCalculator);
 
 absl::Status SegmentationSmoothingCalculator::GetContract(
     CalculatorContract* cc) {
-  CHECK_GE(cc->Inputs().NumEntries(), 1);
+  RET_CHECK_GE(cc->Inputs().NumEntries(), 1);
 
   cc->Inputs().Tag(kCurrentMaskTag).Set<Image>();
   cc->Inputs().Tag(kPreviousMaskTag).Set<Image>();
   cc->Outputs().Tag(kOutputMaskTag).Set<Image>();
 
 #if !MEDIAPIPE_DISABLE_GPU
-  MP_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(cc));
+  ABSL_RETURN_IF_ERROR(mediapipe::GlCalculatorHelper::UpdateContract(
+      cc, /*request_gpu_as_optional=*/true));
 #endif  // !MEDIAPIPE_DISABLE_GPU
 
   return absl::OkStatus();
@@ -129,10 +131,6 @@ absl::Status SegmentationSmoothingCalculator::Open(CalculatorContext* cc) {
   auto options =
       cc->Options<mediapipe::SegmentationSmoothingCalculatorOptions>();
   combine_with_previous_ratio_ = options.combine_with_previous_ratio();
-
-#if !MEDIAPIPE_DISABLE_GPU
-  MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
-#endif  //  !MEDIAPIPE_DISABLE_GPU
 
   return absl::OkStatus();
 }
@@ -154,20 +152,24 @@ absl::Status SegmentationSmoothingCalculator::Process(CalculatorContext* cc) {
 
   if (use_gpu) {
 #if !MEDIAPIPE_DISABLE_GPU
-    MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this, cc]() -> absl::Status {
-      if (!gpu_initialized_) {
-        MP_RETURN_IF_ERROR(GlSetup(cc));
-        gpu_initialized_ = true;
-      }
-      MP_RETURN_IF_ERROR(RenderGpu(cc));
-      return absl::OkStatus();
-    }));
+    if (!gpu_initialized_) {
+      ABSL_RETURN_IF_ERROR(gpu_helper_.Open(cc));
+    }
+    ABSL_RETURN_IF_ERROR(
+        gpu_helper_.RunInGlContext([this, cc]() -> absl::Status {
+          if (!gpu_initialized_) {
+            ABSL_RETURN_IF_ERROR(GlSetup(cc));
+            gpu_initialized_ = true;
+          }
+          ABSL_RETURN_IF_ERROR(RenderGpu(cc));
+          return absl::OkStatus();
+        }));
 #else
     return absl::InternalError("GPU processing is disabled.");
 #endif  // !MEDIAPIPE_DISABLE_GPU
   } else {
 #if !MEDIAPIPE_DISABLE_OPENCV
-    MP_RETURN_IF_ERROR(RenderCpu(cc));
+    ABSL_RETURN_IF_ERROR(RenderCpu(cc));
 #else
     return absl::InternalError("OpenCV processing is disabled.");
 #endif  // !MEDIAPIPE_DISABLE_OPENCV
@@ -178,10 +180,12 @@ absl::Status SegmentationSmoothingCalculator::Process(CalculatorContext* cc) {
 
 absl::Status SegmentationSmoothingCalculator::Close(CalculatorContext* cc) {
 #if !MEDIAPIPE_DISABLE_GPU
-  gpu_helper_.RunInGlContext([this] {
-    if (program_) glDeleteProgram(program_);
-    program_ = 0;
-  });
+  if (gpu_initialized_) {
+    gpu_helper_.RunInGlContext([this] {
+      if (program_) glDeleteProgram(program_);
+      program_ = 0;
+    });
+  }
 #endif  // !MEDIAPIPE_DISABLE_GPU
 
   return absl::OkStatus();
@@ -273,7 +277,7 @@ absl::Status SegmentationSmoothingCalculator::RenderGpu(CalculatorContext* cc) {
 
   const auto& previous_frame = cc->Inputs().Tag(kPreviousMaskTag).Get<Image>();
   if (previous_frame.format() != current_frame.format()) {
-    LOG(ERROR) << "Warning: mixing input format types. ";
+    ABSL_LOG(ERROR) << "Warning: mixing input format types. ";
   }
   auto previous_texture = gpu_helper_.CreateSourceTexture(previous_frame);
 

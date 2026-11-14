@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 package(
     default_visibility = ["//visibility:private"],
     licenses = ["notice"],  # Apache 2.0
@@ -14,7 +16,6 @@ cc_test(
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:gtest",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/core:utils",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",

@@ -25,6 +25,7 @@ import com.google.mediapipe.framework.Packet;
 import com.google.mediapipe.framework.PacketGetter;
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
+import com.google.mediapipe.tasks.components.containers.Connection;
 import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.core.ErrorListener;
 import com.google.mediapipe.tasks.core.OutputHandler;
@@ -49,6 +50,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Performs face landmarks detection on images.
@@ -83,6 +85,10 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
   private static int faceGeometryOutStreamIndex = -1;
   private static final String TASK_GRAPH_NAME =
       "mediapipe.tasks.vision.face_landmarker.FaceLandmarkerGraph";
+
+  static {
+    System.loadLibrary("mediapipe_tasks_jni");
+  }
 
   /**
    * Creates a {@link FaceLandmarker} instance from a model asset bundle path and the default {@link
@@ -123,8 +129,8 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
    * {@link FaceLandmarkerOptions}.
    *
    * @param context an Android {@link Context}.
-   * @param modelBuffer a direct {@link ByteBuffer} or a {@link MappedByteBuffer} of the detection
-   *     model.
+   * @param modelAssetBuffer a direct {@link ByteBuffer} or a {@link MappedByteBuffer} of the
+   *     detection model.
    * @throws MediaPipeException if there is an error during {@link FaceLandmarker} creation.
    */
   public static FaceLandmarker createFromBuffer(
@@ -201,7 +207,7 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
           @Override
           public MPImage convertToTaskInput(List<Packet> packets) {
             return new BitmapImageBuilder(
-                    AndroidPacketGetter.getBitmapFromRgb(packets.get(IMAGE_OUT_STREAM_INDEX)))
+                    AndroidPacketGetter.getBitmap(packets.get(IMAGE_OUT_STREAM_INDEX)))
                 .build();
           }
         });
@@ -211,7 +217,7 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
         TaskRunner.create(
             context,
             TaskInfo.<FaceLandmarkerOptions>builder()
-                .setTaskName(FaceLandmarker.class.getSimpleName())
+                .setTaskName("FaceLandmarker")
                 .setTaskRunningModeName(landmarkerOptions.runningMode().name())
                 .setTaskGraphName(TASK_GRAPH_NAME)
                 .setInputStreams(INPUT_STREAMS)
@@ -222,6 +228,46 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
             handler);
     return new FaceLandmarker(runner, landmarkerOptions.runningMode());
   }
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_LIPS =
+      FaceLandmarksConnections.FACE_LANDMARKS_LIPS;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_LEFT_EYE =
+      FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYE;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_LEFT_EYE_BROW =
+      FaceLandmarksConnections.FACE_LANDMARKS_LEFT_EYE_BROW;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_LEFT_IRIS =
+      FaceLandmarksConnections.FACE_LANDMARKS_LEFT_IRIS;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_RIGHT_EYE =
+      FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYE;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_RIGHT_EYE_BROW =
+      FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_EYE_BROW;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_RIGHT_IRIS =
+      FaceLandmarksConnections.FACE_LANDMARKS_RIGHT_IRIS;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_FACE_OVAL =
+      FaceLandmarksConnections.FACE_LANDMARKS_FACE_OVAL;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_CONNECTORS =
+      FaceLandmarksConnections.FACE_LANDMARKS_CONNECTORS;
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final Set<Connection> FACE_LANDMARKS_TESSELATION =
+      FaceLandmarksConnections.FACE_LANDMARKS_TESSELATION;
 
   /**
    * Constructor to initialize an {@link FaceLandmarker} from a {@link TaskRunner} and a {@link
@@ -421,15 +467,18 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
       /**
        * Whether FaceLandmarker outputs face blendshapes classification. Face blendshapes are used
        * for rendering the 3D face model.
+       *
+       * <p>Note: *Left and *Right blendshapes correspond to the subject's face, not the viewer.
+       * Passing a horizontally mirrored image will invert these outputs.
        */
-      public abstract Builder setOutputFaceBlendshapes(Boolean value);
+      public abstract Builder setOutputFaceBlendshapes(boolean value);
 
       /**
        * Whether FaceLandmarker outptus facial transformation_matrix. Facial transformation matrix
        * is used to transform the face landmarks in canonical face to the detected face, so that
        * users can apply face effects on the detected landmarks.
        */
-      public abstract Builder setOutputFacialTransformationMatrixes(Boolean value);
+      public abstract Builder setOutputFacialTransformationMatrixes(boolean value);
 
       /**
        * Sets the result listener to receive the detection results asynchronously when the face
@@ -479,9 +528,9 @@ public final class FaceLandmarker extends BaseVisionTaskApi {
 
     abstract Optional<Float> minTrackingConfidence();
 
-    abstract Boolean outputFaceBlendshapes();
+    abstract boolean outputFaceBlendshapes();
 
-    abstract Boolean outputFacialTransformationMatrixes();
+    abstract boolean outputFacialTransformationMatrixes();
 
     abstract Optional<ResultListener<FaceLandmarkerResult, MPImage>> resultListener();
 

@@ -21,28 +21,28 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/string_view.h"
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
 #include "mediapipe/tasks/cc/text/tokenizers/tokenizer.h"
 #include "mediapipe/tasks/cc/text/utils/vocab_utils.h"
-#include "re2/re2.h"
-#include "tensorflow_text/core/kernels/wordpiece_tokenizer.h"
+#include "re2/re2.h"  // from @com_googlesource_code_re2
+#include "tensorflow_text/core/kernels/wordpiece_tokenizer.h"  // from @org_tensorflow_text
 
 namespace mediapipe {
 namespace tasks {
 namespace text {
 namespace tokenizers {
 
-constexpr char kDefaultDelimRe[] =
+inline constexpr char kDefaultDelimRe[] =
     R"((\s+|[!-/]|[:-@]|[\[-`]|[{-~]|[\p{P}]|[\x{4E00}-\x{9FFF}]|[\x{3400}-\x{4DBF}]|[\x{20000}-\x{2A6DF}]|[\x{2A700}-\x{2B73F}]|[\x{2B740}-\x{2B81F}]|[\x{2B820}-\x{2CEAF}]|[\x{F900}-\x{FAFF}]|[\x{2F800}-\x{2FA1F}]))";
-constexpr char kDefaultIncludeDelimRe[] =
+inline constexpr char kDefaultIncludeDelimRe[] =
     R"(([!-/]|[:-@]|[\[-`]|[{-~]|[\p{P}]|[\x{4E00}-\x{9FFF}]|[\x{3400}-\x{4DBF}]|[\x{20000}-\x{2A6DF}]|[\x{2A700}-\x{2B73F}]|[\x{2B740}-\x{2B81F}]|[\x{2B820}-\x{2CEAF}]|[\x{F900}-\x{FAFF}]|[\x{2F800}-\x{2FA1F}]))";
-constexpr int kDefaultMaxBytesPerToken = 100;
-constexpr int kDefaultMaxCharsPerSubToken = 100;
-constexpr char kDefaultSuffixIndicator[] = "##";
-constexpr bool kDefaultUseUnknownToken = true;
-constexpr char kDefaultUnknownToken[] = "[UNK]";
-constexpr bool kDefaultSplitUnknownChars = false;
+inline constexpr int kDefaultMaxBytesPerToken = 100;
+inline constexpr int kDefaultMaxCharsPerSubToken = 100;
+inline constexpr char kDefaultSuffixIndicator[] = "##";
+inline constexpr bool kDefaultUseUnknownToken = true;
+inline constexpr char kDefaultUnknownToken[] = "[UNK]";
+inline constexpr bool kDefaultSplitUnknownChars = false;
 
 // Result of wordpiece tokenization including subwords and offsets.
 // Example:
@@ -98,7 +98,7 @@ class BertTokenizer : public mediapipe::tasks::text::tokenizers::Tokenizer {
         include_delim_re_{options.include_delim_str} {}
 
   // Initialize the tokenizer from file path to vocab and tokenizer configs.
-  explicit BertTokenizer(const std::string& path_to_vocab,
+  explicit BertTokenizer(absl::string_view path_to_vocab,
                          const BertTokenizerOptions& options = {})
       : BertTokenizer(mediapipe::tasks::text::LoadVocabFromFile(path_to_vocab),
                       options) {}

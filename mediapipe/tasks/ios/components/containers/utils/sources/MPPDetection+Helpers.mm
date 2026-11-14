@@ -13,71 +13,68 @@
 // limitations under the License.
 
 #import "mediapipe/tasks/ios/components/containers/utils/sources/MPPDetection+Helpers.h"
-#import "mediapipe/framework/formats/location_data.pb.h"
 
-#import "mediapipe/tasks/ios/common/utils/sources/NSString+Helpers.h"
+#import "mediapipe/tasks/ios/components/containers/sources/MPPCategory.h"
 
-static const NSInteger kDefaultCategoryIndex = -1;
-
-namespace {
-using DetectionProto = ::mediapipe::Detection;
-using BoundingBoxProto = ::mediapipe::LocationData::BoundingBox;
-}  // namespace
+#include "mediapipe/tasks/c/components/containers/category.h"
+#include "mediapipe/tasks/c/components/containers/detection_result.h"
+#include "mediapipe/tasks/c/components/containers/keypoint.h"
+#include "mediapipe/tasks/c/components/containers/rect.h"
 
 @implementation MPPDetection (Helpers)
 
-+ (MPPDetection *)detectionWithProto:(const DetectionProto &)detectionProto {
++ (MPPNormalizedKeypoint *)normalizedKeypointWithCKeypoint:
+    (const MpNormalizedKeypoint &)cKeypoint {
+  NSString *label = cKeypoint.label ? [NSString stringWithUTF8String:cKeypoint.label] : nil;
+  float score = cKeypoint.has_score ? cKeypoint.score : 0.0f;
+  return [[MPPNormalizedKeypoint alloc] initWithLocation:CGPointMake(cKeypoint.x, cKeypoint.y)
+                                                   label:label
+                                                   score:score];
+}
+
++ (MPPDetection *)detectionWithCDetection:(const MpDetection &)cDetection {
+  CGRect boundingBox = CGRectMake(cDetection.bounding_box.left, cDetection.bounding_box.top,
+                                  cDetection.bounding_box.right - cDetection.bounding_box.left,
+                                  cDetection.bounding_box.bottom - cDetection.bounding_box.top);
   NSMutableArray<MPPCategory *> *categories =
-      [NSMutableArray arrayWithCapacity:(NSUInteger)detectionProto.score_size()];
-
-  for (int idx = 0; idx < detectionProto.score_size(); ++idx) {
-    NSInteger categoryIndex =
-        detectionProto.label_id_size() > idx ? detectionProto.label_id(idx) : kDefaultCategoryIndex;
-    NSString *categoryName = detectionProto.label_size() > idx
-                                 ? [NSString stringWithCppString:detectionProto.label(idx)]
-                                 : nil;
-
-    NSString *displayName = detectionProto.display_name_size() > idx
-                                ? [NSString stringWithCppString:detectionProto.display_name(idx)]
-                                : nil;
-
-    [categories addObject:[[MPPCategory alloc] initWithIndex:categoryIndex
-                                                       score:detectionProto.score(idx)
+      [NSMutableArray arrayWithCapacity:cDetection.categories_count];
+  for (uint32_t i = 0; i < cDetection.categories_count; ++i) {
+    const MpCategory &cCategory = cDetection.categories[i];
+    NSString *categoryName =
+        (cCategory.category_name && cCategory.category_name[0] != '\0')
+            ? [NSString stringWithUTF8String:cCategory.category_name]
+            : nil;
+    NSString *displayName =
+        (cCategory.display_name && cCategory.display_name[0] != '\0')
+            ? [NSString stringWithUTF8String:cCategory.display_name]
+            : nil;
+    [categories addObject:[[MPPCategory alloc] initWithIndex:cCategory.index
+                                                       score:cCategory.score
                                                 categoryName:categoryName
                                                  displayName:displayName]];
   }
-
-  CGRect boundingBox = CGRectZero;
-
-  if (detectionProto.location_data().has_bounding_box()) {
-    const BoundingBoxProto &boundingBoxProto = detectionProto.location_data().bounding_box();
-    boundingBox.origin.x = boundingBoxProto.xmin();
-    boundingBox.origin.y = boundingBoxProto.ymin();
-    boundingBox.size.width = boundingBoxProto.width();
-    boundingBox.size.height = boundingBoxProto.height();
-  }
-
-  NSMutableArray<MPPNormalizedKeypoint *> *normalizedKeypoints;
-
-  if (!detectionProto.location_data().relative_keypoints().empty()) {
-    normalizedKeypoints = [NSMutableArray
-        arrayWithCapacity:(NSUInteger)detectionProto.location_data().relative_keypoints_size()];
-    for (const auto &keypoint : detectionProto.location_data().relative_keypoints()) {
-      NSString *label = keypoint.has_keypoint_label()
-                            ? [NSString stringWithCppString:keypoint.keypoint_label()]
-                            : nil;
-      CGPoint location = CGPointMake(keypoint.x(), keypoint.y());
-      float score = keypoint.has_score() ? keypoint.score() : 0.0f;
-
-      [normalizedKeypoints addObject:[[MPPNormalizedKeypoint alloc] initWithLocation:location
-                                                                               label:label
-                                                                               score:score]];
+  NSMutableArray<MPPNormalizedKeypoint *> *keypoints =
+      cDetection.keypoints != nullptr
+          ? [NSMutableArray arrayWithCapacity:cDetection.keypoints_count]
+          : nil;
+  if (cDetection.keypoints != nullptr) {
+    for (uint32_t i = 0; i < cDetection.keypoints_count; ++i) {
+      [keypoints addObject:[MPPDetection normalizedKeypointWithCKeypoint:cDetection.keypoints[i]]];
     }
   }
-
   return [[MPPDetection alloc] initWithCategories:categories
                                       boundingBox:boundingBox
-                                        keypoints:normalizedKeypoints];
+                                        keypoints:keypoints];
+}
+
++ (NSArray<MPPDetection *> *)detectionsWithCDetectionResult:
+    (const MpDetectionResult &)cResult {
+  NSMutableArray<MPPDetection *> *detections =
+      [NSMutableArray arrayWithCapacity:cResult.detections_count];
+  for (uint32_t i = 0; i < cResult.detections_count; ++i) {
+    [detections addObject:[MPPDetection detectionWithCDetection:cResult.detections[i]]];
+  }
+  return detections;
 }
 
 @end

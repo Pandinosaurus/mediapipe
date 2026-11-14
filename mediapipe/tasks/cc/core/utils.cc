@@ -20,8 +20,8 @@ limitations under the License.
 #include <fstream>
 #include <string>
 
-#include "absl/strings/string_view.h"
-#include "flatbuffers/flatbuffers.h"
+#include "absl/strings/string_view.h"  // from @com_google_absl
+#include "flatbuffers/flatbuffers.h"   // from @flatbuffers
 #include "mediapipe/calculators/core/flow_limiter_calculator.pb.h"
 #include "mediapipe/tasks/cc/core/external_file_handler.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
@@ -32,6 +32,7 @@ namespace core {
 namespace {
 constexpr char kFinishedTag[] = "FINISHED";
 constexpr char kFlowLimiterCalculatorName[] = "FlowLimiterCalculator";
+constexpr char kPreviousLoopbackCalculatorName[] = "PreviousLoopbackCalculator";
 
 }  // namespace
 
@@ -87,6 +88,19 @@ CalculatorGraphConfig AddFlowLimiterCalculator(
     }
   }
   return config;
+}
+
+void FixGraphBackEdges(::mediapipe::CalculatorGraphConfig& graph_config) {
+  // TODO remove when support is fixed.
+  // As mediapipe GraphBuilder currently doesn't support configuring
+  // InputStreamInfo, modifying the CalculatorGraphConfig proto directly.
+  for (int i = 0; i < graph_config.node_size(); ++i) {
+    if (graph_config.node(i).calculator() == kPreviousLoopbackCalculatorName) {
+      auto* info = graph_config.mutable_node(i)->add_input_stream_info();
+      info->set_tag_index("LOOP");
+      info->set_back_edge(true);
+    }
+  }
 }
 
 }  // namespace core

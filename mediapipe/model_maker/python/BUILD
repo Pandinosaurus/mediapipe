@@ -24,6 +24,7 @@ package_group(
 package_group(
     name = "1p_client",
     packages = [
+        "//intelligence/magiclab/...",
         "//research/privacy/learning/fl_eval/pcvr/...",
     ],
 )

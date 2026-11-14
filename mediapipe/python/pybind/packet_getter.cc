@@ -14,19 +14,22 @@
 
 #include "mediapipe/python/pybind/packet_getter.h"
 
+#include <array>
+#include <cstdint>
+#include <map>
 #include <string>
+#include <vector>
 
-#include "absl/status/statusor.h"
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "mediapipe/framework/formats/image.h"
+#include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/matrix.h"
 #include "mediapipe/framework/packet.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/timestamp.h"
 #include "mediapipe/python/pybind/image_frame_util.h"
 #include "mediapipe/python/pybind/util.h"
-#include "pybind11/eigen.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
+#include "pybind11/eigen.h"     // from @pybind11
+#include "pybind11/pybind11.h"  // from @pybind11
+#include "pybind11/stl.h"       // from @pybind11
 
 namespace mediapipe {
 namespace python {
@@ -301,7 +304,7 @@ void PublicPacketGetters(pybind11::module* m) {
 
   m->def(
       "get_image_list", &GetContent<std::vector<Image>>,
-      R"doc(Get the content of a MediaPipe Packet of image vector as a list of MediaPipe Images.
+      R"doc(Get the content of a MediaPipe Packet of Image vector as a list of MediaPipe Images.
 
   Args:
     packet: A MediaPipe Packet that holds std:vector<mediapipe::Image>.
@@ -316,6 +319,26 @@ void PublicPacketGetters(pybind11::module* m) {
     packet = mp.packet_creator.create_image_vector([
         image1, image2, image3])
     image_list = mp.packet_getter.get_image_list(packet)
+)doc");
+
+  m->def(
+      "get_image_frame_list", &CreateImageFrameListFromImageFrameVectorPacket,
+      R"doc(Get the content of a MediaPipe Packet of ImageFrame vector as a list of MediaPipe ImageFrames.
+
+  Args:
+    packet: A MediaPipe Packet that holds std:vector<mediapipe::ImageFrame>.
+
+  Returns:
+    A list of MediaPipe ImageFrames that reference the same pixel data
+    as the original ImageFrames.
+
+  Raises:
+    ValueError: If the Packet doesn't contain std:vector<mediapipe::ImageFrame>.
+
+  Examples:
+    packet = mp.packet_creator.create_image_frame_vector([
+        image_frame_1, image_frame_2, image_frame_3])
+    data = mp.packet_getter.get_image_frame_list(packet)
 )doc");
 
   m->def(
@@ -447,7 +470,7 @@ void InternalPacketGetters(pybind11::module* m) {
         if (proto_vector.value().empty()) {
           return std::string();
         }
-        return proto_vector.value()[0]->GetTypeName();
+        return std::string(proto_vector.value()[0]->GetTypeName());
       },
       py::return_value_policy::move);
 

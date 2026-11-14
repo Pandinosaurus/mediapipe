@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("//mediapipe/framework/tool:mediapipe_graph.bzl", "mediapipe_binary_graph")
 
 package(default_visibility = ["//visibility:private"])
@@ -29,7 +31,10 @@ cc_library(
         "-framework CoreGraphics",
         "-framework CoreVideo",
     ],
-    visibility = ["//mediapipe/framework:mediapipe_internal"],
+    visibility = [
+        "//googlemac/iPhone/Shared/MediaEngine/Compositor/Tests:__pkg__",
+        "//mediapipe/framework:mediapipe_internal",
+    ],
     deps = [
         ":CFHolder",
         "//mediapipe/framework:packet",
@@ -39,7 +44,11 @@ cc_library(
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
 )
 
@@ -50,9 +59,9 @@ objc_library(
 )
 
 MEDIAPIPE_IOS_SRCS = [
-    "MPPGraph.mm",
-    "MPPTimestampConverter.mm",
-    "NSError+util_status.mm",
+    "MPPGraph.cc",
+    "MPPTimestampConverter.cc",
+    "NSError+util_status.cc",
 ]
 
 MEDIAPIPE_IOS_HDRS = [
@@ -61,12 +70,13 @@ MEDIAPIPE_IOS_HDRS = [
     "NSError+util_status.h",
 ]
 
-objc_library(
+cc_library(
     name = "mediapipe_framework_ios",
     srcs = MEDIAPIPE_IOS_SRCS,
     hdrs = MEDIAPIPE_IOS_HDRS,
     copts = [
-        "-Wno-shorten-64-to-32",
+        "-x objective-c++",
+        "-fobjc-arc",  # enable reference-counting
     ],
     # This build rule is public to allow external customers to build their own iOS apps.
     visibility = ["//visibility:public"],
@@ -80,7 +90,6 @@ objc_library(
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:statusor",
         "//mediapipe/framework/port:threadpool",
         "//mediapipe/gpu:gl_base",
         "//mediapipe/gpu:gpu_buffer",
@@ -91,12 +100,15 @@ objc_library(
         "//mediapipe/util:cpu_util",
         "//third_party/apple_frameworks:AVFoundation",
         "//third_party/apple_frameworks:Accelerate",
+        "//third_party/apple_frameworks:CoreMedia",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@google_toolbox_for_mac//:GTM_Defines",
     ],
+    alwayslink = 1,
 )
 
 objc_library(
@@ -140,9 +152,6 @@ objc_library(
     hdrs = [
         "MPPGLViewRenderer.h",
     ],
-    copts = [
-        "-Wno-shorten-64-to-32",
-    ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
         ":mediapipe_framework_ios",
@@ -161,9 +170,6 @@ objc_library(
     ],
     hdrs = [
         "MPPLayerRenderer.h",
-    ],
-    copts = [
-        "-Wno-shorten-64-to-32",
     ],
     # This build rule is public to allow external customers to build their own iOS apps.
     visibility = ["//visibility:public"],
@@ -184,14 +190,12 @@ objc_library(
     hdrs = [
         "CGImageRefUtils.h",
     ],
-    copts = [
-        "-Wno-shorten-64-to-32",
-    ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
         ":mediapipe_framework_ios",
         "//third_party/apple_frameworks:CoreVideo",
         "//third_party/apple_frameworks:Foundation",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -203,25 +207,22 @@ objc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/formats:matrix",
-        "//mediapipe/framework/port:statusor",
         "//third_party/apple_frameworks:AVFoundation",
         "//third_party/apple_frameworks:CoreAudio",
         "//third_party/apple_frameworks:CoreMedia",
-        "@eigen_archive//:eigen3",
+        "@com_google_absl//absl/status:statusor",
+        "@eigen//:eigen3",
     ],
 )
 
 objc_library(
     name = "MPPGraphTestBase",
-    testonly = 1,
+    testonly = True,
     srcs = [
         "MPPGraphTestBase.mm",
     ],
     hdrs = [
         "MPPGraphTestBase.h",
-    ],
-    copts = [
-        "-Wno-shorten-64-to-32",
     ],
     visibility = ["//mediapipe/framework:mediapipe_internal"],
     deps = [
@@ -238,20 +239,18 @@ objc_library(
         "//third_party/apple_frameworks:OpenGLES",
         "//third_party/apple_frameworks:QuartzCore",
         "//third_party/apple_frameworks:UIKit",
+        "//third_party/apple_frameworks:XCTest",
     ],
 )
 
 objc_library(
     name = "mediapipe_framework_ios_testLib",
-    testonly = 1,
+    testonly = True,
     srcs = [
         "CFHolderTests.mm",
         "MPPDisplayLinkWeakTargetTests.mm",
         "MPPGraphTests.mm",
         "MediaPipeAudioUtilTests.mm",
-    ],
-    copts = [
-        "-Wno-shorten-64-to-32",
     ],
     data = [
         "testdata/googlelogo_color_272x92dp.png",

@@ -15,19 +15,20 @@ limitations under the License.
 
 #include "mediapipe/tasks/cc/text/custom_ops/ragged/ragged_tensor_to_tensor_tflite.h"
 
+#include <cstdint>
 #include <initializer_list>
 #include <string>
 #include <vector>
 
-#include "flatbuffers/flexbuffers.h"
+#include "flatbuffers/flexbuffers.h"  // from @flatbuffers
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
-#include "tensorflow/lite/c/common.h"
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/kernels/internal/tensor.h"
-#include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
-#include "tensorflow/lite/kernels/test_util.h"
-#include "tensorflow/lite/schema/schema_generated.h"
+#include "tflite/c/common.h"                        // from @litert
+#include "tflite/interpreter.h"                     // from @litert
+#include "tflite/kernels/internal/tensor.h"         // from @litert
+#include "tflite/kernels/internal/tensor_ctypes.h"  // from @litert
+#include "tflite/kernels/test_util.h"               // from @litert
+#include "tflite/schema/schema_generated.h"         // from @litert
 
 namespace mediapipe::tflite_operations {
 namespace {
@@ -79,7 +80,9 @@ class RaggedTensorToTensorOpModel : public tflite::SingleOpModel {
   std::vector<int> GetOutputShape() { return GetTensorShape(output_); }
 
   std::vector<float> GetOutputFloat() { return ExtractVector<float>(output_); }
-  std::vector<int32> GetOutputInt() { return ExtractVector<int32>(output_); }
+  std::vector<int32_t> GetOutputInt() {
+    return ExtractVector<int32_t>(output_);
+  }
 
   void InvokeFloat(const std::vector<int>& shape,
                    const std::vector<float>& values, float default_value,
@@ -93,7 +96,7 @@ class RaggedTensorToTensorOpModel : public tflite::SingleOpModel {
     SingleOpModel::Invoke();
   }
   void InvokeInt(const std::vector<int>& shape,
-                 const std::vector<int32>& values, int32 default_value,
+                 const std::vector<int32_t>& values, int32_t default_value,
                  const std::vector<std::vector<int>>& partition_values) {
     PopulateTensor(input_shape_, shape);
     PopulateTensor(input_values_, values);

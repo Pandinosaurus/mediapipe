@@ -1,4 +1,4 @@
-/* Copyright 2022 The MediaPipe Authors.
+/* Copyright 2025 The MediaPipe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,39 +12,54 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include "mediapipe/tasks/cc/vision/image_segmenter/calculators/tensors_to_segmentation_calculator.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
+#include <functional>
 #include <memory>
-#include <ostream>
-#include <string>
+#include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
-#include "absl/status/status.h"
-#include "absl/strings/str_format.h"
-#include "absl/types/span.h"
-#include "mediapipe/framework/api2/node.h"
-#include "mediapipe/framework/api2/packet.h"
-#include "mediapipe/framework/api2/port.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
+#include "absl/types/span.h"            // from @com_google_absl
+#include "mediapipe/framework/api3/calculator.h"
+#include "mediapipe/framework/api3/calculator_context.h"
+#include "mediapipe/framework/api3/calculator_contract.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image.h"
+#include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #include "mediapipe/framework/formats/tensor.h"
-#include "mediapipe/framework/port/canonical_errors.h"
-#include "mediapipe/framework/port/opencv_core_inc.h"
 #include "mediapipe/framework/port/opencv_imgproc_inc.h"
-#include "mediapipe/framework/port/status_macros.h"
+#include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/tasks/cc/vision/image_segmenter/calculators/tensors_to_segmentation_calculator.pb.h"
 #include "mediapipe/tasks/cc/vision/image_segmenter/proto/segmenter_options.pb.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
 #include "mediapipe/util/label_map.pb.h"
 
+// MEDIAPIPE_DISABLE_GPU_POSTPROCESSING is defined on x86 emulators to
+// compile out GL postprocessing without changing the GL version (which
+// would cause ODR violations for Tensor).
 #ifdef __EMSCRIPTEN__
-#include "mediapipe/tasks/cc/vision/image_segmenter/calculators/segmentation_postprocessor_gl.h"
+#define TASK_SEGMENTATION_USE_GL_POSTPROCESSING 1
+#elif MEDIAPIPE_OPENGL_ES_VERSION >= MEDIAPIPE_OPENGL_ES_31 && \
+    !MEDIAPIPE_USING_LEGACY_SWIFTSHADER &&                     \
+    !defined(MEDIAPIPE_DISABLE_GPU_POSTPROCESSING) &&          \
+    defined(MEDIAPIPE_ANDROID)
+#define TASK_SEGMENTATION_USE_GL_POSTPROCESSING 1
+#else
+#undef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
 #endif  // __EMSCRIPTEN__
+
+#ifdef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
+#include "mediapipe/tasks/cc/vision/image_segmenter/calculators/segmentation_postprocessor_gl.h"
+#endif  // TASK_SEGMENTATION_USE_GL_POSTPROCESSING
 
 // TODO: consolidate TensorToSegmentationCalculator.
 namespace mediapipe {
@@ -53,13 +68,16 @@ namespace {
 
 using ::mediapipe::Image;
 using ::mediapipe::ImageFrameSharedPtr;
-using ::mediapipe::api2::Input;
-using ::mediapipe::api2::Node;
-using ::mediapipe::api2::Output;
+using ::mediapipe::api3::Calculator;
+using ::mediapipe::api3::CalculatorContext;
+using ::mediapipe::api3::CalculatorContract;
 using ::mediapipe::tasks::TensorsToSegmentationCalculatorOptions;
+using ::mediapipe::tasks::TensorsToSegmentationNode;
 using ::mediapipe::tasks::vision::GetImageLikeTensorShape;
 using ::mediapipe::tasks::vision::Shape;
 using ::mediapipe::tasks::vision::image_segmenter::proto::SegmenterOptions;
+
+constexpr uint8_t kUnLabeledPixelValue = 255;
 
 void StableSoftmax(absl::Span<const float> values,
                    absl::Span<float> activated_values) {
@@ -96,8 +114,15 @@ float BilinearInterpolate(float v00, float v10, float v01, float v11, float t0,
 
 float GetTensorElement(const Shape& input_shape, const float* tensors_buffer,
                        int x, int y, int c) {
-  return tensors_buffer[y * input_shape.channels * input_shape.width +
-                        x * input_shape.channels + c];
+  return tensors_buffer[(y * input_shape.width + x) * input_shape.channels + c];
+}
+
+ImageFormat::Format GetOutputFormat(bool use_uint8, bool pack4) {
+  if (use_uint8) {
+    return pack4 ? ImageFormat::SRGBA : ImageFormat::GRAY8;
+  } else {
+    return pack4 ? ImageFormat::VEC32F4 : ImageFormat::VEC32F1;
+  }
 }
 
 Image ProcessForCategoryMaskCpu(const Shape& input_shape,
@@ -130,8 +155,8 @@ Image ProcessForCategoryMaskCpu(const Shape& input_shape,
         static_cast<int>(std::max(std::floor(position[1] * width_scale), 0.f));
     int y1 = static_cast<int>(std::min(std::ceil(position[0] * height_scale),
                                        input_shape.height - 1.f));
-    int x1 = static_cast<int>(std ::min(std::ceil(position[1] * width_scale),
-                                        input_shape.width - 1.f));
+    int x1 = static_cast<int>(std::min(std::ceil(position[1] * width_scale),
+                                       input_shape.width - 1.f));
     float t0 = std::max(std::min(position[0] * height_scale - y0, 1.f), 0.f);
     float t1 = std::max(std::min(position[1] * width_scale - x0, 1.f), 0.f);
     for (int i = 0; i < input_channels; ++i) {
@@ -153,9 +178,11 @@ Image ProcessForCategoryMaskCpu(const Shape& input_shape,
     }
     if (input_channels == 1) {
       // if the input tensor is a single mask, it is assumed to be a binary
-      // foreground segmentation mask. For such a mask, we make foreground
-      // category 1, and background category 0.
-      pixel = static_cast<uint8_t>(confidence_scores[0] > 0.5f);
+      // foreground segmentation mask. For such a mask, instead of a true
+      // argmax, we simply use 0.5 as the cutoff, assigning 0 (foreground) or
+      // 255 (background) based on whether the confidence value reaches this
+      // cutoff or not, respectively.
+      pixel = confidence_scores[0] > 0.5f ? 0 : kUnLabeledPixelValue;
     } else {
       const int maximum_category_idx =
           std::max_element(confidence_scores.begin(), confidence_scores.end()) -
@@ -166,10 +193,12 @@ Image ProcessForCategoryMaskCpu(const Shape& input_shape,
   return category_mask;
 }
 
-std::vector<Image> ProcessForConfidenceMaskCpu(const Shape& input_shape,
-                                               const Shape& output_shape,
-                                               const SegmenterOptions& options,
-                                               const float* tensors_buffer) {
+std::vector<Image> ProcessForConfidenceMaskCpu(
+    const Shape& input_shape, const Shape& output_shape,
+    const SegmenterOptions& options,
+    const TensorsToSegmentationCalculatorOptions::ConfidenceMaskOptions&
+        confidence_mask_options,
+    const float* tensors_buffer) {
   std::function<void(absl::Span<const float> values,
                      absl::Span<float> activated_values)>
       activation_fn;
@@ -189,19 +218,45 @@ std::vector<Image> ProcessForConfidenceMaskCpu(const Shape& input_shape,
       break;
   }
 
+  // Write the output streams.
+  bool use_uint8 = confidence_mask_options.output_format() ==
+                   TensorsToSegmentationCalculatorOptions::
+                       ConfidenceMaskOptions::OUTPUT_FORMAT_UINT8;
+  bool pack4 = confidence_mask_options.pack4();
+  std::vector<int> output_channels(
+      confidence_mask_options.output_channels().begin(),
+      confidence_mask_options.output_channels().end());
+  if (output_channels.empty()) {
+    output_channels.resize(input_shape.channels);
+    std::iota(output_channels.begin(), output_channels.end(), 0);
+  }
+  if (output_channels.empty()) {
+    return {};
+  }
+
+  int num_output_streams =
+      pack4 ? (output_channels.size() + 3) / 4 : output_channels.size();
+  ImageFormat::Format output_format = GetOutputFormat(use_uint8, pack4);
+
   // TODO Use libyuv for resizing instead.
   std::vector<Image> confidence_masks;
   std::vector<cv::Mat> confidence_mask_mats;
-  confidence_masks.reserve(input_shape.channels);
-  confidence_mask_mats.reserve(input_shape.channels);
-  for (int i = 0; i < input_shape.channels; ++i) {
+  confidence_masks.reserve(num_output_streams);
+  confidence_mask_mats.reserve(num_output_streams);
+  for (int i = 0; i < num_output_streams; ++i) {
     confidence_masks.push_back(Image(std::make_shared<ImageFrame>(
-        ImageFormat::VEC32F1, input_shape.width, input_shape.height, 1)));
+        output_format, input_shape.width, input_shape.height, 1)));
     confidence_mask_mats.push_back(mediapipe::formats::MatView(
         confidence_masks.back().GetImageFrameSharedPtr().get()));
   }
 
-  // Applies activation function.
+  if (pack4 && num_output_streams * 4 != output_channels.size()) {
+    // Wipe last stream so excessive channels are 0 as we don't write to them
+    // below.
+    confidence_masks.back().GetImageFrameSharedPtr()->SetToZero();
+  }
+
+  // Apply activation function and write output streams.
   const int tensor_size = input_shape.height * input_shape.width;
   std::vector<float> activated_values(input_shape.channels);
   absl::Span<float> activated_values_span(activated_values);
@@ -209,11 +264,31 @@ std::vector<Image> ProcessForConfidenceMaskCpu(const Shape& input_shape,
     activation_fn(absl::MakeConstSpan(&tensors_buffer[i * input_shape.channels],
                                       input_shape.channels),
                   activated_values_span);
-    for (int j = 0; j < input_shape.channels; ++j) {
-      confidence_mask_mats[j].at<float>(
-          i / input_shape.width, i % input_shape.width) = activated_values[j];
+
+    for (int j = 0; j < output_channels.size(); ++j) {
+      float value = activated_values[output_channels[j]];
+      if (use_uint8) {
+        uint8_t int_value = static_cast<uint8_t>(
+            std::clamp(value * 255.0f + 0.5f, 0.0f, 255.0f));
+        if (pack4) {
+          confidence_mask_mats[j / 4].ptr<uint8_t>(
+              i / input_shape.width, i % input_shape.width)[j & 3] = int_value;
+        } else {
+          confidence_mask_mats[j].at<uint8_t>(
+              i / input_shape.width, i % input_shape.width) = int_value;
+        }
+      } else {
+        if (pack4) {
+          confidence_mask_mats[j / 4].ptr<float>(
+              i / input_shape.width, i % input_shape.width)[j & 3] = value;
+        } else {
+          confidence_mask_mats[j].at<float>(i / input_shape.width,
+                                            i % input_shape.width) = value;
+        }
+      }
     }
   }
+
   if (output_shape.height == input_shape.height &&
       output_shape.width == input_shape.width) {
     return confidence_masks;
@@ -225,7 +300,7 @@ std::vector<Image> ProcessForConfidenceMaskCpu(const Shape& input_shape,
     // Pre-allocates ImageFrame memory to avoid copying from cv::Mat
     // afterward.
     ImageFrameSharedPtr image_frame_ptr = std::make_shared<ImageFrame>(
-        ImageFormat::VEC32F1, output_shape.width, output_shape.height, 1);
+        output_format, output_shape.width, output_shape.height, 1);
     cv::Mat resized_mask_mat_view =
         mediapipe::formats::MatView(image_frame_ptr.get());
     cv::resize(confidence_mask_mats[i], resized_mask_mat_view,
@@ -237,63 +312,15 @@ std::vector<Image> ProcessForConfidenceMaskCpu(const Shape& input_shape,
 
 }  // namespace
 
-// Converts Tensors from a vector of Tensor to Segmentation masks. The
-// calculator can output optional confidence masks if CONFIDENCE_MASK is
-// connected, and an optional category mask if CATEGORY_MASK is connected. At
-// least one of CONFIDENCE_MASK and CATEGORY_MASK must be connected.
-//
-// Performs optional resizing to OUTPUT_SIZE dimension if provided,
-// otherwise the segmented masks is the same size as input tensor.
-//
-// Inputs:
-//   TENSORS: Vector containing a single KTfLiteFloat32 Tensor to be converted
-//            to segmentation masks.
-//   OUTPUT_SIZE(optional): std::pair<int, int>. Height and Width, if provided,
-//            the size to resize masks to.
-//
-// Output:
-//   CONFIDENCE_MASK @Multiple: Multiple masks of float image where, for each
-//   mask, each pixel represents the prediction confidence, usually in the [0,
-//   1] range.
-//   CATEGORY_MASK @Optional: A category mask of uint8 image where each pixel
-//   represents the class which the pixel in the original image was predicted to
-//   belong to.
-//
-// Options:
-//   See tensors_to_segmentation_calculator.proto
-//
-// Usage example:
-//  node {
-//    calculator: "TensorsToSegmentationCalculator"
-//    input_stream: "TENSORS:tensors"
-//    input_stream: "OUTPUT_SIZE:size"
-//    output_stream: "CONFIDENCE_MASK:0:confidence_mask"
-//    output_stream: "CONFIDENCE_MASK:1:confidence_mask"
-//    output_stream: "CATEGORY_MASK:category_mask"
-//    options {
-//      [mediapipe.tasks.TensorsToSegmentationCalculatorOptions.ext] {
-//        segmenter_options {
-//          activation: SOFTMAX
-//        }
-//      }
-//    }
-//  }
-class TensorsToSegmentationCalculator : public Node {
+class TensorsToSegmentationNodeImpl
+    : public Calculator<TensorsToSegmentationNode,
+                        TensorsToSegmentationNodeImpl> {
  public:
-  static constexpr Input<std::vector<Tensor>> kTensorsIn{"TENSORS"};
-  static constexpr Input<std::pair<int, int>>::Optional kOutputSizeIn{
-      "OUTPUT_SIZE"};
-  static constexpr Output<Image>::Multiple kSegmentationOut{"SEGMENTATION"};
-  static constexpr Output<Image>::Multiple kConfidenceMaskOut{
-      "CONFIDENCE_MASK"};
-  static constexpr Output<Image>::Optional kCategoryMaskOut{"CATEGORY_MASK"};
-  MEDIAPIPE_NODE_CONTRACT(kTensorsIn, kOutputSizeIn, kSegmentationOut,
-                          kConfidenceMaskOut, kCategoryMaskOut);
-
-  static absl::Status UpdateContract(CalculatorContract* cc);
-
-  absl::Status Open(CalculatorContext* cc);
-  absl::Status Process(CalculatorContext* cc);
+  static absl::Status UpdateContract(
+      CalculatorContract<TensorsToSegmentationNode>& cc);
+  absl::Status Open(CalculatorContext<TensorsToSegmentationNode>& cc) override;
+  absl::Status Process(
+      CalculatorContext<TensorsToSegmentationNode>& cc) override;
 
  private:
   std::vector<Image> GetSegmentationResultCpu(const Shape& input_shape,
@@ -301,24 +328,26 @@ class TensorsToSegmentationCalculator : public Node {
                                               const float* tensors_buffer);
   TensorsToSegmentationCalculatorOptions options_;
 
-#ifdef __EMSCRIPTEN__
-  SegmentationPostprocessorGl postprocessor_;
-#endif  // __EMSCRIPTEN__
+#ifdef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
+  tasks::SegmentationPostprocessorGl postprocessor_;
+#endif  // TASK_SEGMENTATION_USE_GL_POSTPROCESSING
 };
 
-// static
-absl::Status TensorsToSegmentationCalculator::UpdateContract(
-    CalculatorContract* cc) {
-#ifdef __EMSCRIPTEN__
-  return SegmentationPostprocessorGl::UpdateContract(cc);
-#else
+absl::Status TensorsToSegmentationNodeImpl::UpdateContract(
+    CalculatorContract<TensorsToSegmentationNode>& cc) {
+#ifdef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
+  const TensorsToSegmentationCalculatorOptions& options = cc.options.Get();
+  if (options.use_gpu_postprocessing()) {
+    return SegmentationPostprocessorGl::UpdateContract(
+        &cc.GetGenericContract());
+  }
+#endif  // TASK_SEGMENTATION_USE_GL_POSTPROCESSING
   return absl::OkStatus();
-#endif  // __EMSCRIPTEN__
 }
 
-absl::Status TensorsToSegmentationCalculator::Open(
-    mediapipe::CalculatorContext* cc) {
-  options_ = cc->Options<TensorsToSegmentationCalculatorOptions>();
+absl::Status TensorsToSegmentationNodeImpl::Open(
+    CalculatorContext<TensorsToSegmentationNode>& cc) {
+  options_ = cc.options.Get();
   // TODO: remove deprecated output type support.
   if (options_.segmenter_options().has_output_type()) {
     RET_CHECK_NE(options_.segmenter_options().output_type(),
@@ -326,26 +355,67 @@ absl::Status TensorsToSegmentationCalculator::Open(
         << "Must specify output_type as one of "
            "[CONFIDENCE_MASK|CATEGORY_MASK].";
   } else {
-    if (!cc->Outputs().HasTag("CONFIDENCE_MASK") &&
-        !cc->Outputs().HasTag("CATEGORY_MASK")) {
+    if (cc.confidence_mask_out.Count() == 0 &&
+        !cc.category_mask_out.IsConnected()) {
       return absl::InvalidArgumentError(
           "At least one of CONFIDENCE_MASK and CATEGORY_MASK must be "
           "connected.");
     }
   }
-#ifdef __EMSCRIPTEN__
-  MP_RETURN_IF_ERROR(postprocessor_.Initialize(cc, options_));
-#endif  // __EMSCRIPTEN__
+#ifdef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
+  if (options_.use_gpu_postprocessing()) {
+    ABSL_RETURN_IF_ERROR(
+        postprocessor_.Initialize(&cc.GetGenericContext(), options_));
+  }
+#endif  // TASK_SEGMENTATION_USE_GL_POSTPROCESSING
   return absl::OkStatus();
 }
 
-absl::Status TensorsToSegmentationCalculator::Process(
-    mediapipe::CalculatorContext* cc) {
-  RET_CHECK_EQ(kTensorsIn(cc).Get().size(), 1)
-      << "Expect a vector of single Tensor.";
-  const auto& input_tensor = kTensorsIn(cc).Get()[0];
-  ASSIGN_OR_RETURN(const Shape input_shape,
-                   GetImageLikeTensorShape(input_tensor));
+absl::Status TensorsToSegmentationNodeImpl::Process(
+    CalculatorContext<TensorsToSegmentationNode>& cc) {
+  RET_CHECK(cc.tensors_in);
+  const std::vector<Tensor>& input_tensors = cc.tensors_in.GetOrDie();
+  if (input_tensors.size() != 1 && input_tensors.size() != 2) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Expect input tensor vector of size 1 or 2, but size=",
+                     input_tensors.size()));
+  }
+  const auto& input_tensor =
+      input_tensors.size() == 1 ? input_tensors[0] : input_tensors[1];
+  ABSL_ASSIGN_OR_RETURN(const Shape input_shape,
+                        GetImageLikeTensorShape(input_tensor));
+
+  // Validate confidence mask output channels.
+  for (int n = 0; n < options_.confidence_mask_options().output_channels_size();
+       ++n) {
+    int channel = options_.confidence_mask_options().output_channels(n);
+    if (channel < 0 || channel >= input_shape.channels) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Category output channel ", channel, " at index ", n,
+                       " is out of bounds for input tensor with ",
+                       input_shape.channels, " channels."));
+    }
+  }
+
+  // TODO: should use tensor signature to get the correct
+  // output tensor.
+  if (cc.quality_scores_out.IsConnected()) {
+    if (input_tensors.size() == 2) {
+      const auto& quality_tensor = input_tensors[0];
+      const float* quality_score_buffer =
+          quality_tensor.GetCpuReadView().buffer<float>();
+      const std::vector<float> quality_scores(
+          quality_score_buffer,
+          quality_score_buffer +
+              (quality_tensor.bytes() / quality_tensor.element_size()));
+      cc.quality_scores_out.Send(quality_scores);
+    } else {
+      // If the input_tensors don't contain quality scores, send the default
+      // quality scores as 1.
+      const std::vector<float> quality_scores(input_shape.channels, 1.0f);
+      cc.quality_scores_out.Send(quality_scores);
+    }
+  }
 
   // Category mask does not require activation function.
   if (options_.segmenter_options().output_type() ==
@@ -357,50 +427,68 @@ absl::Status TensorsToSegmentationCalculator::Process(
 
   int output_height = input_shape.height;
   int output_width = input_shape.width;
-  if (cc->Inputs().HasTag("OUTPUT_SIZE")) {
-    std::tie(output_width, output_height) = kOutputSizeIn(cc).Get();
+  if (cc.output_size_in.IsConnected()) {
+    RET_CHECK(cc.output_size_in);
+    std::tie(output_width, output_height) = cc.output_size_in.GetOrDie();
   }
-
   // Use GPU postprocessing on web when Tensor is there already.
-#ifdef __EMSCRIPTEN__
-  Shape output_shape = {/* height= */ output_height,
-                        /* width= */ output_width,
-                        /* channels= */ input_shape.channels};
-  if (input_tensor.ready_as_opengl_texture_2d()) {
+#ifdef TASK_SEGMENTATION_USE_GL_POSTPROCESSING
+  if (options_.use_gpu_postprocessing() && input_tensor.ready_on_gpu()) {
+    const Shape output_shape = {/* height= */ output_height,
+                                /* width= */ output_width,
+                                /* channels= */ input_shape.channels};
     bool produce_category_mask = options_.segmenter_options().output_type() ==
                                      SegmenterOptions::CATEGORY_MASK ||
-                                 cc->Outputs().HasTag("CATEGORY_MASK");
+                                 cc.category_mask_out.IsConnected();
     bool produce_confidence_masks =
         options_.segmenter_options().output_type() ==
             SegmenterOptions::CONFIDENCE_MASK ||
-        cc->Outputs().HasTag("CONFIDENCE_MASK");
+        (cc.confidence_mask_out.Count() > 0);
     std::vector<std::unique_ptr<Image>> segmented_masks =
         postprocessor_.GetSegmentationResultGpu(
             input_shape, output_shape, input_tensor, produce_confidence_masks,
             produce_category_mask);
-    bool new_style = cc->Outputs().HasTag("CATEGORY_MASK") ||
-                     cc->Outputs().HasTag("CONFIDENCE_MASK");
+    bool new_style = cc.category_mask_out.IsConnected() ||
+                     (cc.confidence_mask_out.Count() > 0);
     if (new_style) {
+      int confidence_mask_count =
+          options_.confidence_mask_options().output_channels().empty()
+              ? input_shape.channels
+              : options_.confidence_mask_options().output_channels_size();
+      if (options_.confidence_mask_options().pack4()) {
+        confidence_mask_count = (confidence_mask_count + 3) / 4;
+      }
+      int category_mask_count = produce_category_mask ? 1 : 0;
+
+      // segmented_masks = [confidence_masks if any, category_mask if any]
       if (produce_confidence_masks) {
-        for (int i = 0; i < input_shape.channels; ++i) {
-          kConfidenceMaskOut(cc)[i].Send(std::move(segmented_masks[i]));
+        RET_CHECK_EQ(segmented_masks.size(),
+                     confidence_mask_count + category_mask_count)
+            << "Confidence mask count mismatch.";
+        RET_CHECK_EQ(cc.confidence_mask_out.Count(),
+                     segmented_masks.size() - category_mask_count)
+            << "Confidence mask output count mismatch.";
+        for (int i = 0; i < confidence_mask_count; ++i) {
+          cc.confidence_mask_out.At(i).Send(std::move(segmented_masks[i]));
         }
       }
       if (produce_category_mask) {
         int category_mask_index =
-            produce_confidence_masks ? input_shape.channels : 0;
-        kCategoryMaskOut(cc).Send(
+            produce_confidence_masks ? confidence_mask_count : 0;
+        cc.category_mask_out.Send(
             std::move(segmented_masks[category_mask_index]));
       }
     } else {
       // TODO: remove deprecated output type support.
+      RET_CHECK_EQ(cc.segmentation_out.Count(), segmented_masks.size())
+          << "Segmentation output count mismatch.";
       for (int i = 0; i < segmented_masks.size(); ++i) {
-        kSegmentationOut(cc)[i].Send(std::move(segmented_masks[i]));
+        cc.segmentation_out.At(i).Send(std::move(segmented_masks[i]));
       }
     }
     return absl::OkStatus();
   }
-#endif  // __EMSCRIPTEN__
+#endif  // TASK_SEGMENTATION_USE_GL_POSTPROCESSING
 
   // Otherwise, use CPU postprocessing.
   const float* tensors_buffer = input_tensor.GetCpuReadView().buffer<float>();
@@ -416,25 +504,30 @@ absl::Status TensorsToSegmentationCalculator::Process(
              ? 1
              : input_shape.channels},
         input_tensor.GetCpuReadView().buffer<float>());
+    RET_CHECK_EQ(segmented_masks.size(), cc.segmentation_out.Count())
+        << "Segmentation mask count mismatch.";
     for (int i = 0; i < segmented_masks.size(); ++i) {
-      kSegmentationOut(cc)[i].Send(std::move(segmented_masks[i]));
+      cc.segmentation_out.At(i).Send(std::move(segmented_masks[i]));
     }
     return absl::OkStatus();
   }
 
-  if (cc->Outputs().HasTag("CONFIDENCE_MASK")) {
+  if (cc.confidence_mask_out.Count() > 0) {
     std::vector<Image> confidence_masks = ProcessForConfidenceMaskCpu(
         input_shape,
         {/* height= */ output_height,
          /* width= */ output_width,
          /* channels= */ input_shape.channels},
-        options_.segmenter_options(), tensors_buffer);
+        options_.segmenter_options(), options_.confidence_mask_options(),
+        tensors_buffer);
+    RET_CHECK_EQ(confidence_masks.size(), cc.confidence_mask_out.Count())
+        << "Confidence mask count mismatch.";
     for (int i = 0; i < confidence_masks.size(); ++i) {
-      kConfidenceMaskOut(cc)[i].Send(std::move(confidence_masks[i]));
+      cc.confidence_mask_out.At(i).Send(std::move(confidence_masks[i]));
     }
   }
-  if (cc->Outputs().HasTag("CATEGORY_MASK")) {
-    kCategoryMaskOut(cc).Send(ProcessForCategoryMaskCpu(
+  if (cc.category_mask_out.IsConnected()) {
+    cc.category_mask_out.Send(ProcessForCategoryMaskCpu(
         input_shape,
         {/* height= */ output_height,
          /* width= */ output_width,
@@ -444,7 +537,7 @@ absl::Status TensorsToSegmentationCalculator::Process(
   return absl::OkStatus();
 }
 
-std::vector<Image> TensorsToSegmentationCalculator::GetSegmentationResultCpu(
+std::vector<Image> TensorsToSegmentationNodeImpl::GetSegmentationResultCpu(
     const Shape& input_shape, const Shape& output_shape,
     const float* tensors_buffer) {
   if (options_.segmenter_options().output_type() ==
@@ -453,13 +546,11 @@ std::vector<Image> TensorsToSegmentationCalculator::GetSegmentationResultCpu(
                                       options_.segmenter_options(),
                                       tensors_buffer)};
   } else {
-    return ProcessForConfidenceMaskCpu(input_shape, output_shape,
-                                       options_.segmenter_options(),
-                                       tensors_buffer);
+    return ProcessForConfidenceMaskCpu(
+        input_shape, output_shape, options_.segmenter_options(),
+        options_.confidence_mask_options(), tensors_buffer);
   }
 }
-
-MEDIAPIPE_REGISTER_NODE(::mediapipe::tasks::TensorsToSegmentationCalculator);
 
 }  // namespace tasks
 }  // namespace mediapipe

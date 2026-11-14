@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -22,7 +25,6 @@ cc_library(
     name = "audio_classifier",
     srcs = ["audio_classifier.cc"],
     hdrs = ["audio_classifier.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":audio_classifier_graph",
         "//mediapipe/framework/api2:builder",
@@ -38,8 +40,10 @@ cc_library(
         "//mediapipe/tasks/cc/core:base_options",
         "//mediapipe/tasks/cc/core:task_runner",
         "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@org_tensorflow//tensorflow/lite/core/api:op_resolver",
+        "@litert//tflite/core/api:op_resolver",
     ],
 )
 
@@ -54,6 +58,7 @@ cc_library(
         "//mediapipe/calculators/tensor:audio_to_tensor_calculator",
         "//mediapipe/calculators/tensor:audio_to_tensor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:inference_calculator_cpu",
+        "//mediapipe/calculators/tensor:inference_calculator_litert",  # buildcleaner: keep
         "//mediapipe/framework:calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/api2:builder",
@@ -71,10 +76,11 @@ cc_library(
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:optional",
         "@flatbuffers//:runtime_cc",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert//tflite/schema:schema_fbs",
     ],
     alwayslink = 1,
 )

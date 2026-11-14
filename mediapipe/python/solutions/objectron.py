@@ -99,31 +99,35 @@ class ObjectronModel(object):
 
 
 @attr.s(auto_attribs=True, frozen=True)
-class ShoeModel(ObjectronModel):
+class ShoeModel(ObjectronModel):  # pyrefly: ignore[invalid-inheritance]
+  # pyrefly: ignore[bad-override]
   model_path: str = ('mediapipe/modules/objectron/'
                      'object_detection_3d_sneakers.tflite')
-  label_name: str = 'Footwear'
+  label_name: str = 'Footwear'  # pyrefly: ignore[bad-override]
 
 
 @attr.s(auto_attribs=True, frozen=True)
-class ChairModel(ObjectronModel):
+class ChairModel(ObjectronModel):  # pyrefly: ignore[invalid-inheritance]
+  # pyrefly: ignore[bad-override]
   model_path: str = ('mediapipe/modules/objectron/'
                      'object_detection_3d_chair.tflite')
-  label_name: str = 'Chair'
+  label_name: str = 'Chair'  # pyrefly: ignore[bad-override]
 
 
 @attr.s(auto_attribs=True, frozen=True)
-class CameraModel(ObjectronModel):
+class CameraModel(ObjectronModel):  # pyrefly: ignore[invalid-inheritance]
+  # pyrefly: ignore[bad-override]
   model_path: str = ('mediapipe/modules/objectron/'
                      'object_detection_3d_camera.tflite')
-  label_name: str = 'Camera'
+  label_name: str = 'Camera'  # pyrefly: ignore[bad-override]
 
 
 @attr.s(auto_attribs=True, frozen=True)
-class CupModel(ObjectronModel):
+class CupModel(ObjectronModel):  # pyrefly: ignore[invalid-inheritance]
+  # pyrefly: ignore[bad-override]
   model_path: str = ('mediapipe/modules/objectron/'
                      'object_detection_3d_cup.tflite')
-  label_name: str = 'Coffee cup, Mug'
+  label_name: str = 'Coffee cup, Mug'  # pyrefly: ignore[bad-override]
 
 _MODEL_DICT = {
     'Shoe': ShoeModel(),
@@ -258,10 +262,10 @@ class Objectron(SolutionBase):
     """
 
     results = super().process(input_data={'image': image})
-    if results.detected_objects:  # pytype: disable=attribute-error
+    if results.detected_objects:  # pyrefly: ignore[missing-attribute]
       results.detected_objects = self._convert_format(results.detected_objects)  # type: ignore
     else:
-      results.detected_objects = None  # pytype: disable=not-writable
+      results.detected_objects = None  # pyrefly: ignore[missing-attribute]
     return results
 
   def _convert_format(

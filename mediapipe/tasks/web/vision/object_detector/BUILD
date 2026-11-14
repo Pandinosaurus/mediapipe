@@ -3,14 +3,15 @@
 # This task takes video frames and outputs synchronized frames along with
 # the detection results for one or more object categories, using Object Detector.
 
-load("//mediapipe/framework/port:build_config.bzl", "mediapipe_ts_declaration", "mediapipe_ts_library")
-load("@npm//@bazel/jasmine:index.bzl", "jasmine_node_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//mediapipe/framework/port:build_config.bzl", "ts_declaration", "ts_library")
+load("//mediapipe/tasks/web:build_defs.bzl", "jasmine_node_test")
 
 package(default_visibility = ["//mediapipe/tasks:internal"])
 
 licenses(["notice"])
 
-mediapipe_ts_library(
+ts_library(
     name = "object_detector",
     srcs = ["object_detector.ts"],
     visibility = ["//visibility:public"],
@@ -30,7 +31,7 @@ mediapipe_ts_library(
     ],
 )
 
-mediapipe_ts_declaration(
+ts_declaration(
     name = "object_detector_types",
     srcs = [
         "object_detector_options.d.ts",
@@ -47,7 +48,7 @@ mediapipe_ts_declaration(
     ],
 )
 
-mediapipe_ts_library(
+ts_library(
     name = "object_detector_test_lib",
     testonly = True,
     srcs = [
@@ -66,6 +67,6 @@ mediapipe_ts_library(
 
 jasmine_node_test(
     name = "object_detector_test",
+    srcs = [":object_detector_test_lib"],
     tags = ["nomsan"],
-    deps = [":object_detector_test_lib"],
 )

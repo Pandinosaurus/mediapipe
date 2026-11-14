@@ -20,13 +20,14 @@
 #include <utility>
 #include <vector>
 
-#include "absl/strings/str_cat.h"
+#include "absl/log/absl_check.h"        // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"       // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_options.pb.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/tool/container_util.h"
 #include "mediapipe/framework/tool/name_util.h"
 #include "mediapipe/framework/tool/subgraph_expansion.h"
@@ -148,7 +149,7 @@ void ClearContainerOptions(CalculatorGraphConfig::Node* dest) {
 
 // Returns an unused name similar to a specified name.
 std::string UniqueName(std::string name, std::set<std::string>* names) {
-  CHECK(names != nullptr);
+  ABSL_CHECK(names != nullptr);
   std::string result = name;
   int suffix = 2;
   while (names->count(result) > 0) {
@@ -161,7 +162,7 @@ std::string UniqueName(std::string name, std::set<std::string>* names) {
 // Parses tag, index, and name from a list of stream identifiers.
 void ParseTags(const proto_ns::RepeatedPtrField<std::string>& streams,
                std::map<TagIndex, std::string>* result) {
-  CHECK(result != nullptr);
+  ABSL_CHECK(result != nullptr);
   std::set<std::string> used_names;
   int used_index = -1;
   for (const std::string& stream : streams) {
@@ -177,14 +178,14 @@ void ParseTags(const proto_ns::RepeatedPtrField<std::string>& streams,
 // Removes the entry for a tag and index from a map.
 void EraseTag(const std::string& stream,
               std::map<TagIndex, std::string>* streams) {
-  CHECK(streams != nullptr);
+  ABSL_CHECK(streams != nullptr);
   streams->erase(ParseTagIndexFromStream(absl::StrCat(stream, ":u")));
 }
 
 // Removes the entry for a tag and index from a list.
 void EraseTag(const std::string& stream,
               proto_ns::RepeatedPtrField<std::string>* streams) {
-  CHECK(streams != nullptr);
+  ABSL_CHECK(streams != nullptr);
   TagIndex stream_tag = ParseTagIndexFromStream(absl::StrCat(stream, ":u"));
   for (int i = streams->size() - 1; i >= 0; --i) {
     TagIndex tag = ParseTagIndexFromStream(streams->at(i));
@@ -197,7 +198,7 @@ void EraseTag(const std::string& stream,
 // Returns the stream names for the container node.
 void GetContainerNodeStreams(const CalculatorGraphConfig::Node& node,
                              CalculatorGraphConfig::Node* result) {
-  CHECK(result != nullptr);
+  ABSL_CHECK(result != nullptr);
   *result->mutable_input_stream() = node.input_stream();
   *result->mutable_output_stream() = node.output_stream();
   *result->mutable_input_side_packet() = node.input_side_packet();
@@ -256,7 +257,7 @@ absl::StatusOr<CalculatorGraphConfig> SwitchContainer::GetConfig(
 
   // Parse all input and output tags from the container node.
   auto container_node = Subgraph::GetNode(options);
-  MP_RETURN_IF_ERROR(ValidateContract(container_node, options));
+  ABSL_RETURN_IF_ERROR(ValidateContract(container_node, options));
   CalculatorGraphConfig::Node container_streams;
   GetContainerNodeStreams(container_node, &container_streams);
   std::map<TagIndex, std::string> input_tags, output_tags;

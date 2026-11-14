@@ -14,12 +14,14 @@
 
 #include <iterator>
 
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"    // from @com_google_absl
+#include "absl/status/status.h"   // from @com_google_absl
 #include "mediapipe/calculators/tensorflow/lapped_tensor_buffer_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/packet.h"
-#include "mediapipe/framework/port/canonical_errors.h"
-#include "tensorflow/core/example/example.pb.h"
-#include "tensorflow/core/example/feature.pb.h"
+#include "tensorflow/core/example/example.pb.h"  // from @org_tensorflow
+#include "tensorflow/core/example/feature.pb.h"  // from @org_tensorflow
 
 namespace mediapipe {
 namespace {
@@ -46,7 +48,7 @@ std::string GetQuantizedFeature(
                                .Get(index)
                                .bytes_list()
                                .value();
-  CHECK_EQ(1, bytes_list.size());
+  ABSL_CHECK_EQ(1, bytes_list.size());
   return bytes_list.Get(0);
 }
 }  // namespace
@@ -131,7 +133,7 @@ class UnpackYt8mSequenceExampleCalculator : public CalculatorBase {
       }
       if (cc->OutputSidePackets().HasTag(
               kLappedTensorBufferCalculatorOptions)) {
-        auto lapped_tensor_buffer_calculator_options = absl::make_unique<
+        auto lapped_tensor_buffer_calculator_options = std::make_unique<
             ::mediapipe::LappedTensorBufferCalculatorOptions>();
         lapped_tensor_buffer_calculator_options->set_add_batch_dim_to_tensors(
             true);
@@ -149,8 +151,9 @@ class UnpackYt8mSequenceExampleCalculator : public CalculatorBase {
             .Set(MakePacket<int>(segment_size));
       }
     }
-    LOG(INFO) << "Reading the sequence example that contains yt8m id: "
-              << yt8m_id << ". Feature list length: " << feature_list_length_;
+    ABSL_LOG(INFO) << "Reading the sequence example that contains yt8m id: "
+                   << yt8m_id
+                   << ". Feature list length: " << feature_list_length_;
     return absl::OkStatus();
   }
 

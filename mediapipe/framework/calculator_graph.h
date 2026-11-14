@@ -26,33 +26,42 @@
 #include <utility>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/container/fixed_array.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/base/attributes.h"          // from @com_google_absl
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/status/status_macros.h"     // from @com_google_absl
+#include "absl/status/statusor.h"          // from @com_google_absl
+#include "absl/strings/string_view.h"      // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_base.h"
 #include "mediapipe/framework/calculator_node.h"
 #include "mediapipe/framework/counter_factory.h"
 #include "mediapipe/framework/executor.h"
 #include "mediapipe/framework/graph_output_stream.h"
+#include "mediapipe/framework/graph_runtime_info.pb.h"
 #include "mediapipe/framework/graph_service.h"
 #include "mediapipe/framework/graph_service_manager.h"
 #include "mediapipe/framework/mediapipe_profiling.h"
 #include "mediapipe/framework/output_side_packet_impl.h"
-#include "mediapipe/framework/output_stream.h"
 #include "mediapipe/framework/output_stream_manager.h"
 #include "mediapipe/framework/output_stream_poller.h"
 #include "mediapipe/framework/output_stream_shard.h"
 #include "mediapipe/framework/packet.h"
-#include "mediapipe/framework/packet_generator.pb.h"
 #include "mediapipe/framework/packet_generator_graph.h"
-#include "mediapipe/framework/port.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/status.h"
+#include "mediapipe/framework/resources_service.h"
 #include "mediapipe/framework/scheduler.h"
+#include "mediapipe/framework/scheduler_shared.h"
+#include "mediapipe/framework/subgraph.h"
 #include "mediapipe/framework/thread_pool_executor.pb.h"
+#include "mediapipe/framework/timestamp.h"
+#include "mediapipe/framework/validated_graph_config.h"
+
+#if !defined(__EMSCRIPTEN__)
+#include "mediapipe/framework/tool/graph_runtime_info_logger.h"
+#endif  // !defined(__EMSCRIPTEN__)
 
 namespace mediapipe {
 
@@ -70,29 +79,34 @@ typedef absl::StatusOr<OutputStreamPoller> StatusOrPoller;
 // to do is run the graph (without pushing data in or extracting it as
 // the graph runs).
 //
+// NOTE: `CalculatorGraph` instance is stateful and not thread-safe in general.
+// (E.g. `AddPacketToInputStream`, `CloseInputStream` are particular examples
+// known to be not thread-safe.)
+//
 // Example:
 //   // Build dependency "//mediapipe/framework:calculator_framework".
 //
 //   #include "mediapipe/framework/calculator_framework.h"
 //
 //   mediapipe::CalculatorGraphConfig config;
-//   MP_RETURN_IF_ERROR(mediapipe::tool::ParseGraphFromString(kGraphStr,
+//   ABSL_RETURN_IF_ERROR(mediapipe::tool::ParseGraphFromString(kGraphStr,
 //   &config)); mediapipe::CalculatorGraph graph;
-//   MP_RETURN_IF_ERROR(graph.Initialize(config));
+//   ABSL_RETURN_IF_ERROR(graph.Initialize(config));
 //
 //   std::map<std::string, mediapipe::Packet> extra_side_packets;
 //   extra_side_packets["video_id"] = mediapipe::MakePacket<std::string>(
 //       "3edb9503834e9b42");
-//   MP_RETURN_IF_ERROR(graph.Run(extra_side_packets));
+//   ABSL_RETURN_IF_ERROR(graph.Run(extra_side_packets));
 //
-//   // Run again (demonstrating the more concise initializer list syntax).
-//   MP_RETURN_IF_ERROR(graph.Run(
+//   // Run again (demonstrating the asynchronous StartRun call with more
+//   // concise initializer list syntax).
+//   ABSL_RETURN_IF_ERROR(graph.StartRun(
 //       {{"video_id", mediapipe::MakePacket<std::string>("Ex-uGhDzue4")}}));
 //   // See mediapipe/framework/graph_runner.h for an interface
 //   // to insert and extract packets from a graph as it runs.
 //   // Once it is done using the graph, close its streams and wait till done.
-//   MP_RETURN_IF_ERROR(graph->CloseAllInputStreams());
-//   MP_RETURN_IF_ERROR(graph->WaitUntilDone());
+//   ABSL_RETURN_IF_ERROR(graph->CloseAllInputStreams());
+//   ABSL_RETURN_IF_ERROR(graph->WaitUntilDone());
 class CalculatorGraph {
  public:
   // Defines possible modes for adding a packet to a graph input stream.
@@ -120,6 +134,11 @@ class CalculatorGraph {
   // Initializes the graph from its proto description (using Initialize())
   // and crashes if something goes wrong.
   explicit CalculatorGraph(CalculatorGraphConfig config);
+
+  // Initializes the graph with shared GraphServices from an existing MP graph
+  // environment. It enables to run a CalculatorGraph within a Calculator.
+  explicit CalculatorGraph(CalculatorContext* cc);
+
   virtual ~CalculatorGraph();
 
   // Initializes the graph from a its proto description.
@@ -155,6 +174,9 @@ class CalculatorGraph {
   // object is destroyed, even if e.g. Cancel() or WaitUntilDone() have already
   // been called. After this object is destroyed so is packet_callback.
   // TODO: Rename to AddOutputStreamCallback.
+  //
+  // Note: use `SetErrorCallback` to subscribe for errors when using graph for
+  // async use cases.
   absl::Status ObserveOutputStream(
       const std::string& stream_name,
       std::function<absl::Status(const Packet&)> packet_callback,
@@ -195,15 +217,15 @@ class CalculatorGraph {
   // a subsequent call to StartRun can be attempted.
   //
   // Example:
-  //   MP_RETURN_IF_ERROR(graph.StartRun(...));
+  //   ABSL_RETURN_IF_ERROR(graph.StartRun(...));
   //   while (true) {
   //     if (graph.HasError() || want_to_stop) break;
-  //     MP_RETURN_IF_ERROR(graph.AddPacketToInputStream(...));
+  //     ABSL_RETURN_IF_ERROR(graph.AddPacketToInputStream(...));
   //   }
   //   for (const std::string& stream : streams) {
-  //     MP_RETURN_IF_ERROR(graph.CloseInputStream(stream));
+  //     ABSL_RETURN_IF_ERROR(graph.CloseInputStream(stream));
   //   }
-  //   MP_RETURN_IF_ERROR(graph.WaitUntilDone());
+  //   ABSL_RETURN_IF_ERROR(graph.WaitUntilDone());
   absl::Status StartRun(
       const std::map<std::string, Packet>& extra_side_packets) {
     return StartRun(extra_side_packets, {});
@@ -229,8 +251,11 @@ class CalculatorGraph {
   // Wait until the running graph is in the idle mode, which is when nothing can
   // be scheduled and nothing is running in the worker threads. This function
   // can be called only after StartRun().
+  //
   // NOTE: The graph must not have any source nodes because source nodes prevent
   // the running graph from becoming idle until the source nodes are done.
+  // Currently, `WaitUntilIdle` cannot be used reliably on graphs with any
+  // source nodes.
   absl::Status WaitUntilIdle();
 
   // Wait until a packet is emitted on one of the observed output streams.
@@ -242,6 +267,11 @@ class CalculatorGraph {
   // Quick non-locking means of checking if the graph has encountered an error.
   bool HasError() const { return has_error_; }
 
+  // Returns debugging information about the graph transient state, including
+  // information about all input streams and their timestamp bounds. This method
+  // is thread safe and can be called from any thread.
+  absl::StatusOr<GraphRuntimeInfo> GetGraphRuntimeInfo();
+
   // Add a Packet to a graph input stream based on the graph input stream add
   // mode. If the mode is ADD_IF_NOT_FULL, the packet will not be added if any
   // queue exceeds max_queue_size specified by the graph config and will return
@@ -251,7 +281,7 @@ class CalculatorGraph {
   // sizes of the queues in the graph. The input stream must have been specified
   // in the configuration as a graph level input_stream. On error, nothing is
   // added.
-  absl::Status AddPacketToInputStream(const std::string& stream_name,
+  absl::Status AddPacketToInputStream(absl::string_view stream_name,
                                       const Packet& packet);
 
   // Same as the l-value version of this function by the same name, but moves
@@ -261,7 +291,7 @@ class CalculatorGraph {
   // packet may remain valid.  In particular, when using the ADD_IF_NOT_FULL
   // mode with a full queue, this will return StatusUnavailable and the caller
   // may try adding the packet again later.
-  absl::Status AddPacketToInputStream(const std::string& stream_name,
+  absl::Status AddPacketToInputStream(absl::string_view stream_name,
                                       Packet&& packet);
 
   // Indicates that input will arrive no earlier than a certain timestamp.
@@ -309,8 +339,26 @@ class CalculatorGraph {
   }
   CounterFactory* GetCounterFactory() { return counter_factory_.get(); }
 
+  // Sets the error callback to receive graph execution errors when blocking
+  // calls like `WaitUntilIdle()`, `WaitUntilDone()` cannot be used.
+  //
+  // Useful for async graph use cases: e.g. user entering words and each
+  // word is sent to the graph while graph outputs are received and rendered
+  // asynchronously.
+  //
+  // NOTE:
+  // - Must be called before graph is initialized.
+  // - May be executed from multiple threads.
+  // - Errors are first processed by the graph, then the graph transitions into
+  //   the error state, and then finally the callback is invoked.
+  absl::Status SetErrorCallback(
+      std::function<void(const absl::Status&)> error_callback);
+
   // Callback when an error is encountered.
   // Adds the error to the vector of errors.
+  //
+  // Use `SetErrorCallback` to subscribe for errors when using graph for async
+  // use cases.
   void RecordError(const absl::Status& error) ABSL_LOCKS_EXCLUDED(error_mutex_);
 
   // Combines errors into a status. Returns true if the vector of errors is
@@ -396,7 +444,15 @@ class CalculatorGraph {
   template <typename T>
   absl::Status SetServiceObject(const GraphService<T>& service,
                                 std::shared_ptr<T> object) {
-    // TODO: check that the graph has not been started!
+    if (initialized_) {
+      // TODO: check that the graph has not been initialized for
+      // all services!
+      if (service.key == kResourcesService.key) {
+        return absl::InternalError(
+            "Service objects must be set before graph is initialized.");
+      }
+    }
+
     return service_manager_.SetServiceObject(service, object);
   }
 
@@ -505,7 +561,7 @@ class CalculatorGraph {
   // AddPacketToInputStream(Packet&& packet) or
   // AddPacketToInputStream(const Packet& packet).
   template <typename T>
-  absl::Status AddPacketToInputStreamInternal(const std::string& stream_name,
+  absl::Status AddPacketToInputStreamInternal(absl::string_view stream_name,
                                               T&& packet);
 
   // Sets the executor that will run the nodes assigned to the executor
@@ -594,6 +650,12 @@ class CalculatorGraph {
   // status before taking any action.
   void UpdateThrottledNodes(InputStreamManager* stream, bool* stream_was_full);
 
+  // Returns a comma-separated list of source nodes.
+  std::string ListSourceNodes() const;
+
+  // Returns a parent node name for the given input stream.
+  std::string GetParentNodeDebugName(InputStreamManager* stream) const;
+
 #if !MEDIAPIPE_DISABLE_GPU
   // Owns the legacy GpuSharedData if we need to create one for backwards
   // compatibility.
@@ -649,6 +711,9 @@ class CalculatorGraph {
   std::vector<absl::flat_hash_set<InputStreamManager*>> full_input_streams_
       ABSL_GUARDED_BY(full_input_streams_mutex_);
 
+  // Input stream to index within `input_stream_managers_` mapping.
+  absl::flat_hash_map<InputStreamManager*, int> input_stream_to_index_;
+
   // Maps stream names to graph input stream objects.
   absl::flat_hash_map<std::string, std::unique_ptr<GraphInputStream>>
       graph_input_streams_;
@@ -678,6 +743,9 @@ class CalculatorGraph {
   // Vector of errors encountered while running graph. Always use RecordError()
   // to add an error to this vector.
   std::vector<absl::Status> errors_ ABSL_GUARDED_BY(error_mutex_);
+
+  // Optional error callback set by client.
+  std::function<void(const absl::Status&)> error_callback_;
 
   // True if the default executor uses the application thread.
   bool use_application_thread_ = false;
@@ -711,6 +779,11 @@ class CalculatorGraph {
   std::shared_ptr<ProfilingContext> profiler_;
 
   internal::Scheduler scheduler_;
+
+#if !defined(__EMSCRIPTEN__)
+  // Collects runtime information about the graph in the background.
+  tool::GraphRuntimeInfoLogger graph_runtime_info_logger_;
+#endif  // !defined(__EMSCRIPTEN__)
 };
 
 }  // namespace mediapipe

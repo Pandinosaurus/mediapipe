@@ -14,11 +14,14 @@
 
 #include "mediapipe/examples/desktop/autoflip/quality/polynomial_regression_path_solver.h"
 
+#include <vector>
+
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/status/status.h"   // from @com_google_absl
 #include "mediapipe/examples/desktop/autoflip/quality/focus_point.pb.h"
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/opencv_core_inc.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/port/status_matchers.h"
 
 namespace mediapipe {
@@ -145,8 +148,8 @@ void GenerateDataPointsFromRealVideo(
     const int prior_focus_point_frames_length,
     std::vector<FocusPointFrame>* focus_point_frames,
     std::vector<FocusPointFrame>* prior_focus_point_frames) {
-  CHECK(focus_point_frames_length + prior_focus_point_frames_length <=
-        kNumObservations);
+  ABSL_CHECK(focus_point_frames_length + prior_focus_point_frames_length <=
+             kNumObservations);
   for (int i = 0; i < prior_focus_point_frames_length; i++) {
     FocusPoint sp;
     sp.set_norm_point_x(data[i]);

@@ -13,9 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <memory>
 #include <string_view>
 #include <utility>
 
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/deps/file_path.h"
@@ -27,9 +30,11 @@ limitations under the License.
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/tasks/cc/core/mediapipe_builtin_op_resolver.h"
 #include "mediapipe/tasks/cc/core/proto/base_options.pb.h"
+#include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/face_landmarker/proto/face_blendshapes_graph_options.pb.h"
-#include "tensorflow/lite/test_util.h"
+#include "tflite/test_util.h"  // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -66,7 +71,7 @@ absl::StatusOr<CalculatorGraphConfig> ExpandConfig(
   auto config =
       mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
   CalculatorGraph graph;
-  MP_RETURN_IF_ERROR(graph.Initialize(config));
+  ABSL_RETURN_IF_ERROR(graph.Initialize(config));
   return graph.Config();
 }
 
@@ -102,7 +107,10 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner() {
       graph[Output<ClassificationList>(kBlendshapesTag)];
 
   return TaskRunner::Create(
-      graph.GetConfig(), absl::make_unique<core::MediaPipeBuiltinOpResolver>());
+      {.config = graph.GetConfig(),
+       .task_name = "face_blendshapes_test",
+       .task_running_mode = core::RunningMode::kImage,
+       .op_resolver = std::make_unique<core::MediaPipeBuiltinOpResolver>()});
 }
 
 class FaceBlendshapesTest : public tflite::testing::Test {};

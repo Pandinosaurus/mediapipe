@@ -18,8 +18,10 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
-#include "absl/flags/flag.h"
-#include "absl/status/statusor.h"
+#include "absl/flags/flag.h"            // from @com_google_absl
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
 #include "mediapipe/calculators/tensor/image_to_tensor_calculator.pb.h"
 #include "mediapipe/framework/api2/builder.h"
 #include "mediapipe/framework/api2/port.h"
@@ -31,13 +33,15 @@ limitations under the License.
 #include "mediapipe/framework/port/gmock.h"
 #include "mediapipe/framework/port/gtest.h"
 #include "mediapipe/framework/port/status_matchers.h"
+#include "mediapipe/gpu/gpu_origin.pb.h"
 #include "mediapipe/tasks/cc/components/processors/proto/image_preprocessing_graph_options.pb.h"
 #include "mediapipe/tasks/cc/core/model_resources.h"
 #include "mediapipe/tasks/cc/core/proto/acceleration.pb.h"
 #include "mediapipe/tasks/cc/core/proto/external_file.pb.h"
+#include "mediapipe/tasks/cc/core/running_mode.h"
 #include "mediapipe/tasks/cc/core/task_runner.h"
 #include "mediapipe/tasks/cc/vision/utils/image_utils.h"
-#include "tensorflow/lite/test_util.h"
+#include "tflite/test_util.h"  // from @litert
 
 namespace mediapipe {
 namespace tasks {
@@ -51,6 +55,7 @@ using ::mediapipe::api2::builder::Graph;
 using ::mediapipe::api2::builder::Source;
 using ::mediapipe::file::JoinPath;
 using ::mediapipe::tasks::core::ModelResources;
+using ::mediapipe::tasks::core::RunningMode;
 using ::mediapipe::tasks::core::TaskRunner;
 using ::mediapipe::tasks::vision::DecodeImageFromFile;
 using ::testing::ContainerEq;
@@ -109,7 +114,7 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
       preprocessing.GetOptions<proto::ImagePreprocessingGraphOptions>();
   options.mutable_image_to_tensor_options()->set_keep_aspect_ratio(
       keep_aspect_ratio);
-  MP_RETURN_IF_ERROR(
+  ABSL_RETURN_IF_ERROR(
       ConfigureImagePreprocessingGraph(model_resources, false, &options));
   graph[Input<Image>(kImageTag)].SetName(kImageName) >>
       preprocessing.In(kImageTag);
@@ -122,7 +127,9 @@ absl::StatusOr<std::unique_ptr<TaskRunner>> CreateTaskRunner(
   preprocessing.Out(kLetterboxPaddingTag).SetName(kLetterboxPaddingName) >>
       graph[Output<std::array<float, 4>>(kLetterboxPaddingTag)];
 
-  return TaskRunner::Create(graph.GetConfig());
+  return TaskRunner::Create({.config = graph.GetConfig(),
+                             .task_name = "image_preprocessor_test",
+                             .task_running_mode = RunningMode::kImage});
 }
 
 class ConfigureTest : public tflite::testing::Test {};
@@ -226,6 +233,25 @@ TEST_F(ConfigureTest, SucceedsWithFloatModelGpuBackend) {
                                   output_tensor_height: 224
                                   output_tensor_float_range { min: -1 max: 1 }
                                   gpu_origin: TOP_LEFT
+                                }
+                                backend: GPU_BACKEND)pb"));
+}
+
+TEST_F(ConfigureTest, SucceedsGpuOriginConventional) {
+  MP_ASSERT_OK_AND_ASSIGN(
+      auto model_resources,
+      CreateModelResourcesForModel(kMobileNetFloatWithMetadata));
+
+  proto::ImagePreprocessingGraphOptions options;
+  MP_EXPECT_OK(ConfigureImagePreprocessingGraph(
+      *model_resources, true, mediapipe::GpuOrigin::CONVENTIONAL, &options));
+
+  EXPECT_THAT(options, EqualsProto(
+                           R"pb(image_to_tensor_options {
+                                  output_tensor_width: 224
+                                  output_tensor_height: 224
+                                  output_tensor_float_range { min: -1 max: 1 }
+                                  gpu_origin: CONVENTIONAL
                                 }
                                 backend: GPU_BACKEND)pb"));
 }

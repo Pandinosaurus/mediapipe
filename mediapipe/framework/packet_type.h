@@ -22,16 +22,17 @@
 #include <typeinfo>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/status/status.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
+#include "absl/base/macros.h"          // from @com_google_absl
+#include "absl/base/no_destructor.h"   // from @com_google_absl
+#include "absl/log/absl_check.h"       // from @com_google_absl
+#include "absl/log/absl_log.h"         // from @com_google_absl
+#include "absl/status/status.h"        // from @com_google_absl
+#include "absl/strings/str_split.h"    // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/types/span.h"           // from @com_google_absl
 #include "mediapipe/framework/collection.h"
-#include "mediapipe/framework/deps/no_destructor.h"
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/packet_set.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/tool/type_util.h"
 #include "mediapipe/framework/tool/validate_name.h"
 #include "mediapipe/framework/type_map.h"
@@ -162,15 +163,15 @@ class PacketTypeSetErrorHandler {
     if (!missing_) {
       missing_ = absl::make_unique<Missing>();
     }
-    CHECK(!missing_->initialized_errors);
+    ABSL_CHECK(!missing_->initialized_errors);
     std::string key = absl::StrCat(tag, ":", index);
     return missing_->entries[key];
   }
 
   // In the const setting produce a FATAL error.
   const PacketType& GetFallback(const absl::string_view tag, int index) const {
-    LOG(FATAL) << "Failed to get tag \"" << tag << "\" index " << index
-               << ".  Unable to defer error due to const specifier.";
+    ABSL_LOG(FATAL) << "Failed to get tag \"" << tag << "\" index " << index
+                    << ".  Unable to defer error due to const specifier.";
     std::abort();
   }
 
@@ -181,9 +182,9 @@ class PacketTypeSetErrorHandler {
   // Get the error messages that have been deferred.
   // This function can only be called if HasError() is true.
   const std::vector<std::string>& ErrorMessages() const {
-    CHECK(missing_) << "ErrorMessages() can only be called if errors have "
-                       "occurred.  Call HasError() before calling this "
-                       "function.";
+    ABSL_CHECK(missing_) << "ErrorMessages() can only be called if errors have "
+                            "occurred.  Call HasError() before calling this "
+                            "function.";
     if (!missing_->initialized_errors) {
       for (const auto& entry : missing_->entries) {
         // Optional entries that were missing are not considered errors.
@@ -265,8 +266,8 @@ PacketType& PacketType::Set() {
 
 template <typename... T>
 PacketType& PacketType::SetOneOf() {
-  static const NoDestructor<std::vector<TypeId>> types{{kTypeId<T>...}};
-  static const NoDestructor<std::string> name{TypeNameForOneOf(*types)};
+  static const absl::NoDestructor<std::vector<TypeId>> types{{kTypeId<T>...}};
+  static const absl::NoDestructor<std::string> name{TypeNameForOneOf(*types)};
   type_spec_ = MultiType{*types, &*name};
   return *this;
 }

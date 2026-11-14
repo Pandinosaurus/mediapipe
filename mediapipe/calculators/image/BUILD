@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
 licenses(["notice"])
@@ -97,6 +100,8 @@ cc_library(
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:source_location",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -111,6 +116,7 @@ cc_library(
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -125,6 +131,8 @@ cc_library(
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -135,9 +143,8 @@ cc_library(
     deps = [
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:image_frame_opencv",
-        "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -152,11 +159,12 @@ cc_library(
         "//mediapipe/framework/formats:image_format_cc_proto",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
-        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:vector",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -183,7 +191,6 @@ cc_test(
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -201,8 +208,10 @@ cc_library(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:vector",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
@@ -260,11 +269,14 @@ cc_library(
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/gpu:scale_mode_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/strings",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
+            "//mediapipe/gpu:gl_base_hdr",
             "//mediapipe/gpu:gl_calculator_helper",
             "//mediapipe/gpu:gl_quad_renderer",
             "//mediapipe/gpu:gl_simple_shaders",
@@ -272,6 +284,39 @@ cc_library(
         ],
     }),
     alwayslink = 1,
+)
+
+cc_test(
+    name = "image_transformation_calculator_test",
+    srcs = ["image_transformation_calculator_test.cc"],
+    data = ["//mediapipe/calculators/image/testdata:test_images"],
+    tags = [
+        "desktop_only_test",
+        "noasan",  # TODO: Remove noasan tag when SwiftShader supports sanitizers],
+    ],
+    deps = [
+        ":image_transformation_calculator",
+        "//mediapipe/framework:calculator_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/formats:image_format_cc_proto",
+        "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/formats:image_frame_opencv",
+        "//mediapipe/framework/port:gtest",
+        "//mediapipe/framework/port:opencv_imgcodecs",
+        "//mediapipe/framework/port:opencv_imgproc",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+        "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+        "//mediapipe/gpu:multi_pool",
+        "//third_party:opencv",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
 )
 
 cc_library(
@@ -300,7 +345,9 @@ cc_library(
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -317,18 +364,22 @@ cc_library(
 cc_test(
     name = "image_cropping_calculator_test",
     srcs = ["image_cropping_calculator_test.cc"],
+    tags = [
+        "noasan",  # TODO: Remove noasan tag when SwiftShader supports sanitizers
+        "not_run:arm",
+    ],
     deps = [
         ":image_cropping_calculator",
         ":image_cropping_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework:calculator_state",
         "//mediapipe/framework/formats:image_frame_opencv",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:parse_text_proto",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
@@ -341,10 +392,10 @@ cc_library(
     srcs = ["luminance_calculator.cc"],
     deps = [
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/gpu:gl_simple_calculator",
         "//mediapipe/gpu:gl_simple_shaders",
         "//mediapipe/gpu:shader_util",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -354,10 +405,10 @@ cc_library(
     srcs = ["sobel_edges_calculator.cc"],
     deps = [
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/gpu:gl_simple_calculator",
         "//mediapipe/gpu:gl_simple_shaders",
         "//mediapipe/gpu:shader_util",
+        "@com_google_absl//absl/status",
     ],
     alwayslink = 1,
 )
@@ -373,8 +424,9 @@ cc_library(
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/util:color_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -395,7 +447,8 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -414,16 +467,40 @@ cc_library(
         "//mediapipe/framework/formats:yuv_image",
         "//mediapipe/framework/port:core_proto",
         "//mediapipe/framework/port:image_resizer",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_core",
+        "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/util:image_frame_util",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@libyuv",
     ],
     alwayslink = 1,
+)
+
+cc_test(
+    name = "scale_image_calculator_test",
+    srcs = ["scale_image_calculator_test.cc"],
+    deps = [
+        ":scale_image_calculator",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework:packet",
+        "//mediapipe/framework:timestamp",
+        "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/formats:yuv_image",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+        "@libyuv",
+    ],
 )
 
 mediapipe_proto_library(
@@ -444,7 +521,8 @@ cc_library(
         "//mediapipe/framework/api2:node",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -463,7 +541,6 @@ cc_library(
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -471,6 +548,24 @@ cc_library(
         ],
     }),
     alwayslink = 1,
+)
+
+cc_test(
+    name = "image_properties_calculator_test",
+    srcs = ["image_properties_calculator_test.cc"],
+    data = ["//mediapipe/calculators/image/testdata:test_images"],
+    deps = [
+        ":image_properties_calculator",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/formats:image",
+        "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/tool:test_util",
+        "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+        "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+    ],
 )
 
 cc_test(
@@ -488,6 +583,7 @@ cc_test(
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -552,12 +648,40 @@ cc_library(
         ":mask_overlay_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/gpu:gl_calculator_helper",
         "//mediapipe/gpu:gl_simple_shaders",
         "//mediapipe/gpu:shader_util",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
     alwayslink = 1,
+)
+
+cc_test(
+    name = "mask_overlay_calculator_test",
+    srcs = ["mask_overlay_calculator_test.cc"],
+    data = ["//mediapipe/calculators/image/testdata:test_images"],
+    tags = [
+        "angle",
+        "requires-gpu-sm90",
+    ],
+    deps = [
+        ":mask_overlay_calculator",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/formats:image_frame_opencv",
+        "//mediapipe/framework/port:gtest",
+        "//mediapipe/framework/port:gtest_main",
+        "//mediapipe/framework/port:parse_text_proto",
+        "//mediapipe/framework/tool:test_util",
+        "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+        "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+        "//third_party:opencv",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 cc_library(
@@ -576,12 +700,12 @@ cc_library(
         "//mediapipe/framework/port:opencv_features2d",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:threadpool",
         "//mediapipe/framework/tool:options_util",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
-        "@org_tensorflow//tensorflow/lite:framework",
+        "@litert//tflite:framework",
     ],
     alwayslink = 1,
 )
@@ -593,7 +717,8 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:image_file_properties_cc_proto",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@easyexif",
     ],
     alwayslink = 1,
@@ -625,9 +750,10 @@ cc_library(
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:image_format_cc_proto",
         "//mediapipe/framework/formats:image_frame",
-        "//mediapipe/framework/port:logging",
-        "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:vector",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
@@ -650,6 +776,10 @@ cc_library(
 cc_test(
     name = "segmentation_smoothing_calculator_test",
     srcs = ["segmentation_smoothing_calculator_test.cc"],
+    tags = [
+        "noasan",  # TODO: Remove noasan tag when SwiftShader supports sanitizers
+        "not_run:arm",
+    ],
     deps = [
         ":image_clone_calculator",
         ":image_clone_calculator_cc_proto",
@@ -664,6 +794,7 @@ cc_test(
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/log:absl_log",
     ],
 )
 
@@ -685,11 +816,14 @@ cc_library(
         "//mediapipe/gpu:gl_simple_shaders",
         "//mediapipe/gpu:gpu_buffer",
         "//mediapipe/gpu:gpu_origin_cc_proto",
+        "//mediapipe/gpu:gpu_origin_utils",
         "//mediapipe/gpu:shader_util",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
-        "@eigen_archive//:eigen3",
+        "@eigen//:eigen3",
     ],
 )
 
@@ -699,7 +833,6 @@ cc_library(
     hdrs = ["affine_transformation_runner_opencv.h"],
     deps = [
         ":affine_transformation",
-        "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
         "//mediapipe/framework/port:opencv_core",
@@ -707,7 +840,6 @@ cc_library(
         "//mediapipe/framework/port:ret_check",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status:statusor",
-        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -715,7 +847,6 @@ mediapipe_proto_library(
     name = "warp_affine_calculator_proto",
     srcs = ["warp_affine_calculator.proto"],
     deps = [
-        "//mediapipe/framework:calculator_options_proto",
         "//mediapipe/framework:calculator_proto",
         "//mediapipe/gpu:gpu_origin_proto",
     ],
@@ -731,18 +862,25 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/api2:node",
         "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/api3:calculator",
+        "//mediapipe/framework/api3:calculator_context",
+        "//mediapipe/framework/api3:calculator_contract",
+        "//mediapipe/framework/api3:contract",
+        "//mediapipe/framework/api3:node",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/port:ret_check",
-        "//mediapipe/framework/port:status",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
     ] + select({
         "//mediapipe/gpu:disable_gpu": [],
         "//conditions:default": [
             ":affine_transformation_runner_gl",
             "//mediapipe/gpu:gl_calculator_helper",
             "//mediapipe/gpu:gpu_buffer",
+            "//mediapipe/gpu:gpu_service",
         ],
     }) + select({
         "//mediapipe/framework/port:disable_opencv": [],
@@ -771,7 +909,11 @@ cc_test(
         "//mediapipe/calculators/tensor:testdata/image_to_tensor/medium_sub_rect_with_rotation_border_zero_interp_cubic.png",
         "//mediapipe/calculators/tensor:testdata/image_to_tensor/noop_except_range.png",
     ],
-    tags = ["desktop_only_test"],
+    tags = [
+        "desktop_only_test",
+        "noasan",
+        "not_run:arm",  # TODO: Remove noasan tag when SwiftShader supports sanitizers
+    ],
     deps = [
         ":affine_transformation",
         ":image_transformation_calculator",
@@ -790,7 +932,6 @@ cc_test(
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/formats:tensor",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
@@ -813,9 +954,9 @@ cc_library(
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:yuv_image",
-        "//third_party/libyuv",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
+        "@libyuv",
     ],
     alwayslink = 1,
 )

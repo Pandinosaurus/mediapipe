@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//mediapipe/tasks:internal",
-])
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -22,19 +23,17 @@ cc_library(
     name = "pose_landmarker",
     srcs = ["pose_landmarker.cc"],
     hdrs = ["pose_landmarker.h"],
-    visibility = ["//visibility:public"],
     deps = [
         ":pose_landmarker_graph",
         ":pose_landmarker_result",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:packet",
         "//mediapipe/framework/api2:builder",
-        "//mediapipe/framework/api2:port",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/core:base_options",
-        "//mediapipe/tasks/cc/core:base_task_api",
-        "//mediapipe/tasks/cc/core:model_resources",
         "//mediapipe/tasks/cc/core:task_runner",
         "//mediapipe/tasks/cc/core:utils",
         "//mediapipe/tasks/cc/core/proto:inference_subgraph_cc_proto",
@@ -45,6 +44,8 @@ cc_library(
         "//mediapipe/tasks/cc/vision/pose_detector/proto:pose_detector_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/pose_landmarker/proto:pose_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/pose_landmarker/proto:pose_landmarks_detector_graph_options_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
 )
@@ -54,8 +55,12 @@ cc_library(
     srcs = ["pose_landmarks_detector_graph.cc"],
     deps = [
         "//mediapipe/calculators/core:begin_loop_calculator",
+        "//mediapipe/calculators/core:concatenate_vector_calculator",
+        "//mediapipe/calculators/core:constant_side_packet_calculator",
+        "//mediapipe/calculators/core:constant_side_packet_calculator_cc_proto",
         "//mediapipe/calculators/core:end_loop_calculator",
         "//mediapipe/calculators/core:gate_calculator",
+        "//mediapipe/calculators/core:side_packet_to_stream_calculator",
         "//mediapipe/calculators/core:split_proto_list_calculator",
         "//mediapipe/calculators/core:split_vector_calculator",
         "//mediapipe/calculators/core:split_vector_calculator_cc_proto",
@@ -63,6 +68,7 @@ cc_library(
         "//mediapipe/calculators/image:warp_affine_calculator_cc_proto",
         "//mediapipe/calculators/tensor:image_to_tensor_calculator_cc_proto",
         "//mediapipe/calculators/tensor:inference_calculator",
+        "//mediapipe/calculators/tensor:inference_calculator_litert",  # buildcleaner: keep
         "//mediapipe/calculators/tensor:tensors_to_floats_calculator",
         "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator",
         "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator_cc_proto",
@@ -87,6 +93,9 @@ cc_library(
         "//mediapipe/framework:subgraph",
         "//mediapipe/framework/api2:builder",
         "//mediapipe/framework/api2:port",
+        "//mediapipe/framework/api2/stream:get_vector_item",
+        "//mediapipe/framework/api2/stream:image_size",
+        "//mediapipe/framework/api2/stream:smoothing",
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
@@ -98,6 +107,8 @@ cc_library(
         "//mediapipe/tasks/cc/vision/pose_landmarker/proto:pose_landmarks_detector_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/utils:image_tensor_specs",
         "//mediapipe/util:graph_builder_utils",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
     ],
     alwayslink = 1,
@@ -125,9 +136,6 @@ cc_library(
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/framework/formats:rect_cc_proto",
-        "//mediapipe/framework/formats:tensor",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/components/utils:gate",
         "//mediapipe/tasks/cc/core:model_asset_bundle_resources",
         "//mediapipe/tasks/cc/core:model_resources_cache",
@@ -139,7 +147,8 @@ cc_library(
         "//mediapipe/tasks/cc/vision/pose_landmarker/proto:pose_landmarker_graph_options_cc_proto",
         "//mediapipe/tasks/cc/vision/pose_landmarker/proto:pose_landmarks_detector_graph_options_cc_proto",
         "//mediapipe/util:graph_builder_utils",
-        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
     ],
     alwayslink = 1,
 )
@@ -148,10 +157,19 @@ cc_library(
     name = "pose_landmarker_result",
     srcs = ["pose_landmarker_result.cc"],
     hdrs = ["pose_landmarker_result.h"],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/formats:image",
         "//mediapipe/framework/formats:landmark_cc_proto",
         "//mediapipe/tasks/cc/components/containers:landmark",
     ],
+)
+
+cc_library(
+    name = "pose_landmarks_connections",
+    hdrs = ["pose_landmarks_connections.h"],
+)
+
+cc_library(
+    name = "pose_topology",
+    hdrs = ["pose_topology.h"],
 )

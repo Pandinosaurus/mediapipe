@@ -14,12 +14,13 @@ limitations under the License.
 ==============================================================================*/
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/status/status.h"
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
 #include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/api2/port.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -47,7 +48,7 @@ struct BoundingBoxEq {
 
 }  // namespace
 
-// This Calculator deduplicates the bunding boxes with exactly the same
+// This Calculator deduplicates the bounding boxes with exactly the same
 // coordinates, and folds the labels into a single Detection proto. Note
 // non-maximum-suppression remove the overlapping bounding boxes within a class,
 // while the deduplication operation merges bounding boxes from different
@@ -66,14 +67,16 @@ class DetectionsDeduplicateCalculator : public Node {
 
   MEDIAPIPE_NODE_CONTRACT(kIn, kOut);
 
-  absl::Status Open(mediapipe::CalculatorContext* cc) {
+  absl::Status Open(mediapipe::CalculatorContext* cc) override {
     cc->SetOffset(::mediapipe::TimestampDiff(0));
     return absl::OkStatus();
   }
 
-  absl::Status Process(mediapipe::CalculatorContext* cc) {
+  absl::Status Process(mediapipe::CalculatorContext* cc) override {
     const std::vector<Detection>& raw_detections = kIn(cc).Get();
-    absl::flat_hash_map<LocationData::BoundingBox, Detection*, BoundingBoxHash,
+    // Hash map to store the bbox to the index of the detection in the
+    // deduplicated detection vector.
+    absl::flat_hash_map<LocationData::BoundingBox, size_t, BoundingBoxHash,
                         BoundingBoxEq>
         bbox_to_detections;
     std::vector<Detection> deduplicated_detections;
@@ -87,8 +90,8 @@ class DetectionsDeduplicateCalculator : public Node {
               detection.location_data().bounding_box())) {
         // The bbox location already exists. Merge the detection labels into
         // the existing detection proto.
-        Detection& deduplicated_detection =
-            *bbox_to_detections[detection.location_data().bounding_box()];
+        Detection& deduplicated_detection = deduplicated_detections
+            [bbox_to_detections[detection.location_data().bounding_box()]];
         deduplicated_detection.mutable_score()->MergeFrom(detection.score());
         deduplicated_detection.mutable_label()->MergeFrom(detection.label());
         deduplicated_detection.mutable_label_id()->MergeFrom(
@@ -100,7 +103,7 @@ class DetectionsDeduplicateCalculator : public Node {
         // detection vector.
         deduplicated_detections.push_back(detection);
         bbox_to_detections[detection.location_data().bounding_box()] =
-            &deduplicated_detections.back();
+            deduplicated_detections.size() - 1;
       }
     }
     kOut(cc).Send(std::move(deduplicated_detections));

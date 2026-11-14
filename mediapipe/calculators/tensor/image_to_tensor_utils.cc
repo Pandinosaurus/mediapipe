@@ -15,17 +15,28 @@
 #include "mediapipe/calculators/tensor/image_to_tensor_utils.h"
 
 #include <array>
+#include <cmath>
+#include <memory>
+#include <utility>
 
-#include "absl/status/status.h"
-#include "absl/types/optional.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/types/optional.h"        // from @com_google_absl
 #include "mediapipe/framework/api2/packet.h"
+#include "mediapipe/framework/calculator_framework.h"
+#include "mediapipe/framework/formats/image.h"
+#include "mediapipe/framework/formats/image_frame.h"
+#include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/statusor.h"
+#if !MEDIAPIPE_DISABLE_GPU
+#include "mediapipe/gpu/gpu_buffer.h"
+#endif  // !MEDIAPIPE_DISABLE_GPU
 
 namespace mediapipe {
 
 RotatedRect GetRoi(int input_width, int input_height,
-                   absl::optional<mediapipe::NormalizedRect> norm_rect) {
+                   std::optional<NormalizedRect> norm_rect) {
   if (norm_rect) {
     return {/*center_x=*/norm_rect->x_center() * input_width,
             /*center_y =*/norm_rect->y_center() * input_height,
@@ -78,6 +89,18 @@ absl::StatusOr<std::array<float, 4>> PadRoi(int input_tensor_width,
                               horizontal_padding, vertical_padding};
 }
 
+absl::Status ValidateRoi(const RotatedRect& roi) {
+  if (std::isnan(roi.center_x) || std::isnan(roi.center_y) ||
+      std::isnan(roi.width) || std::isnan(roi.height) ||
+      std::isnan(roi.rotation)) {
+    return absl::InvalidArgumentError("ROI contains NaN values.");
+  }
+  if (roi.width <= 0 || roi.height <= 0) {
+    return absl::InvalidArgumentError("ROI width and height must be > 0.");
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<ValueTransformation> GetValueRangeTransformation(
     float from_range_min, float from_range_max, float to_range_min,
     float to_range_max) {
@@ -92,7 +115,7 @@ absl::StatusOr<ValueTransformation> GetValueRangeTransformation(
 
 void GetRotatedSubRectToRectTransformMatrix(const RotatedRect& sub_rect,
                                             int rect_width, int rect_height,
-                                            bool flip_horizontaly,
+                                            bool flip_horizontally,
                                             std::array<float, 16>* matrix_ptr) {
   std::array<float, 16>& matrix = *matrix_ptr;
   // The resulting matrix is multiplication of below commented out matrices:
@@ -118,7 +141,7 @@ void GetRotatedSubRectToRectTransformMatrix(const RotatedRect& sub_rect,
   // {0.0f, 0.0f,    a, 0.0f}
   // {0.0f, 0.0f, 0.0f, 1.0f}
 
-  const float flip = flip_horizontaly ? -1 : 1;
+  const float flip = flip_horizontally ? -1 : 1;
   // Matrix for optional horizontal flip around middle of output image.
   // { fl  , 0.0f, 0.0f, 0.0f}
   // { 0.0f, 1.0f, 0.0f, 0.0f}
@@ -177,13 +200,13 @@ void GetRotatedSubRectToRectTransformMatrix(const RotatedRect& sub_rect,
 
 void GetTransposedRotatedSubRectToRectTransformMatrix(
     const RotatedRect& sub_rect, int rect_width, int rect_height,
-    bool flip_horizontaly, std::array<float, 16>* matrix_ptr) {
+    bool flip_horizontally, std::array<float, 16>* matrix_ptr) {
   std::array<float, 16>& matrix = *matrix_ptr;
   // See comments in GetRotatedSubRectToRectTransformMatrix for detailed
   // calculations.
   const float a = sub_rect.width;
   const float b = sub_rect.height;
-  const float flip = flip_horizontaly ? -1 : 1;
+  const float flip = flip_horizontally ? -1 : 1;
   const float c = std::cos(sub_rect.rotation);
   const float d = std::sin(sub_rect.rotation);
   const float e = sub_rect.center_x;
@@ -269,12 +292,16 @@ absl::StatusOr<std::shared_ptr<const mediapipe::Image>> GetInputImage(
         image_packet) {
   return image_packet.Visit(
       [&image_packet](const mediapipe::Image&) {
-        return SharedPtrWithPacket<mediapipe::Image>(image_packet);
+        return image_packet.Share<mediapipe::Image>();
       },
-      [&image_packet](const mediapipe::ImageFrame&) {
+      [&image_packet](const mediapipe::ImageFrame&)
+          -> absl::StatusOr<std::shared_ptr<const mediapipe::Image>> {
+        ABSL_ASSIGN_OR_RETURN(
+            std::shared_ptr<const mediapipe::ImageFrame> image_frame,
+            image_packet.Share<mediapipe::ImageFrame>());
         return std::make_shared<const mediapipe::Image>(
             std::const_pointer_cast<mediapipe::ImageFrame>(
-                SharedPtrWithPacket<mediapipe::ImageFrame>(image_packet)));
+                std::move(image_frame)));
       });
 }
 

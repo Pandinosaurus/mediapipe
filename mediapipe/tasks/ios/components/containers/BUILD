@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
 package(default_visibility = [
     "//mediapipe/tasks:internal",
     "//mediapipe/tasks:users",
@@ -19,30 +21,43 @@ package(default_visibility = [
 
 licenses(["notice"])
 
+exports_files(glob([
+    "sources/*.h",
+    "sources/*.swift",
+]))
+
 objc_library(
     name = "MPPCategory",
     srcs = ["sources/MPPCategory.m"],
     hdrs = ["sources/MPPCategory.h"],
+    deps = ["//third_party/apple_frameworks:Foundation"],
 )
 
 objc_library(
     name = "MPPClassificationResult",
     srcs = ["sources/MPPClassificationResult.m"],
     hdrs = ["sources/MPPClassificationResult.h"],
-    deps = [":MPPCategory"],
+    deps = [
+        ":MPPCategory",
+        "//third_party/apple_frameworks:Foundation",
+    ],
 )
 
 objc_library(
     name = "MPPEmbedding",
     srcs = ["sources/MPPEmbedding.m"],
     hdrs = ["sources/MPPEmbedding.h"],
+    deps = ["//third_party/apple_frameworks:Foundation"],
 )
 
 objc_library(
     name = "MPPEmbeddingResult",
     srcs = ["sources/MPPEmbeddingResult.m"],
     hdrs = ["sources/MPPEmbeddingResult.h"],
-    deps = [":MPPEmbedding"],
+    deps = [
+        ":MPPEmbedding",
+        "//third_party/apple_frameworks:Foundation",
+    ],
 )
 
 objc_library(
@@ -51,6 +66,7 @@ objc_library(
     hdrs = ["sources/MPPDetection.h"],
     deps = [
         ":MPPCategory",
+        "//third_party/apple_frameworks:Foundation",
         "//third_party/apple_frameworks:UIKit",
     ],
 )
@@ -59,4 +75,22 @@ objc_library(
     name = "MPPLandmark",
     srcs = ["sources/MPPLandmark.m"],
     hdrs = ["sources/MPPLandmark.h"],
+    deps = ["//third_party/apple_frameworks:Foundation"],
+)
+
+objc_library(
+    name = "MPPConnection",
+    srcs = ["sources/MPPConnection.m"],
+    hdrs = ["sources/MPPConnection.h"],
+    deps = ["//third_party/apple_frameworks:Foundation"],
+)
+
+objc_library(
+    name = "MPPRegionOfInterest",
+    srcs = ["sources/MPPRegionOfInterest.m"],
+    hdrs = ["sources/MPPRegionOfInterest.h"],
+    deps = [
+        ":MPPDetection",
+        "//third_party/apple_frameworks:Foundation",
+    ],
 )

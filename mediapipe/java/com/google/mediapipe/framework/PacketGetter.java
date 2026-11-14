@@ -44,8 +44,8 @@ public final class PacketGetter {
       this.second = second;
     }
 
-    final Packet first;
-    final Packet second;
+    public final Packet first;
+    public final Packet second;
   }
 
   /**
@@ -126,6 +126,16 @@ public final class PacketGetter {
     SerializedMessage result = new SerializedMessage();
     nativeGetProto(packet.getNativeHandle(), result);
     return ProtoUtil.unpack(result, defaultInstance);
+  }
+
+  public static <T extends MessageLite> T getProto(final Packet packet, Parser<T> messageParser) {
+    SerializedMessage result = new SerializedMessage();
+    nativeGetProto(packet.getNativeHandle(), result);
+    try {
+      return messageParser.parseFrom(result.value);
+    } catch (InvalidProtocolBufferException e) {
+      throw new IllegalArgumentException(e);
+    }
   }
 
   /**
@@ -239,7 +249,7 @@ public final class PacketGetter {
 
   /**
    * Assign the native image buffer array in given ByteBuffer array. It assumes given ByteBuffer
-   * array has the the same size of image list packet, and assumes the output buffer stores pixels
+   * array has the same size of image list packet, and assumes the output buffer stores pixels
    * contiguously. It returns false if this assumption does not hold.
    *
    * <p>If deepCopy is true, it assumes the given buffersArray has allocated the required size of
@@ -327,6 +337,14 @@ public final class PacketGetter {
    */
   public static float[] getMatrixData(final Packet packet) {
     return nativeGetMatrixData(packet.getNativeHandle());
+  }
+
+  /**
+   * Returns a DirectByteBuffer wrapping the memory of the given Matrix Packet. The ByteBuffer is
+   * only valid as long as the Packet is alive.
+   */
+  public static ByteBuffer getMatrixBuffer(final Packet packet) {
+    return nativeGetMatrixBuffer(packet.getNativeHandle());
   }
 
   public static int getMatrixRows(final Packet packet) {
@@ -446,6 +464,8 @@ public final class PacketGetter {
   private static native byte[] nativeGetAudioData(long nativePacketHandle);
   // Native helper functions to access the MediaPipe Matrix data.
   private static native float[] nativeGetMatrixData(long nativePacketHandle);
+
+  private static native ByteBuffer nativeGetMatrixBuffer(long nativePacketHandle);
 
   private static native int nativeGetMatrixRows(long nativePacketHandle);
 

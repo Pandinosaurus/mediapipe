@@ -14,9 +14,16 @@
 
 #include "mediapipe/gpu/gpu_buffer_format.h"
 
-#include "absl/container/flat_hash_map.h"
-#include "mediapipe/framework/deps/no_destructor.h"
+#include <type_traits>
+#include <vector>
+
+#include "absl/base/no_destructor.h"       // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"           // from @com_google_absl
 #include "mediapipe/framework/port/logging.h"
+#if !MEDIAPIPE_DISABLE_GPU
+#include "mediapipe/gpu/gl_base.h"
+#endif
 
 namespace mediapipe {
 
@@ -27,6 +34,16 @@ namespace mediapipe {
 #ifndef GL_HALF_FLOAT
 #define GL_HALF_FLOAT 0x140B
 #endif  // GL_HALF_FLOAT
+
+#ifdef __EMSCRIPTEN__
+#ifndef GL_HALF_FLOAT_OES
+#define GL_HALF_FLOAT_OES 0x8D61
+#endif  // GL_HALF_FLOAT_OES
+#endif  // __EMSCRIPTEN__
+
+#ifndef GL_RGBA8
+#define GL_RGBA8 0x8058
+#endif  // GL_RGBA8
 
 #if !MEDIAPIPE_DISABLE_GPU
 #ifdef GL_ES_VERSION_2_0
@@ -48,6 +65,12 @@ static void AdaptGlTextureInfoForGLES2(GlTextureInfo* info) {
     case GL_RG8:
       info->gl_internal_format = info->gl_format = GL_RG_EXT;
       return;
+#ifdef __EMSCRIPTEN__
+    case GL_RGBA16F:
+      info->gl_internal_format = GL_RGBA;
+      info->gl_type = GL_HALF_FLOAT_OES;
+      return;
+#endif  // __EMSCRIPTEN__
     default:
       return;
   }
@@ -59,9 +82,13 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
                                                      GlVersion gl_version) {
   // TODO: check/add more cases using info from
   // CVPixelFormatDescriptionCreateWithPixelFormatType.
-  static const mediapipe::NoDestructor<
+  static const absl::NoDestructor<
       absl::flat_hash_map<GpuBufferFormat, std::vector<GlTextureInfo>>>
       gles3_format_info{{
+          {GpuBufferFormat::kRGBA32,
+           {
+               {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, 1},
+           }},
           {GpuBufferFormat::kBGRA32,
            {
   // internal_format, format, type, downscale
@@ -87,6 +114,10 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
 #else
                {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1},
 #endif  // TARGET_OS_OSX
+           }},
+          {GpuBufferFormat::kOneComponent8Alpha,
+           {
+               {GL_ALPHA, GL_ALPHA, GL_UNSIGNED_BYTE, 1},
            }},
           {GpuBufferFormat::kOneComponent8Red,
            {
@@ -146,6 +177,14 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
            {
                {GL_RGBA32F, GL_RGBA, GL_FLOAT, 1},
            }},
+          {GpuBufferFormat::kImmutableRGBAFloat128,
+           {
+               {GL_RGBA32F, GL_RGBA, GL_FLOAT, 1, true /* immutable */},
+           }},
+          {GpuBufferFormat::kImmutableRGBA32,
+           {
+               {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, 1, true /* immutable */},
+           }},
       }};
 
   static const auto* gles2_format_info = ([] {
@@ -173,46 +212,95 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
   }
 
   auto iter = format_info->find(format);
-  CHECK(iter != format_info->end())
+  ABSL_CHECK(iter != format_info->end())
       << "unsupported format: "
       << static_cast<std::underlying_type_t<decltype(format)>>(format);
   const auto& planes = iter->second;
 #ifndef __APPLE__
-  CHECK_EQ(planes.size(), 1)
+  ABSL_CHECK_EQ(planes.size(), 1)
       << "multiplanar formats are not supported on this platform";
 #endif
-  CHECK_GE(plane, 0) << "invalid plane number";
-  CHECK_LT(plane, planes.size()) << "invalid plane number";
+  ABSL_CHECK_GE(plane, 0) << "invalid plane number";
+  ABSL_CHECK_LT(plane, planes.size()) << "invalid plane number";
   return planes[plane];
+}
+
+GpuBufferFormat GpuBufferFormatForGlFormat(const GLenum format) {  // NOLINT
+  switch (format) {
+    case GL_RGBA8:
+      return GpuBufferFormat::kBGRA32;
+    case GL_RGBA:  // Often defaults to RGBA8
+      return GpuBufferFormat::kBGRA32;
+    case GL_R8:
+      return GpuBufferFormat::kOneComponent8Red;
+    case GL_RED:  // Sometimes used as an internal format
+      return GpuBufferFormat::kOneComponent8Red;
+    case GL_RG8:
+      return GpuBufferFormat::kTwoComponent8;
+    case GL_RG:  // Sometimes used as an internal format
+      return GpuBufferFormat::kTwoComponent8;
+    case GL_RGB8:
+      return GpuBufferFormat::kRGB24;
+    case GL_RGB:  // Often defaults to RGB8
+      return GpuBufferFormat::kRGB24;
+    case GL_R16F:
+      return GpuBufferFormat::kGrayHalf16;
+    case GL_RG16F:
+      return GpuBufferFormat::kTwoComponentHalf16;
+    case GL_RGBA16F:
+      return GpuBufferFormat::kRGBAHalf64;
+    case GL_R32F:
+      return GpuBufferFormat::kGrayFloat32;
+    case GL_RG32F:
+      return GpuBufferFormat::kTwoComponentFloat32;
+    case GL_RGBA32F:
+      return GpuBufferFormat::kRGBAFloat128;
+    case GL_ALPHA:
+      return GpuBufferFormat::kOneComponent8Alpha;
+#if !TARGET_OS_OSX
+    case GL_LUMINANCE:
+      return GpuBufferFormat::kOneComponent8;
+#endif
+    default:
+      return GpuBufferFormat::kUnknown;
+  }
 }
 #endif  // MEDIAPIPE_DISABLE_GPU
 
 ImageFormat::Format ImageFormatForGpuBufferFormat(GpuBufferFormat format) {
   switch (format) {
+    case GpuBufferFormat::kImmutableRGBA32:
     case GpuBufferFormat::kBGRA32:
       // TODO: verify we are handling order of channels correctly.
       return ImageFormat::SRGBA;
     case GpuBufferFormat::kGrayFloat32:
       return ImageFormat::VEC32F1;
     case GpuBufferFormat::kOneComponent8:
+    case GpuBufferFormat::kOneComponent8Red:
       return ImageFormat::GRAY8;
     case GpuBufferFormat::kBiPlanar420YpCbCr8VideoRange:
     case GpuBufferFormat::kBiPlanar420YpCbCr8FullRange:
-      // TODO: should either of these be YCBCR420P10?
       return ImageFormat::YCBCR420P;
+    case GpuBufferFormat::kBiPlanar420YpCbCr10VideoRange:
+    case GpuBufferFormat::kBiPlanar420YpCbCr10FullRange:
+      return ImageFormat::YCBCR420P10;
     case GpuBufferFormat::kRGB24:
       return ImageFormat::SRGB;
     case GpuBufferFormat::kTwoComponentFloat32:
       return ImageFormat::VEC32F2;
+    case GpuBufferFormat::kImmutableRGBAFloat128:
     case GpuBufferFormat::kRGBAFloat128:
       return ImageFormat::VEC32F4;
     case GpuBufferFormat::kRGBA32:
-      // TODO: this likely maps to ImageFormat::SRGBA
+      return ImageFormat::SRGBA;
     case GpuBufferFormat::kGrayHalf16:
-    case GpuBufferFormat::kOneComponent8Red:
-    case GpuBufferFormat::kTwoComponent8:
+      return ImageFormat::VEC16F1;
     case GpuBufferFormat::kTwoComponentHalf16:
+      return ImageFormat::VEC16F2;
     case GpuBufferFormat::kRGBAHalf64:
+      return ImageFormat::VEC16F4;
+    case GpuBufferFormat::kOneComponent8Alpha:
+    case GpuBufferFormat::kTwoComponent8:
     case GpuBufferFormat::kNV12:
     case GpuBufferFormat::kNV21:
     case GpuBufferFormat::kI420:
@@ -235,11 +323,20 @@ GpuBufferFormat GpuBufferFormatForImageFormat(ImageFormat::Format format) {
       return GpuBufferFormat::kTwoComponentFloat32;
     case ImageFormat::VEC32F4:
       return GpuBufferFormat::kRGBAFloat128;
+    case ImageFormat::VEC16F1:
+      return GpuBufferFormat::kGrayHalf16;
+    case ImageFormat::VEC16F2:
+      return GpuBufferFormat::kTwoComponentHalf16;
+    case ImageFormat::VEC16F4:
+      return GpuBufferFormat::kRGBAHalf64;
     case ImageFormat::GRAY8:
       return GpuBufferFormat::kOneComponent8;
     case ImageFormat::YCBCR420P:
       // TODO: or video range?
       return GpuBufferFormat::kBiPlanar420YpCbCr8FullRange;
+    case ImageFormat::YCBCR420P10:
+      // TODO: or video range?
+      return GpuBufferFormat::kBiPlanar420YpCbCr10FullRange;
     case ImageFormat::UNKNOWN:
     default:
       return GpuBufferFormat::kUnknown;

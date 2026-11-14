@@ -15,18 +15,18 @@
 #ifndef MEDIAPIPE_FRAMEWORK_PACKET_GENERATOR_H_
 #define MEDIAPIPE_FRAMEWORK_PACKET_GENERATOR_H_
 
+#include <memory>
 #include <string>
 #include <type_traits>
 
-#include "absl/base/attributes.h"
-#include "absl/base/macros.h"
-#include "absl/memory/memory.h"
+#include "absl/base/attributes.h"  // from @com_google_absl
+#include "absl/base/macros.h"      // from @com_google_absl
+#include "absl/status/status.h"    // from @com_google_absl
 #include "mediapipe/framework/deps/registration.h"
 #include "mediapipe/framework/packet_generator.pb.h"
 #include "mediapipe/framework/packet_set.h"
 #include "mediapipe/framework/packet_type.h"
 #include "mediapipe/framework/port.h"
-#include "mediapipe/framework/port/status.h"
 
 namespace mediapipe {
 
@@ -154,7 +154,7 @@ class StaticAccessToGeneratorTyped : public StaticAccessToGenerator {
   REGISTER_FACTORY_FUNCTION_QUALIFIED(                      \
       mediapipe::internal::StaticAccessToGeneratorRegistry, \
       generator_registration, name,                         \
-      absl::make_unique<                                    \
+      std::make_unique<                                     \
           mediapipe::internal::StaticAccessToGeneratorTyped<name>>)
 
 }  // namespace mediapipe

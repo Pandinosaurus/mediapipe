@@ -27,13 +27,18 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "absl/base/macros.h"
-#include "absl/synchronization/mutex.h"
+#include "absl/base/macros.h"              // from @com_google_absl
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/status/status.h"            // from @com_google_absl
+#include "absl/synchronization/mutex.h"    // from @com_google_absl
+#include "absl/time/time.h"                // from @com_google_absl
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/calculator_base.h"
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/calculator_context_manager.h"
 #include "mediapipe/framework/calculator_state.h"
+#include "mediapipe/framework/graph_runtime_info.pb.h"
+#include "mediapipe/framework/graph_service_manager.h"
 #include "mediapipe/framework/input_side_packet_handler.h"
 #include "mediapipe/framework/input_stream_handler.h"
 #include "mediapipe/framework/legacy_calculator_support.h"
@@ -43,8 +48,6 @@
 #include "mediapipe/framework/packet_set.h"
 #include "mediapipe/framework/packet_type.h"
 #include "mediapipe/framework/port.h"
-#include "mediapipe/framework/port/integral_types.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/framework/stream_handler.pb.h"
 #include "mediapipe/framework/timestamp.h"
 #include "mediapipe/framework/tool/validate_name.h"
@@ -112,7 +115,8 @@ class CalculatorNode {
                           OutputStreamManager* output_stream_managers,
                           OutputSidePacketImpl* output_side_packets,
                           int* buffer_size_hint,
-                          std::shared_ptr<ProfilingContext> profiling_context);
+                          std::shared_ptr<ProfilingContext> profiling_context,
+                          const GraphServiceManager* graph_service_manager);
 
   // Sets up the node at the beginning of CalculatorGraph::Run(). This
   // method is executed before any OpenNode() calls to the nodes
@@ -236,6 +240,14 @@ class CalculatorNode {
   const CalculatorContract& Contract() const {
     return node_type_info_->Contract();
   }
+
+  // Returns the last timestamp bound used to schedule this node.
+  Timestamp GetLastTimestampBound() const { return last_timestamp_bound_; }
+
+  // Returns the stream monitoring info for this node consisting of a vector of
+  // tuples of input stream name, queue size, number of packets added, and
+  // minimum timestamp or bound.
+  CalculatorRuntimeInfo GetStreamMonitoringInfo() const;
 
  private:
   // Sets up the output side packets from the main flat array.
@@ -374,6 +386,16 @@ class CalculatorNode {
   const ValidatedGraphConfig* validated_graph_ = nullptr;
 
   const NodeTypeInfo* node_type_info_ = nullptr;
+
+  // Keeps track of the latest timestamp bound used to schedule this node.
+  Timestamp last_timestamp_bound_ = Timestamp::Unset();
+
+  // Keeps track of the runtime info for this node.
+  mutable absl::Mutex runtime_info_mutex_;
+  absl::Time last_process_start_ts_ ABSL_GUARDED_BY(runtime_info_mutex_) =
+      absl::InfinitePast();
+  absl::Time last_process_finish_ts_ ABSL_GUARDED_BY(runtime_info_mutex_) =
+      absl::InfinitePast();
 };
 
 }  // namespace mediapipe

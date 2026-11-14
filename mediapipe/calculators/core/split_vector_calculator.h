@@ -15,19 +15,19 @@
 #ifndef MEDIAPIPE_CALCULATORS_CORE_SPLIT_VECTOR_CALCULATOR_H_
 #define MEDIAPIPE_CALCULATORS_CORE_SPLIT_VECTOR_CALCULATOR_H_
 
+#include <cstdint>
 #include <type_traits>
 #include <vector>
 
+#include "absl/status/status.h"  // from @com_google_absl
 #include "mediapipe/calculators/core/split_vector_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
-#include "mediapipe/framework/port/canonical_errors.h"
 #include "mediapipe/framework/port/ret_check.h"
-#include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/resource_util.h"
-#include "tensorflow/lite/error_reporter.h"
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/model.h"
+#include "tflite/error_reporter.h"    // from @litert
+#include "tflite/interpreter.h"       // from @litert
+#include "tflite/kernels/register.h"  // from @litert
+#include "tflite/model.h"             // from @litert
 
 namespace mediapipe {
 
@@ -242,9 +242,9 @@ class SplitVectorCalculator : public CalculatorBase {
     return absl::OkStatus();
   }
 
-  std::vector<std::pair<int32, int32>> ranges_;
-  int32 max_range_end_ = -1;
-  int32 total_elements_ = 0;
+  std::vector<std::pair<int32_t, int32_t>> ranges_;
+  int32_t max_range_end_ = -1;
+  int32_t total_elements_ = 0;
   bool element_only_ = false;
   bool combine_outputs_ = false;
 };

@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow/lite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite", "cc_test_with_tflite")
+load("@litert//tflite/core/shims:cc_library_with_tflite.bzl", "cc_library_with_tflite", "cc_test_with_tflite")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = ["//mediapipe/tasks:internal"])
+package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
@@ -25,21 +27,21 @@ cc_library_with_tflite(
     tflite_deps = [
         "//mediapipe/tasks/cc/core:model_resources",
     ],
-    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/port:integral_types",
-        "//mediapipe/framework/port:status",
         "//mediapipe/tasks/cc:common",
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@flatbuffers//:runtime_cc",
-        "@org_tensorflow//tensorflow/lite/c:common",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
+        "@litert//tflite/c:common",
+        "@litert//tflite/schema:schema_fbs",
     ],
 )
 
@@ -50,7 +52,7 @@ cc_test_with_tflite(
     tflite_deps = [
         ":image_tensor_specs",
         "//mediapipe/tasks/cc/core:model_resources",
-        "@org_tensorflow//tensorflow/lite:test_util",
+        "@litert//tflite:test_util",
     ],
     deps = [
         "//mediapipe/framework/deps:file_path",
@@ -60,12 +62,13 @@ cc_test_with_tflite(
         "//mediapipe/tasks/cc/metadata:metadata_extractor",
         "//mediapipe/tasks/metadata:metadata_schema_cc",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
         "@com_google_absl//absl/types:optional",
-        "@org_tensorflow//tensorflow/lite/c:common",
+        "@litert//tflite/c:common",
     ],
 )
 
@@ -81,6 +84,21 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
         "@stblib//:stb_image",
+    ],
+)
+
+cc_test(
+    name = "image_utils_test",
+    srcs = ["image_utils_test.cc"],
+    deps = [
+        ":image_utils",
+        "//mediapipe/framework/formats:image",
+        "//mediapipe/framework/formats:image_frame",
+        "//mediapipe/framework/formats:tensor",
+        "//mediapipe/framework/port:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -108,5 +126,25 @@ cc_test(
         ":landmarks_utils",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/tasks/cc/components/containers:rect",
+    ],
+)
+
+cc_library(
+    name = "data_renderer",
+    srcs = ["data_renderer.cc"],
+    hdrs = ["data_renderer.h"],
+    deps = [
+        "//mediapipe/calculators/util:annotation_overlay_calculator",
+        "//mediapipe/calculators/util:landmarks_to_render_data_calculator",
+        "//mediapipe/calculators/util:landmarks_to_render_data_calculator_cc_proto",
+        "//mediapipe/calculators/util:rect_to_render_data_calculator_cc_proto",
+        "//mediapipe/calculators/util:rect_to_render_scale_calculator",
+        "//mediapipe/calculators/util:rect_to_render_scale_calculator_cc_proto",
+        "//mediapipe/framework/api2:builder",
+        "//mediapipe/framework/formats:image",
+        "//mediapipe/framework/formats:landmark_cc_proto",
+        "//mediapipe/framework/formats:rect_cc_proto",
+        "//mediapipe/util:render_data_cc_proto",
+        "@com_google_absl//absl/types:span",
     ],
 )

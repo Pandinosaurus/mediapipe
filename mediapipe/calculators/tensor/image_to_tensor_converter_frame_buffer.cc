@@ -19,16 +19,16 @@
 #include <cstdint>
 #include <memory>
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_format.h"
+#include "absl/status/status.h"         // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "absl/status/statusor.h"       // from @com_google_absl
+#include "absl/strings/str_format.h"    // from @com_google_absl
 #include "mediapipe/calculators/tensor/image_to_tensor_converter.h"
 #include "mediapipe/calculators/tensor/image_to_tensor_utils.h"
 #include "mediapipe/framework/calculator_context.h"
 #include "mediapipe/framework/formats/frame_buffer.h"
 #include "mediapipe/framework/formats/image.h"
 #include "mediapipe/framework/formats/tensor.h"
-#include "mediapipe/framework/port/status_macros.h"
 #include "mediapipe/gpu/frame_buffer_view.h"
 #include "mediapipe/util/frame_buffer/frame_buffer_util.h"
 
@@ -46,9 +46,9 @@ int RadiansToDegrees(float radians) {
 }
 
 // FrameBuffer-based implementation of ImageToTensorConverter.
-class FrameBufferProcessor : public ImageToTensorConverter {
+class ImageToTensorFrameBufferConverter : public ImageToTensorConverter {
  public:
-  FrameBufferProcessor(Tensor::ElementType tensor_type)
+  explicit ImageToTensorFrameBufferConverter(Tensor::ElementType tensor_type)
       : tensor_type_(tensor_type) {}
 
   absl::Status Convert(const mediapipe::Image& input, const RotatedRect& roi,
@@ -80,11 +80,9 @@ class FrameBufferProcessor : public ImageToTensorConverter {
   size_t output_buffer_size_ = 0;
 };
 
-absl::Status FrameBufferProcessor::Convert(const mediapipe::Image& input,
-                                           const RotatedRect& roi,
-                                           float range_min, float range_max,
-                                           int tensor_buffer_offset,
-                                           Tensor& output_tensor) {
+absl::Status ImageToTensorFrameBufferConverter::Convert(
+    const mediapipe::Image& input, const RotatedRect& roi, float range_min,
+    float range_max, int tensor_buffer_offset, Tensor& output_tensor) {
   // TODO: add support for non-zero tensor buffer offset.
   RET_CHECK_EQ(tensor_buffer_offset, 0)
       << "Non-zero tensor_buffer_offset input is not supported yet.";
@@ -95,9 +93,10 @@ absl::Status FrameBufferProcessor::Convert(const mediapipe::Image& input,
               static_cast<int>(range_max) == 255);
   }
 
-  auto input_frame = input.GetGpuBuffer().GetReadView<FrameBuffer>();
+  auto input_frame =
+      input.GetGpuBuffer(/*upload_to_gpu=*/false).GetReadView<FrameBuffer>();
   const auto& output_shape = output_tensor.shape();
-  MP_RETURN_IF_ERROR(ValidateTensorShape(output_shape));
+  ABSL_RETURN_IF_ERROR(ValidateTensorShape(output_shape));
   FrameBuffer::Dimension output_dimension{/*width=*/output_shape.dims[2],
                                           /*height=*/output_shape.dims[1]};
 
@@ -118,7 +117,7 @@ absl::Status FrameBufferProcessor::Convert(const mediapipe::Image& input,
       }
       auto output_frame = frame_buffer::CreateFromRgbRawBuffer(
           output_buffer_.get(), output_dimension);
-      MP_RETURN_IF_ERROR(
+      ABSL_RETURN_IF_ERROR(
           CropRotateResize90Degrees(input_frame, roi, output_frame));
       return ConvertToFloatTensor(output_frame, range_min, range_max,
                                   output_tensor);
@@ -132,7 +131,7 @@ absl::Status FrameBufferProcessor::Convert(const mediapipe::Image& input,
   return absl::OkStatus();
 }
 
-absl::Status FrameBufferProcessor::ValidateTensorShape(
+absl::Status ImageToTensorFrameBufferConverter::ValidateTensorShape(
     const Tensor::Shape& shape) {
   RET_CHECK_EQ(shape.dims.size(), 4)
       << "Wrong output dims size: " << shape.dims.size();
@@ -143,7 +142,7 @@ absl::Status FrameBufferProcessor::ValidateTensorShape(
   return absl::OkStatus();
 }
 
-absl::Status FrameBufferProcessor::CropRotateResize90Degrees(
+absl::Status ImageToTensorFrameBufferConverter::CropRotateResize90Degrees(
     std::shared_ptr<const FrameBuffer> input, const RotatedRect& roi,
     std::shared_ptr<FrameBuffer> output) {
   int rotation_degrees = RadiansToDegrees(roi.rotation);
@@ -174,11 +173,11 @@ absl::Status FrameBufferProcessor::CropRotateResize90Degrees(
       cropped_buffer_ = std::make_unique<uint8_t[]>(cropped_buffer_size);
       cropped_buffer_size_ = cropped_buffer_size;
     }
-    ASSIGN_OR_RETURN(cropped,
-                     frame_buffer::CreateFromRawBuffer(
-                         cropped_buffer_.get(), cropped_dims, input->format()));
+    ABSL_ASSIGN_OR_RETURN(
+        cropped, frame_buffer::CreateFromRawBuffer(
+                     cropped_buffer_.get(), cropped_dims, input->format()));
   }
-  MP_RETURN_IF_ERROR(
+  ABSL_RETURN_IF_ERROR(
       frame_buffer::Crop(*input, left, top, right, bottom, cropped.get()));
 
   // Then rotate if needed.
@@ -193,11 +192,11 @@ absl::Status FrameBufferProcessor::CropRotateResize90Degrees(
         rotated_buffer_ = std::make_unique<uint8_t[]>(rotated_buffer_size);
         rotated_buffer_size_ = rotated_buffer_size;
       }
-      ASSIGN_OR_RETURN(auto rotated, frame_buffer::CreateFromRawBuffer(
-                                         rotated_buffer_.get(), rotated_dims,
-                                         cropped->format()));
+      ABSL_ASSIGN_OR_RETURN(auto rotated, frame_buffer::CreateFromRawBuffer(
+                                              rotated_buffer_.get(),
+                                              rotated_dims, cropped->format()));
     }
-    MP_RETURN_IF_ERROR(
+    ABSL_RETURN_IF_ERROR(
         frame_buffer::Rotate(*cropped, rotation_degrees, rotated.get()));
   } else {
     rotated = cropped;
@@ -210,15 +209,16 @@ absl::Status FrameBufferProcessor::CropRotateResize90Degrees(
   return absl::OkStatus();
 }
 
-absl::Status FrameBufferProcessor::ConvertToFloatTensor(
+absl::Status ImageToTensorFrameBufferConverter::ConvertToFloatTensor(
     std::shared_ptr<const FrameBuffer> input_frame, float range_min,
     float range_max, Tensor& output_tensor) {
   RET_CHECK(output_tensor.element_type() == Tensor::ElementType::kFloat32);
   constexpr float kInputImageRangeMin = 0.0f;
   constexpr float kInputImageRangeMax = 255.0f;
-  ASSIGN_OR_RETURN(auto transform, GetValueRangeTransformation(
-                                       kInputImageRangeMin, kInputImageRangeMax,
-                                       range_min, range_max));
+  ABSL_ASSIGN_OR_RETURN(
+      auto transform,
+      GetValueRangeTransformation(kInputImageRangeMin, kInputImageRangeMax,
+                                  range_min, range_max));
   return frame_buffer::ToFloatTensor(*input_frame, transform.scale,
                                      transform.offset, output_tensor);
 }
@@ -232,15 +232,16 @@ CreateFrameBufferConverter(CalculatorContext* cc, BorderMode border_mode,
       tensor_type != Tensor::ElementType::kFloat32) {
     return absl::InvalidArgumentError(
         absl::StrFormat("Tensor type is currently not supported by "
-                        "FrameBufferProcessor, type: %d.",
+                        "ImageToTensorFrameBufferConverter, type: %d.",
                         tensor_type));
   }
   // TODO: add support for BorderMode:kZero.
   if (border_mode == BorderMode::kZero) {
     return absl::UnimplementedError(
-        "BorderMode::kZero is not yet supported by FrameBufferProcessor");
+        "BorderMode::kZero is not yet supported by "
+        "ImageToTensorFrameBufferConverter");
   }
-  return std::make_unique<FrameBufferProcessor>(tensor_type);
+  return std::make_unique<ImageToTensorFrameBufferConverter>(tensor_type);
 }
 
 }  // namespace mediapipe

@@ -14,14 +14,15 @@
 
 #include "mediapipe/util/filtering/relative_velocity_filter.h"
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
-#include "absl/memory/memory.h"
-#include "absl/time/time.h"
+#include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/memory/memory.h"   // from @com_google_absl
+#include "absl/time/time.h"       // from @com_google_absl
 #include "mediapipe/framework/port/gtest.h"
-#include "mediapipe/framework/port/logging.h"
 
 namespace mediapipe {
 
@@ -29,23 +30,30 @@ using DistanceEstimationMode =
     mediapipe::RelativeVelocityFilter::DistanceEstimationMode;
 
 absl::Duration DurationFromNanos(int64_t nanos) {
-  return absl::FromChrono(std::chrono::nanoseconds{nanos});
+  return absl::Nanoseconds(nanos);
 }
 
 absl::Duration DurationFromMillis(int64_t millis) {
-  return absl::FromChrono(std::chrono::milliseconds{millis});
+  return absl::Milliseconds(millis);
 }
 
 TEST(RelativeVelocityFilterTest, ApplyIncorrectTimestamp) {
-  auto filter = absl::make_unique<RelativeVelocityFilter>(1, 1.0);
+  auto filter = std::make_unique<RelativeVelocityFilter>(1, 1.0);
 
   absl::Duration timestamp1 = DurationFromNanos(1);
 
-  EXPECT_FLOAT_EQ(95.5f, filter->Apply(timestamp1, 0.5f, 95.5f));
-  EXPECT_FLOAT_EQ(200.5f, filter->Apply(timestamp1, 0.5f, 200.5f));
-  EXPECT_FLOAT_EQ(1000.5f, filter->Apply(timestamp1, 0.5f, 1000.5f));
+  EXPECT_FLOAT_EQ(
+      filter->Apply(timestamp1, /*value=*/95.5f, /*value_scale=*/0.5f), 95.5f);
+  EXPECT_FLOAT_EQ(
+      filter->Apply(timestamp1, /*value=*/200.5f, /*value_scale=*/0.5f),
+      200.5f);
+  EXPECT_FLOAT_EQ(
+      filter->Apply(timestamp1, /*value=*/1000.5f, /*value_scale=*/0.5f),
+      1000.5f);
 
-  EXPECT_FLOAT_EQ(2000.0f, filter->Apply(DurationFromNanos(1), 0.5f, 2000.0f));
+  EXPECT_FLOAT_EQ(filter->Apply(DurationFromNanos(1), /*value=*/2000.0f,
+                                /*value_scale=*/0.5f),
+                  2000.0f);
 }
 
 void TestSameValueScaleDifferentVelocityScales(
@@ -53,11 +61,11 @@ void TestSameValueScaleDifferentVelocityScales(
   // Changing the distance estimation mode has no effect with constant scales.
 
   // More sensitive filter.
-  auto filter1 = absl::make_unique<RelativeVelocityFilter>(
+  auto filter1 = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/5, /*velocity_scale=*/45.0f,
       /*distance_mode=*/distance_mode);
   // Less sensitive filter.
-  auto filter2 = absl::make_unique<RelativeVelocityFilter>(
+  auto filter2 = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/5, /*velocity_scale=*/0.1f,
       /*distance_mode=*/distance_mode);
 
@@ -67,38 +75,38 @@ void TestSameValueScaleDifferentVelocityScales(
   float value_scale = 1.0f;
 
   value = 1.0f;
-  result1 = filter1->Apply(DurationFromMillis(1), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(1), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(1), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(1), value, value_scale);
   EXPECT_EQ(result1, result2);
 
   value = 10.0f;
-  result1 = filter1->Apply(DurationFromMillis(2), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(2), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(2), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(2), value, value_scale);
   EXPECT_GT(result1, result2);
 
   value = 2.0f;
-  result1 = filter1->Apply(DurationFromMillis(3), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(3), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(3), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(3), value, value_scale);
   EXPECT_LT(result1, result2);
 
   value = 20.0f;
-  result1 = filter1->Apply(DurationFromMillis(4), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(4), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(4), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(4), value, value_scale);
   EXPECT_GT(result1, result2);
 
   value = 10.0f;
-  result1 = filter1->Apply(DurationFromMillis(5), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(5), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(5), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(5), value, value_scale);
   EXPECT_LT(result1, result2);
 
   value = 50.0f;
-  result1 = filter1->Apply(DurationFromMillis(6), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(6), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(6), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(6), value, value_scale);
   EXPECT_GT(result1, result2);
 
   value = 30.0f;
-  result1 = filter1->Apply(DurationFromMillis(7), value_scale, value);
-  result2 = filter2->Apply(DurationFromMillis(7), value_scale, value);
+  result1 = filter1->Apply(DurationFromMillis(7), value, value_scale);
+  result2 = filter2->Apply(DurationFromMillis(7), value, value_scale);
   EXPECT_LT(result1, result2);
 }
 
@@ -116,10 +124,10 @@ TEST(RelativeVelocityFilterTest,
 void TestDifferentConstantValueScalesSameVelocityScale(
     DistanceEstimationMode distance_mode) {
   const float same_velocity_scale = 1.0f;
-  auto filter1 = absl::make_unique<RelativeVelocityFilter>(
+  auto filter1 = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/3, /*velocity_scale=*/same_velocity_scale,
       /*distance_mode=*/distance_mode);
-  auto filter2 = absl::make_unique<RelativeVelocityFilter>(
+  auto filter2 = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/3, /*velocity_scale=*/same_velocity_scale,
       /*distance_mode=*/distance_mode);
 
@@ -133,23 +141,23 @@ void TestDifferentConstantValueScalesSameVelocityScale(
   float value_scale2 = 1.0f;
 
   value = 1.0f;
-  result1 = filter1->Apply(DurationFromMillis(1), value_scale1, value);
-  result2 = filter2->Apply(DurationFromMillis(1), value_scale2, value);
+  result1 = filter1->Apply(DurationFromMillis(1), value, value_scale1);
+  result2 = filter2->Apply(DurationFromMillis(1), value, value_scale2);
   EXPECT_EQ(result1, result2);
 
   value = 10.0f;
-  result1 = filter1->Apply(DurationFromMillis(2), value_scale1, value);
-  result2 = filter2->Apply(DurationFromMillis(2), value_scale2, value);
+  result1 = filter1->Apply(DurationFromMillis(2), value, value_scale1);
+  result2 = filter2->Apply(DurationFromMillis(2), value, value_scale2);
   EXPECT_LT(result1, result2);
 
   value = 2.0f;
-  result1 = filter1->Apply(DurationFromMillis(3), value_scale1, value);
-  result2 = filter2->Apply(DurationFromMillis(3), value_scale2, value);
+  result1 = filter1->Apply(DurationFromMillis(3), value, value_scale1);
+  result2 = filter2->Apply(DurationFromMillis(3), value, value_scale2);
   EXPECT_GT(result1, result2);
 
   value = 20.0f;
-  result1 = filter1->Apply(DurationFromMillis(4), value_scale1, value);
-  result2 = filter2->Apply(DurationFromMillis(4), value_scale2, value);
+  result1 = filter1->Apply(DurationFromMillis(4), value, value_scale1);
+  result2 = filter2->Apply(DurationFromMillis(4), value, value_scale2);
   EXPECT_LT(result1, result2);
 }
 
@@ -205,10 +213,10 @@ void TestTranslationInvariance(DistanceEstimationMode distance_mode) {
     point.value += kValueOffset;
   }
 
-  auto original_points_filter = absl::make_unique<RelativeVelocityFilter>(
+  auto original_points_filter = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/kWindowSize, /*velocity_scale=*/kVelocityScale,
       /*distance_mode=*/distance_mode);
-  auto translated_points_filter = absl::make_unique<RelativeVelocityFilter>(
+  auto translated_points_filter = std::make_unique<RelativeVelocityFilter>(
       /*window_size=*/kWindowSize, /*velocity_scale=*/kVelocityScale,
       /*distance_mode=*/distance_mode);
 
@@ -237,18 +245,18 @@ void TestTranslationInvariance(DistanceEstimationMode distance_mode) {
   for (size_t iteration = 0; iteration < original_data_points.size();
        ++iteration, timestamp += time_delta) {
     const ValueAtScale& original_data_point = original_data_points[iteration];
-    const float filtered_original_value =
-        original_points_filter->Apply(/*timestamp=*/timestamp,
-                                      /*value_scale=*/original_data_point.scale,
-                                      /*value=*/original_data_point.value);
+    const float filtered_original_value = original_points_filter->Apply(
+        /*timestamp=*/timestamp,
+        /*value=*/original_data_point.value,
+        /*value_scale=*/original_data_point.scale);
 
     const ValueAtScale& translated_data_point =
         translated_data_points[iteration];
     const float actual_filtered_translated_value =
         translated_points_filter->Apply(
             /*timestamp=*/timestamp,
-            /*value_scale=*/translated_data_point.scale,
-            /*value=*/translated_data_point.value);
+            /*value=*/translated_data_point.value,
+            /*value_scale=*/translated_data_point.scale);
 
     const float expected_filtered_translated_value =
         filtered_original_value + kValueOffset;
@@ -268,7 +276,7 @@ void TestTranslationInvariance(DistanceEstimationMode distance_mode) {
         ++times_largely_diverged;
       }
     } else {
-      CHECK(distance_mode == DistanceEstimationMode::kForceCurrentScale);
+      ABSL_CHECK(distance_mode == DistanceEstimationMode::kForceCurrentScale);
       EXPECT_NEAR(difference, 0.0f, kForceCurrentScaleAbsoluteError);
     }
   }
